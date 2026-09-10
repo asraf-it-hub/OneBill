@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -6,7 +6,10 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+const reply = (body: unknown, status = 200) => new Response(
+  status === 204 ? null : JSON.stringify(body),
+  { status, headers: { ...cors, 'Content-Type': 'application/json' } },
+);
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return reply({}, 204);
@@ -37,7 +40,7 @@ Deno.serve(async (request) => {
     const { data, error } = await admin.rpc('apply_sync_operation', { p_owner_id: userData.user.id, p_device_id: body.deviceId, p_operation: operation });
     if (!error && data?.acknowledged === true) acknowledgedOperationIds.push(operationId);
     else if (error?.code === '40001') conflicts.push({ operationId, reason: error.message });
-    else failed.push({ operationId, reason: error?.message ?? 'Operation was not applied.' });
+    else failed.push({ operationId, reason: (data && typeof data === 'object' && typeof (data as any).reason === 'string') ? (data as any).reason : (error?.message ? `${error.code ? `[${error.code}] ` : ''}${error.message}` : 'Operation was not applied.') });
   }
   return reply({ acknowledgedOperationIds, conflicts, failed });
 });

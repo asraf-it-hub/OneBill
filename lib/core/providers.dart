@@ -15,6 +15,8 @@ import '../features/inventory/data/inventory_repository.dart';
 import '../features/suppliers/data/supplier_repository.dart';
 import '../features/security/data/security_service.dart';
 import '../features/backup/data/backup_service.dart';
+import '../features/notifications/data/notification_repository.dart';
+import '../features/notifications/data/notification_service.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -64,9 +66,47 @@ final backupServiceProvider = Provider<BackupService>(
   (ref) => BackupService(ref.watch(databaseProvider)),
 );
 
-final syncWorkerProvider = Provider<SyncWorker>(
-  (ref) => SyncWorker(ref.watch(databaseProvider), Supabase.instance.client),
+final notificationRepositoryProvider = Provider<NotificationRepository>(
+  (ref) => NotificationRepository(ref.watch(databaseProvider)),
 );
+
+final notificationServiceProvider = Provider<NotificationService>(
+  (ref) => NotificationService(
+    ref.watch(databaseProvider),
+    ref.watch(notificationRepositoryProvider),
+  ),
+);
+
+final unreadNotificationCountProvider =
+    StreamProvider.family<int, String?>(
+  (ref, businessId) => ref
+      .watch(notificationRepositoryProvider)
+      .watchUnreadCount(businessId: businessId),
+);
+
+final notificationListProvider =
+    StreamProvider.family<List<AppNotification>, String?>(
+  (ref, businessId) => ref
+      .watch(notificationRepositoryProvider)
+      .watchNotifications(businessId: businessId),
+);
+
+final notificationPreferencesProvider = StreamProvider<Map<String, bool>>(
+  (ref) => ref.watch(notificationRepositoryProvider).watchPreferences(),
+);
+
+final notificationSettingsProvider = StreamProvider<NotificationSetting?>(
+  (ref) => ref.watch(notificationRepositoryProvider).watchSettings(),
+);
+
+final syncWorkerProvider = Provider<SyncWorker>((ref) {
+  final worker = SyncWorker(ref.watch(databaseProvider), Supabase.instance.client);
+  worker.listenToPendingOperations();
+  ref.onDispose(worker.dispose);
+  return worker;
+});
+
+final isSigningOutProvider = StateProvider<bool>((ref) => false);
 
 final authServiceProvider = Provider<SupabaseAuthService>(
   (ref) => SupabaseAuthService(),

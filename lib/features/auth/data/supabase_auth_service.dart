@@ -26,6 +26,9 @@ class SupabaseAuthService {
     if (result.user == null) {
       throw StateError('Account registration could not be completed.');
     }
+    if (result.session == null) {
+      await signIn(email: email, password: password);
+    }
   }
 
   Future<void> signIn({required String email, required String password}) async {
@@ -36,6 +39,17 @@ class SupabaseAuthService {
     if (result.session == null) {
       throw StateError('Sign-in could not be completed.');
     }
+  }
+
+  Future<void> resetPassword({required String email}) async {
+    await _client.auth.resetPasswordForEmail(email.trim());
+  }
+
+  Future<bool> signInWithGoogle() async {
+    return await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'onebill://login-callback/',
+    );
   }
 
   Future<void> signOut() => _client.auth.signOut();

@@ -133,9 +133,8 @@ class InvoiceRepository {
       throw ArgumentError('Discount cannot make an invoice total negative.');
     }
     final invoiceId = _uuid.v4();
-    final invoiceNumber =
-        'OB-${now.millisecondsSinceEpoch}-${invoiceId.substring(0, 8).toUpperCase()}';
     await _database.transaction(() async {
+      final invoiceNumber = await _getNextInvoiceNumber(businessId);
       await _database
           .into(_database.invoices)
           .insert(
@@ -156,13 +155,16 @@ class InvoiceRepository {
               updatedAt: now,
             ),
           );
+
+      final itemPayloads = <Map<String, dynamic>>[];
       for (var index = 0; index < items.length; index++) {
         final item = items[index];
+        final itemId = _uuid.v4();
         await _database
             .into(_database.invoiceItems)
             .insert(
               InvoiceItemsCompanion.insert(
-                id: _uuid.v4(),
+                id: itemId,
                 invoiceId: invoiceId,
                 description: item.description.trim(),
                 quantityMilliunits: item.quantityMilliunits,
@@ -171,6 +173,14 @@ class InvoiceRepository {
                 sortOrder: index,
               ),
             );
+        itemPayloads.add({
+          'id': itemId,
+          'description': item.description.trim().isEmpty ? 'Item' : item.description.trim(),
+          'quantityMilliunits': item.quantityMilliunits <= 0 ? 1000 : item.quantityMilliunits,
+          'unitPricePaise': item.unitPricePaise,
+          'lineTotalPaise': item.lineTotalPaise,
+          'sortOrder': index,
+        });
       }
       await _database
           .into(_database.syncOperations)
@@ -181,7 +191,24 @@ class InvoiceRepository {
               entityType: 'invoice',
               entityId: invoiceId,
               operationType: 'InvoiceCreated',
-              payloadJson: jsonEncode({'invoiceId': invoiceId}),
+              payloadJson: jsonEncode({
+                'invoice': {
+                  'id': invoiceId,
+                  'businessId': businessId,
+                  'customerId': customerId,
+                  'invoiceNumber': invoiceNumber,
+                  'subtotalPaise': subtotal,
+                  'discountPaise': discountPaise,
+                  'interestPaise': interestPaise,
+                  'paidPaise': 0,
+                  'notes': notes,
+                  'issuedAt': now.toIso8601String(),
+                  'dueAt': dueAt?.toUtc().toIso8601String(),
+                  'createdAt': now.toIso8601String(),
+                  'updatedAt': now.toIso8601String(),
+                },
+                'items': itemPayloads,
+              }),
               createdAt: now,
             ),
           );
@@ -436,7 +463,47 @@ class InvoiceRepository {
           );
     });
   }
+
+  Future<String> _getNextInvoiceNumber(String businessId) async {
+    final existing = await (_database.select(_database.invoiceSequences)
+          ..where((tbl) => tbl.businessId.equals(businessId)))
+        .getSingleOrNull();
+
+    int nextSeq;
+    if (existing == null) {
+      final allInvoices = await (_database.select(_database.invoices)
+            ..where((tbl) => tbl.businessId.equals(businessId)))
+          .get();
+      int maxSeq = 0;
+      final regExp = RegExp(r'^OB-(\d+)$');
+      for (final inv in allInvoices) {
+        final match = regExp.firstMatch(inv.invoiceNumber);
+        if (match != null) {
+          final val = int.tryParse(match.group(1)!);
+          if (val != null && val > maxSeq) {
+            maxSeq = val;
+          }
+        }
+      }
+      nextSeq = maxSeq + 1;
+      await _database.into(_database.invoiceSequences).insert(
+            InvoiceSequencesCompanion.insert(
+              businessId: businessId,
+              lastSequence: Value(nextSeq),
+            ),
+          );
+    } else {
+      nextSeq = existing.lastSequence + 1;
+      await (_database.update(_database.invoiceSequences)
+            ..where((tbl) => tbl.businessId.equals(businessId)))
+          .write(InvoiceSequencesCompanion(lastSequence: Value(nextSeq)));
+    }
+
+    final padded = nextSeq.toString().padLeft(6, '0');
+    return 'OB-$padded';
+  }
 }
+
 
 class BillingSummary {
   const BillingSummary({

@@ -45,6 +45,7 @@ class BackupService {
               'email': b.email,
               'address': b.address,
               'upiId': b.upiId,
+              'paymentQrImage': b.paymentQrImage,
               'preferredLanguage': b.preferredLanguage,
             },
           )

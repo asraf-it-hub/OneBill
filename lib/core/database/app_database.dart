@@ -23,6 +23,14 @@ class Businesses extends Table {
   TextColumn get email => text().nullable()();
   TextColumn get address => text().nullable()();
   TextColumn get upiId => text().nullable()();
+  TextColumn get paymentQrImage => text().nullable()();
+  TextColumn get logoImage => text().nullable()();
+  TextColumn get website => text().nullable()();
+  TextColumn get gstin => text().nullable()();
+  TextColumn get upiName => text().nullable()();
+  TextColumn get invoiceNotes => text().nullable()();
+  TextColumn get termsAndConditions => text().nullable()();
+  TextColumn get tagline => text().nullable()();
   TextColumn get preferredLanguage =>
       text().withDefault(const Constant('en'))();
   DateTimeColumn get createdAt => dateTime()();
@@ -198,6 +206,56 @@ class SyncOperations extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+class AppNotifications extends Table {
+  TextColumn get id => text()();
+  TextColumn get businessId => text().nullable()();
+  TextColumn get category => text()();
+  TextColumn get title => text()();
+  TextColumn get body => text()();
+  TextColumn get entityType => text().nullable()();
+  TextColumn get entityId => text().nullable()();
+  BoolColumn get isRead => boolean().withDefault(const Constant(false))();
+  BoolColumn get isHandled => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get scheduledAt => dateTime().nullable()();
+  TextColumn get payloadJson => text().nullable()();
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class NotificationPreferences extends Table {
+  TextColumn get categoryKey => text()();
+  BoolColumn get isEnabled => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get updatedAt => dateTime()();
+  @override
+  Set<Column> get primaryKey => {categoryKey};
+}
+
+class NotificationSettings extends Table {
+  TextColumn get id => text()();
+  BoolColumn get masterEnabled => boolean().withDefault(const Constant(true))();
+  BoolColumn get quietHoursEnabled =>
+      boolean().withDefault(const Constant(true))();
+  TextColumn get quietHoursStart =>
+      text().withDefault(const Constant('22:00'))();
+  TextColumn get quietHoursEnd => text().withDefault(const Constant('07:00'))();
+  IntColumn get retentionDays => integer().withDefault(const Constant(365))();
+  BoolColumn get permissionRequested =>
+      boolean().withDefault(const Constant(false))();
+  TextColumn get lastOverdueSignature => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime()();
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class InvoiceSequences extends Table {
+  TextColumn get businessId => text().references(Businesses, #id)();
+  IntColumn get lastSequence => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {businessId};
+}
+
 @DriftDatabase(
   tables: [
     UserAccounts,
@@ -214,13 +272,17 @@ class SyncOperations extends Table {
     Suppliers,
     SupplierPayments,
     SyncOperations,
+    AppNotifications,
+    NotificationPreferences,
+    NotificationSettings,
+    InvoiceSequences,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'onebill'));
   AppDatabase.forTesting(super.executor);
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 9;
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
@@ -233,7 +295,51 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(suppliers);
         await m.createTable(supplierPayments);
       }
+      if (from < 5) {
+        await m.addColumn(businesses, businesses.paymentQrImage);
+      }
+      if (from < 6) {
+        await m.createTable(appNotifications);
+        await m.createTable(notificationPreferences);
+        await m.createTable(notificationSettings);
+      }
+      if (from < 7) {
+        await m.createTable(invoiceSequences);
+      }
+      if (from < 8) {
+        await m.addColumn(
+          notificationSettings,
+          notificationSettings.lastOverdueSignature,
+        );
+      }
+      if (from < 9) {
+        await m.addColumn(businesses, businesses.logoImage);
+        await m.addColumn(businesses, businesses.website);
+        await m.addColumn(businesses, businesses.gstin);
+        await m.addColumn(businesses, businesses.upiName);
+        await m.addColumn(businesses, businesses.invoiceNotes);
+        await m.addColumn(businesses, businesses.termsAndConditions);
+        await m.addColumn(businesses, businesses.tagline);
+      }
     },
-    beforeOpen: (details) async => customStatement('PRAGMA foreign_keys = ON'),
+    beforeOpen: (details) async {
+      await customStatement('PRAGMA foreign_keys = ON;');
+      await customStatement('PRAGMA journal_mode = WAL;');
+    },
   );
+
+  Future<void> clearAllTables() async {
+    await customStatement('PRAGMA foreign_keys = OFF;');
+    try {
+      await transaction(() async {
+        for (final table in allTables) {
+          await delete(table).go();
+        }
+      });
+    } finally {
+      await customStatement('PRAGMA foreign_keys = ON;');
+    }
+  }
 }
+
+
