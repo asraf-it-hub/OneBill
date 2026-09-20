@@ -2,10 +2,59 @@ import 'package:flutter/material.dart';
 
 String tr(BuildContext context, String key) {
   final language = Localizations.localeOf(context).languageCode;
-  return appTranslations[key]?[language] ?? key;
+  return trLang(key, language);
+}
+
+String trLang(String key, String lang) {
+  if (lang == 'en') return key;
+  return appTranslations[key]?[lang] ?? key;
 }
 
 final Map<String, Map<String, String>> appTranslations = {
+
+  // Income Localization
+  'Track customer payments and manual owner entries.': {
+    'hi': 'ग्राहक भुगतानों और स्वामी प्रविष्टियों को ट्रैक करें।',
+    'te': 'కస్టమర్ చెల్లింపులు మరియు యజమాని నమోదులను ట్రాక్ చేయండి.',
+  },
+  'Customer Payment': {'hi': 'ग्राहक भुगतान', 'te': 'కస్టమర్ చెల్లింపు'},
+  'Owner Manual Income': {'hi': 'मालिक की आय', 'te': 'యజమాని ఆదాయం'},
+  'Added by owner on': {'hi': 'मालिक द्वारा जोड़ा गया:', 'te': 'యజమాని జోడించిన తేదీ:'},
+  'Day Total': {'hi': 'दिन का कुल', 'te': 'రోజు మొత్తం'},
+
+  // Notification Test & Feedback
+  'OneBill Notifications': {'hi': 'वनबिल सूचनाएं', 'te': 'వన్ బిల్ నోటిఫికేషన్‌లు'},
+  'Notification system is working properly.': {
+    'hi': 'अधिसूचना प्रणाली ठीक से काम कर रही है।',
+    'te': 'నోటిఫికేషన్ వ్యవస్థ సక్రమంగా పనిచేస్తోంది.',
+  },
+  'All summary alerts and due reminders are active.': {
+    'hi': 'सभी सारांश अलर्ट और नियत अनुस्मारक सक्रिय हैं।',
+    'te': 'అన్ని సారాంశ హెచ్చరికలు మరియు గడువు రిమైండర్‌లు సక్రియంగా ఉన్నాయి.',
+  },
+  'View Status': {'hi': 'स्थिति देखें', 'te': 'స్థితిని చూడండి'},
+  'Open OneBill': {'hi': 'वनबिल खोलें', 'te': 'వన్ బిల్ తెరవండి'},
+  'Stay Updated with OneBill': {'hi': 'वनबिल के साथ अपडेट रहें', 'te': 'వన్ బిల్‌తో అప్‌డేట్‌గా ఉండండి'},
+  'Notifications are Disabled': {'hi': 'अधिसूचनाएं अक्षम हैं', 'te': 'నోటిఫికేషన్‌లు నిలిపివేయబడ్డాయి'},
+  'To receive reminders for due invoices and payment alerts, please enable notifications in your phone Settings.': {
+    'hi': 'देय चालानों और भुगतान अलर्ट के लिए अनुस्मारक प्राप्त करने हेतु कृपया अपनी फ़ोन सेटिंग में सूचनाएं सक्षम करें।',
+    'te': 'బకాయి ఇన్‌వాయిస్‌లు మరియు చెల్లింపు హెచ్చరికల కోసం రిమైండర్‌లను స్వీకరించడానికి, దయచేసి మీ ఫోన్ సెట్టింగ్‌లలో నోటిఫికేషన్‌లను ప్రారంభించండి.',
+  },
+  'Stay on top of your business with reminders for invoices, payments and important activity.': {
+    'hi': 'चालान, भुगतान और महत्वपूर्ण गतिविधियों के अनुस्मारक के साथ अपने व्यवसाय में आगे रहें।',
+    'te': 'ఇన్‌వాయిస్‌లు, చెల్లింపులు మరియు ముఖ్యమైన కార్యకలాపాల కోసం రిమైండర్‌లతో మీ వ్యాపారంలో ముందంజలో ఉండండి.',
+  },
+  'Enable Notifications': {'hi': 'सूचनाएं सक्षम करें', 'te': 'నోటిఫికేషన్‌లను ప్రారంభించండి'},
+  'Not now': {'hi': 'अभी नहीं', 'te': 'ఇప్పుడు కాదు'},
+  'Go to Settings': {'hi': 'सेटिंग्स पर जाएं', 'te': 'సెట్టింగ్‌లకు వెళ్లండి'},
+  'Password reset instructions have been sent to your email address.': {
+    'hi': 'पासवर्ड रीसेट निर्देश आपके ईमेल पते पर भेज दिए गए हैं।',
+    'te': 'పాస్‌వర్డ్ రీసెట్ సూచనలు మీ ఇమెయిల్ చిరునామాకు పంపబడ్డాయి.',
+  },
+  'Account created successfully! Welcome to OneBill.': {
+    'hi': 'खाता सफलतापूर्वक बनाया गया! वनबिल में आपका स्वागत है।',
+    'te': 'ఖాతా విజయవంతంగా సృష్టించబడింది! వన్ బిల్ కు స్వాగతం.',
+  },
   // Navigation & Core Sections
   'Dashboard': {'hi': 'डैशबोर्ड', 'te': 'డ్యాష్‌బోర్డ్'},
   'Invoices': {'hi': 'चालान', 'te': 'ఇన్‌వాయిస్‌లు'},
@@ -369,7 +418,6 @@ final Map<String, Map<String, String>> appTranslations = {
   },
 
   // Profile & Business Dropdown
-  'Business Profile': {'hi': 'व्यवसाय प्रोफ़ाइल', 'te': 'వ్యాపార ప్రొఫైల్'},
   'Recycle bin': {'hi': 'रीसायकल बिन', 'te': 'రీసైకిల్ బిన్'},
   'Add new business': {'hi': 'नया व्यवसाय जोड़ें', 'te': 'కొత్త వ్యాపారాన్ని జోడించండి'},
   'Delete current business': {'hi': 'वर्तमान व्यवसाय हटाएं', 'te': 'ప్రస్తుత వ్యాపారాన్ని తొలగించండి'},
@@ -436,7 +484,6 @@ final Map<String, Map<String, String>> appTranslations = {
   },
 
   // Customer Invoices & List
-  'Invoices': {'hi': 'चालान / इनवॉइस', 'te': 'ఇన్‌వాయిస్‌లు'},
   'No invoices yet.': {'hi': 'अभी कोई इनवॉइस नहीं है।', 'te': 'ఇంకా ఎటువంటి ఇన్‌వాయిస్‌లు లేవు.'},
   'No invoices yet': {'hi': 'अभी कोई इनवॉइस नहीं है', 'te': 'ఇంకా ఎటువంటి ఇన్‌వాయిస్‌లు లేవు'},
   'Create invoice': {'hi': 'इनवॉइस बनाएं', 'te': 'ఇన్‌వాయిస్ సృష్టించండి'},
@@ -488,4 +535,114 @@ final Map<String, Map<String, String>> appTranslations = {
   'Interest / extra charge (₹)': {'hi': 'ब्याज / अतिरिक्त शुल्क (₹)', 'te': 'వడ్డీ / అదనపు ఛార్జీ (₹)'},
   'Payment Due Date': {'hi': 'भुगतान की नियत तारीख', 'te': 'చెల్లింపు గడువు తేదీ'},
   'Save changes': {'hi': 'बदलाव सहेजें', 'te': 'మార్పులను సేవ్ చేయండి'},
+
+  // Items & Invoicing
+  'Items & Services': {'hi': 'वस्तुएं और सेवाएं', 'te': 'వస్తువులు & సేవలు'},
+  'Add Another Item': {'hi': 'एक और आइटम जोड़ें', 'te': 'మరొక వస్తువును జోడించండి'},
+  'Due Date & Notes': {'hi': 'नियत तारीख और नोट्स', 'te': 'గడువు తేదీ & గమనికలు'},
+  'Invoice Notes (Optional)': {'hi': 'इनवॉइस नोट्स (वैकल्पिक)', 'te': 'ఇన్‌వాయిస్ గమనికలు (ఐచ్ఛికం)'},
+  'e.g. Thank you for your business!': {'hi': 'उदा. आपके व्यवसाय के लिए धन्यवाद!', 'te': 'ఉదా. మీ వ్యాపారానికి ధన్యవాదాలు!'},
+  'Bill Summary & Adjustments': {'hi': 'बिल सारांश और समायोजन', 'te': 'బిల్లు సారాంశం & సర్దుబాట్లు'},
+  'Discount (₹, optional)': {'hi': 'छूट (₹, वैकल्पिक)', 'te': 'డిస్కౌంట్ (₹, ఐచ్ఛికం)'},
+  'Extra Charge / Interest (₹, optional)': {'hi': 'अतिरिक्त शुल्क / ब्याज (₹, वैकल्पिक)', 'te': 'అదనపు ఛార్జీ / వడ్డీ (₹, ఐచ్ఛికం)'},
+  'Extra Charge': {'hi': 'अतिरिक्त शुल्क', 'te': 'అదనపు ఛార్జీ'},
+  'Creating Invoice...': {'hi': 'इनवॉइस बनाया जा रहा है...', 'te': 'ఇన్‌వాయిస్ సృష్టించబడుతోంది...'},
+  'Item': {'hi': 'आइटम', 'te': 'వస్తువు'},
+  'Item / Service Description *': {'hi': 'आइटम / सेवा विवरण *', 'te': 'వస్తువు / సేవా వివరాలు *'},
+  'e.g. Rice Bag 25kg or Plumbing Service': {'hi': 'उदा. 25 किग्रा चावल की बोरी या नलसाजी सेवा', 'te': 'ఉదా. బియ్యం బస్తా 25కిలోలు లేదా ప్లంబింగ్ సేవ'},
+  'Qty *': {'hi': 'मात्रा *', 'te': 'పరిమాణం *'},
+  'Unit Price (₹) *': {'hi': 'इकाई मूल्य (₹) *', 'te': 'యూనిట్ ధర (₹) *'},
+  'Line Total': {'hi': 'लाइन योग', 'te': 'లైన్ మొత్తం'},
+  'Remove item': {'hi': 'आइटम हटाएं', 'te': 'వస్తువును తొలగించండి'},
+  'Select Date (Tap to open calendar)': {'hi': 'तारीख चुनें (कैलेंडर खोलने के लिए टैप करें)', 'te': 'తేదీని ఎంచుకోండి (క్యాలెండర్ తెరవడానికి నొక్కండి)'},
+  'Clear date': {'hi': 'तारीख साफ़ करें', 'te': 'తేదీని క్లియర్ చేయండి'},
+  'Discard changes?': {'hi': 'परिवर्तन छोड़ें?', 'te': 'మార్పులను రద్దు చేయాలా?'},
+  "Your changes haven't been saved.": {'hi': 'आपके परिवर्तन सहेजे नहीं गए हैं।', 'te': 'మీ మార్పులు సేవ్ చేయబడలేదు.'},
+  'Keep Editing': {'hi': 'संपादन जारी रखें', 'te': 'సవరణ కొనసాగించండి'},
+
+  // Paper Receipt
+
+  'Paper Receipts': {'hi': 'कागजी रसीदें', 'te': 'పేపర్ రసీదులు'},
+  'Add Paper Receipt': {'hi': 'कागजी रसीद जोड़ें', 'te': 'పేపర్ రసీదును జోడించండి'},
+  'Digital Invoice': {'hi': 'डिजिटल इनवॉइस', 'te': 'డిజిటల్ ఇన్‌వాయిస్'},
+  'Save Receipt': {'hi': 'रसीद सहेजें', 'te': 'రసీదును సేవ్ చేయండి'},
+  'Retake': {'hi': 'दोबारा लें', 'te': 'మళ్లీ తీయండి'},
+  'Choose Another': {'hi': 'दूसरा चुनें', 'te': 'మరొకటి ఎంచుకోండి'},
+  'Receipt Date': {'hi': 'रसीद की तारीख', 'te': 'రసీదు తేదీ'},
+  'Receipt saved successfully': {'hi': 'रसीद सफलतापूर्वक सहेजी गई', 'te': 'రసీదు విజయవంతంగా సేవ్ చేయబడింది'},
+  'Failed to save receipt': {'hi': 'रसीद सहेजने में विफल', 'te': 'రసీదును సేవ్ చేయడం విఫలమైంది'},
+  'Failed to load receipt': {'hi': 'रसीद लोड करने में विफल', 'te': 'రసీదును లోడ్ చేయడం విఫలమైంది'},
+  'No paper receipts yet': {'hi': 'अभी तक कोई कागजी रसीद नहीं है', 'te': 'ఇంకా పేపర్ రసీదులు లేవు'},
+  "Add a photo of a handwritten receipt to keep it with this customer's records.": {
+    'hi': 'इस ग्राहक के रिकॉर्ड के साथ रखने के लिए हाथ से लिखी रसीद का फोटो जोड़ें।',
+    'te': 'ఈ కస్టమర్ రికార్డులతో భద్రపరచడానికి చేతితో రాసిన రసీదు ఫోటోను జోడించండి.',
+  },
+  'Delete Receipt': {'hi': 'रसीद हटाएं', 'te': 'రసీదును తొలగించండి'},
+  'Delete receipt?': {'hi': 'रसीद हटाएं?', 'te': 'రసీదును తొలగించాలా?'},
+  'Delete this paper receipt? This action cannot be undone.': {
+    'hi': 'क्या आप इस कागजी रसीद को हटाना चाहते हैं? यह क्रिया पूर्ववत नहीं की जा सकती।',
+    'te': 'ఈ పేపర్ రసీదును తొలగించాలా? ఈ చర్యను రద్దు చేయలేము.',
+  },
+  'View Receipt': {'hi': 'रसीद देखें', 'te': 'రసీదు చూడండి'},
+  'Camera permission required': {'hi': 'कैमरा अनुमति आवश्यक है', 'te': 'కెమెరా అనుమతి అవసరం'},
+  'Camera permission denied': {'hi': 'कैमरा अनुमति अस्वीकृत', 'te': 'కెమెరా అనుమతి నిరాకరించబడింది'},
+  'Unable to open camera': {'hi': 'कैमरा खोलने में असमर्थ', 'te': 'కెమెరా తెరవడం సాధ్యం కాలేదు'},
+  'Unable to select image': {'hi': 'छवि चुनने में असमर्थ', 'te': 'చిత్రాన్ని ఎంచుకోవడం సాధ్యం కాలేదు'},
+  'No image selected': {'hi': 'कोई छवि नहीं चुनी गई', 'te': 'ఏ చిత్రమూ ఎంచుకోబడలేదు'},
+  'Processing image': {'hi': 'छवि संसाधित की जा रही है', 'te': 'చిత్రం ప్రాసెస్ చేయబడుతోంది'},
+  'Receipt synced': {'hi': 'रसीद सिंक हो गई', 'te': 'రసీదు సమకాలీకరించబడింది'},
+  'Receipt waiting to sync': {'hi': 'रसीद सिंक होने की प्रतीक्षा में', 'te': 'రసీదు సింక్ కావడానికి వేచి ఉంది'},
+  'Payment received': {'hi': 'भुगतान प्राप्त हुआ', 'te': 'చెల్లింపు స్వీకరించబడింది'},
+  'Paper Receipt': {'hi': 'कागजी रसीद', 'te': 'పేపర్ రసీదు'},
+  'Remove Receipt': {'hi': 'रसीद हटाएं', 'te': 'రసీదును తొలగించండి'},
+  'Invoice created': {'hi': 'चालान बनाया गया', 'te': 'ఇన్‌వాయిస్ సృష్టించబడింది'},
+  'Create Invoice': {'hi': 'चालान बनाएं', 'te': 'ఇన్‌వాయిస్ సృష్టించండి'},
+  'Owner name': {'hi': 'मालिक का नाम', 'te': 'యజమాని పేరు'},
+  'Business or shop name': {'hi': 'व्यवसाय या दुकान का नाम', 'te': 'వ్యాపారం లేదా దుకాణం పేరు'},
+  'Paper Receipt (Optional)': {'hi': 'कागजी रसीद (वैकल्पिक)', 'te': 'పేపర్ రసీదు (ఐచ్ఛికం)'},
+  'Receipt Attached': {'hi': 'रसीद संलग्न', 'te': 'రసీదు జతచేయబడింది'},
+  'Attach photo of handwritten bill': {'hi': 'हाथ से लिखे बिल का फोटो संलग्न करें', 'te': 'చేతితో రాసిన బిల్లు ఫోటోను జతచేయండి'},
+  'Take Photo': {'hi': 'फोटो लें', 'te': 'ఫోటో తీయండి'},
+  'Camera': {'hi': 'कैमरा', 'te': 'కెమెరా'},
+  'Choose from Gallery': {'hi': 'गैलरी से चुनें', 'te': 'గ్యాలరీ నుండి ఎంచుకోండి'},
+  'Gallery': {'hi': 'गैलरी', 'te': 'గ్యాలరీ'},
+  'Change': {'hi': 'बदलें', 'te': 'మార్చండి'},
+  'Share Paper Receipt': {'hi': 'कागजी रसीद साझा करें', 'te': 'పేపర్ రసీదును షేర్ చేయండి'},
+  'View Paper Receipt': {'hi': 'कागजी रसीद देखें', 'te': 'పేపర్ రసీదు చూడండి'},
+  'Attach Paper Receipt': {'hi': 'कागजी रसीद संलग्न करें', 'te': 'పేపర్ రసీదును జతచేయండి'},
+
+  // Notifications
+  'Invoice shared': {'hi': 'चालान साझा किया गया', 'te': 'ఇన్‌వాయిస్ షేర్ చేయబడింది'},
+  'Invoice': {'hi': 'चालान', 'te': 'ఇన్‌వాయిస్'},
+  'shared with': {'hi': 'को साझा किया गया', 'te': 'తో షేర్ చేయబడింది'},
+  'Daily Summary': {'hi': 'दैनिक सारांश', 'te': 'రోజువారీ సారాంశం'},
+  'Weekly Summary': {'hi': 'साप्ताहिक सारांश', 'te': 'వారపు సారాంశం'},
+  'Monthly Performance': {'hi': 'मासिक प्रदर्शन', 'te': 'నెలవారీ పనితీరు'},
+  'Collected': {'hi': 'एकत्रित राशि', 'te': 'వసూలైన మొత్తం'},
+  'today': {'hi': 'आज', 'te': 'ఈరోజు'},
+  'invoice': {'hi': 'चालान', 'te': 'ఇన్‌వాయిస్'},
+  'invoices': {'hi': 'चालान', 'te': 'ఇన్‌వాయిస్‌లు'},
+  'invoices created': {'hi': 'चालान बनाए गए', 'te': 'ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'},
+  'Week collections': {'hi': 'सप्ताह का संग्रह', 'te': 'ఈ వారం వసూళ్లు'},
+  'Month collections': {'hi': 'महीने का संग्रह', 'te': 'ఈ నెల వసూళ్లు'},
+  'View Reports': {'hi': 'रिपोर्ट्स देखें', 'te': 'నివేదికలు చూడండి'},
+  'Fully paid': {'hi': 'पूर्ण भुगतान', 'te': 'పూర్తిగా చెల్లించబడింది'},
+  'remaining': {'hi': 'शेष', 'te': 'మిగిలి ఉంది'},
+  'from': {'hi': 'से', 'te': 'నుండి'},
+  'Test Daily Summary': {'hi': 'दैनिक सारांश का परीक्षण करें', 'te': 'రోజువారీ సారాంశాన్ని పరీక్షించండి'},
+  'Test Weekly Summary': {'hi': 'साप्ताहिक सारांश का परीक्षण करें', 'te': 'వారపు సారాంశాన్ని పరీక్షించండి'},
+  'Test Monthly Summary': {'hi': 'मासिक सारांश का परीक्षण करें', 'te': 'నెలవారీ సారాంశాన్ని పరీక్షించండి'},
+  'Daily summary test notification triggered!': {'hi': 'दैनिक सारांश परीक्षण अधिसूचना भेजी गई!', 'te': 'రోజువారీ సారాంశ పరీక్ష నోటిఫికేషన్ ప్రారంభించబడింది!'},
+  'Weekly summary test notification triggered!': {'hi': 'साप्ताहिक सारांश परीक्षण अधिसूचना भेजी गई!', 'te': 'వారపు సారాంశ పరీక్ష నోటిఫికేషన్ ప్రారంభించబడింది!'},
+  'Monthly performance test notification triggered!': {'hi': 'मासिक प्रदर्शन परीक्षण अधिसूचना भेजी गई!', 'te': 'నెలవారీ పనితీరు పరీక్ష నోటిఫికేషన్ ప్రారంభించబడింది!'},
+  'Welcome to OneBill': {'hi': 'वनबिल में आपका स्वागत है', 'te': 'వన్ బిల్ కు స్వాగతం'},
+  'Create your first business. Your information is saved on this device and works offline.': {'hi': 'अपना पहला व्यवसाय बनाएं। आपकी जानकारी इस डिवाइस पर सुरक्षित है और ऑफ़लाइन काम करती है।', 'te': 'మీ మొదటి వ్యాపారాన్ని సృష్టించండి. మీ సమాచారం ఈ పరికరంలో సేవ్ చేయబడుతుంది మరియు ఆఫ్‌లైన్‌లో పనిచేస్తుంది.'},
+  'Choose your preferred language': {'hi': 'अपनी पसंदीदा भाषा चुनें', 'te': 'మీ ప్రాధాన్య భాషను ఎంచుకోండి'},
+  'Preferred Language': {'hi': 'पसंदीदा भाषा', 'te': 'ప్రాధాన్య భాష'},
+  'Business phone (optional)': {'hi': 'व्यवसाय फोन (वैकल्पिक)', 'te': 'వ్యాపార ఫోన్ (ఐచ్ఛికం)'},
+  'Create business': {'hi': 'व्यवसाय बनाएं', 'te': 'వ్యాపారాన్ని సృష్టించండి'},
+  'Creating...': {'hi': 'बनाया जा रहा है...', 'te': 'సృష్టిస్తోంది...'},
+  'This business starts with empty customers, invoices, and payments.': {'hi': 'यह व्यवसाय खाली ग्राहकों, चालानों और भुगतानों के साथ शुरू होता है।', 'te': 'ఈ వ్యాపారం ఖాళీ కస్టమర్‌లు, ఇన్‌వాయిస్‌లు మరియు చెల్లింపులతో ప్రారంభమవుతుంది.'},
+  'Create empty business': {'hi': 'व्यवसाय बनाएं', 'te': 'వ్యాపారాన్ని సృష్టించండి'},
+  'Language preference updated.': {'hi': 'भाषा प्राथमिकता अपडेट की गई।', 'te': 'భాష ప్రాధాన్యత నవీకరించబడింది.'},
 };

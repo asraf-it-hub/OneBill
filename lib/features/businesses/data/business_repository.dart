@@ -109,15 +109,13 @@ class BusinessRepository {
         await (_database.select(_database.businesses)
               ..where((b) => b.id.equals(businessId) & b.deletedAt.isNull()))
             .getSingle();
-    final session = await (_database.select(
-      _database.localSessions,
-    )..where((s) => s.id.equals(sessionId))).getSingle();
     await (_database.update(
       _database.localSessions,
     )..where((s) => s.id.equals(sessionId))).write(
       LocalSessionsCompanion(
         accountId: Value(business.accountId),
         activeBusinessId: Value(businessId),
+        localeCode: Value(business.preferredLanguage),
         updatedAt: Value(DateTime.now().toUtc()),
       ),
     );

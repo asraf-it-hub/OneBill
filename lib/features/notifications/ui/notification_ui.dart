@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/localization/app_localizations.dart';
+import '../../../core/ui/app_toast.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/providers.dart';
 import '../data/notification_constants.dart';
@@ -12,9 +13,17 @@ class NotificationBellIcon extends ConsumerWidget {
     super.key,
     required this.businessId,
     this.onOpenOverdue,
+    this.onOpenInvoice,
+    this.onOpenCustomer,
+    this.onOpenSync,
+    this.onOpenReports,
   });
   final String? businessId;
   final VoidCallback? onOpenOverdue;
+  final void Function(String invoiceId, String? businessId)? onOpenInvoice;
+  final void Function(String customerId, String? businessId)? onOpenCustomer;
+  final VoidCallback? onOpenSync;
+  final VoidCallback? onOpenReports;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,6 +43,10 @@ class NotificationBellIcon extends ConsumerWidget {
               builder: (_) => NotificationCenterSheet(
                 businessId: businessId,
                 onOpenOverdue: onOpenOverdue,
+                onOpenInvoice: onOpenInvoice,
+                onOpenCustomer: onOpenCustomer,
+                onOpenSync: onOpenSync,
+                onOpenReports: onOpenReports,
               ),
             );
           },
@@ -70,9 +83,17 @@ class NotificationCenterSheet extends ConsumerStatefulWidget {
     super.key,
     this.businessId,
     this.onOpenOverdue,
+    this.onOpenInvoice,
+    this.onOpenCustomer,
+    this.onOpenSync,
+    this.onOpenReports,
   });
   final String? businessId;
   final VoidCallback? onOpenOverdue;
+  final void Function(String invoiceId, String? businessId)? onOpenInvoice;
+  final void Function(String customerId, String? businessId)? onOpenCustomer;
+  final VoidCallback? onOpenSync;
+  final VoidCallback? onOpenReports;
 
   @override
   ConsumerState<NotificationCenterSheet> createState() =>
@@ -226,8 +247,28 @@ class _NotificationCenterSheetState
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = filtered[index];
+                    String? invoiceId;
+                    try {
+                      if (item.payloadJson != null) {
+                        final data =
+                            jsonDecode(item.payloadJson!) as Map<String, dynamic>;
+                        invoiceId = data['invoiceId'] as String?;
+                      }
+                    } catch (_) {}
+                    invoiceId ??=
+                        (item.entityType == 'invoice' ? item.entityId : null);
+
+                    final isSnoozeable = invoiceId != null &&
+                        (item.category == NotificationCategories.invoiceDueSoon ||
+                            item.category == NotificationCategories.invoiceDueToday ||
+                            item.category == NotificationCategories.paymentOverdue ||
+                            item.category == NotificationCategories.paymentReminder);
+
                     return _NotificationTile(
                       notification: item,
+                      onSnooze: isSnoozeable
+                          ? () => showSnoozeBottomSheet(context, ref, invoiceId!)
+                          : null,
                       onTap: () async {
                         await repo.markAsHandled(item.id);
                         if (context.mounted) {
@@ -263,7 +304,48 @@ class _NotificationCenterSheetState
           widget.onOpenOverdue!();
         }
       } else if (action == NotificationActionKeys.viewInvoice ||
-          action == 'view_customers') {
+          action == NotificationActionKeys.viewPayment ||
+          notification.entityType == 'invoice' ||
+          data['invoiceId'] != null) {
+        Navigator.pop(context);
+        final invoiceId = (data['invoiceId'] as String?) ??
+            (notification.entityType == 'invoice' ? notification.entityId : null);
+        if (invoiceId != null && widget.onOpenInvoice != null) {
+          widget.onOpenInvoice!(
+            invoiceId,
+            (data['businessId'] as String?) ?? notification.businessId,
+          );
+        }
+      } else if (action == NotificationActionKeys.viewCustomer ||
+          action == 'view_customers' ||
+          notification.entityType == 'customer' ||
+          data['customerId'] != null) {
+        Navigator.pop(context);
+        final customerId = (data['customerId'] as String?) ??
+            (notification.entityType == 'customer' ? notification.entityId : null);
+        if (customerId != null && widget.onOpenCustomer != null) {
+          widget.onOpenCustomer!(
+            customerId,
+            (data['businessId'] as String?) ?? notification.businessId,
+          );
+        }
+      } else if (action == NotificationActionKeys.viewSync ||
+          notification.category == NotificationCategories.syncFailed) {
+        Navigator.pop(context);
+        if (widget.onOpenSync != null) {
+          widget.onOpenSync!();
+        }
+      } else if (action == NotificationActionKeys.viewSummary ||
+          action == 'view_summary' ||
+          action == 'view_reports' ||
+          notification.category == NotificationCategories.dailySummary ||
+          notification.category == NotificationCategories.weeklySummary ||
+          notification.category == NotificationCategories.monthlySummary) {
+        Navigator.pop(context);
+        if (widget.onOpenReports != null) {
+          widget.onOpenReports!();
+        }
+      } else {
         Navigator.pop(context);
       }
     } catch (_) {
@@ -272,14 +354,155 @@ class _NotificationCenterSheetState
   }
 }
 
+Future<void> showSnoozeBottomSheet(
+  BuildContext context,
+  WidgetRef ref,
+  String invoiceId,
+) async {
+  final now = DateTime.now();
+  final tomorrow = now.add(const Duration(days: 1));
+  final in3Days = now.add(const Duration(days: 3));
+
+  final options = [
+    (
+      title: 'Tomorrow · 9:00 AM (Default)',
+      dateTime: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0),
+      isDefault: true,
+    ),
+    (
+      title: 'Tomorrow · 2:00 PM',
+      dateTime: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0),
+      isDefault: false,
+    ),
+    (
+      title: 'Tomorrow · 6:00 PM',
+      dateTime: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 18, 0),
+      isDefault: false,
+    ),
+    (
+      title: 'In 3 days',
+      dateTime: DateTime(in3Days.year, in3Days.month, in3Days.day, 9, 0),
+      isDefault: false,
+    ),
+  ];
+
+  await showModalBottomSheet<void>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.snooze_rounded),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Remind me later'),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          ...options.map(
+            (opt) => ListTile(
+              leading: Icon(
+                opt.isDefault
+                    ? Icons.alarm_on_rounded
+                    : Icons.access_time_rounded,
+                color: opt.isDefault
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
+              ),
+              title: Text(
+                tr(context, opt.title),
+                style: TextStyle(
+                  fontWeight:
+                      opt.isDefault ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await ref
+                    .read(notificationServiceProvider)
+                    .snoozeInvoiceReminder(invoiceId, opt.dateTime);
+                if (context.mounted) {
+                  AppToast.showSuccess(
+                    context,
+                    '${tr(context, 'Reminder scheduled for')} ${tr(context, opt.title)}',
+                  );
+                }
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.calendar_month_outlined),
+            title: Text(tr(context, 'Choose date & time')),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final pickedDate = await showDatePicker(
+                context: context,
+                initialDate: tomorrow,
+                firstDate: now,
+                lastDate: now.add(const Duration(days: 365)),
+              );
+              if (pickedDate == null || !context.mounted) return;
+              final pickedTime = await showTimePicker(
+                context: context,
+                initialTime: const TimeOfDay(hour: 9, minute: 0),
+                builder: (context, child) {
+                  return MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(alwaysUse24HourFormat: false),
+                    child: Localizations.override(
+                      context: context,
+                      locale: const Locale('en', 'US'),
+                      child: child!,
+                    ),
+                  );
+                },
+              );
+              if (pickedTime == null || !context.mounted) return;
+              final target = DateTime(
+                pickedDate.year,
+                pickedDate.month,
+                pickedDate.day,
+                pickedTime.hour,
+                pickedTime.minute,
+              );
+              await ref
+                  .read(notificationServiceProvider)
+                  .snoozeInvoiceReminder(invoiceId, target);
+              if (context.mounted) {
+                AppToast.showSuccess(
+                  context,
+                  tr(context, 'Custom reminder scheduled'),
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    ),
+  );
+}
+
 class _NotificationTile extends StatelessWidget {
   const _NotificationTile({
     required this.notification,
     required this.onTap,
+    this.onSnooze,
   });
 
   final AppNotification notification;
   final VoidCallback onTap;
+  final VoidCallback? onSnooze;
 
   @override
   Widget build(BuildContext context) {
@@ -343,6 +566,13 @@ class _NotificationTile extends StatelessWidget {
             ),
           ],
         ),
+        trailing: onSnooze != null
+            ? IconButton(
+                tooltip: 'Remind me later',
+                icon: const Icon(Icons.snooze_rounded, size: 20),
+                onPressed: onSnooze,
+              )
+            : null,
       ),
     );
   }
@@ -410,25 +640,176 @@ class NotificationSettingsScreen extends ConsumerWidget {
             onChanged: (val) => repo.updateSettings(masterEnabled: val),
           ),
           const Divider(),
-          ListTile(
+          SwitchListTile(
             title: Text(
               tr(context, 'Quiet Hours'),
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
-            subtitle: Text(tr(context, 'Silence scheduled reminders during night hours')),
-          ),
-          SwitchListTile(
-            title: Text(tr(context, 'Enable Quiet Hours')),
             subtitle: Text(
-              'Shift reminders between ${settings?.quietHoursStart ?? '22:00'} and ${settings?.quietHoursEnd ?? '07:00'} to morning',
+              tr(context, 'Silence scheduled reminders during night hours'),
             ),
             value: quietHoursEnabled,
             onChanged: masterEnabled
-                ? (val) => repo.updateSettings(quietHoursEnabled: val)
+                ? (val) {
+                    repo.updateSettings(quietHoursEnabled: val);
+                    ref
+                        .read(notificationServiceProvider)
+                        .reconcileAllReminders();
+                  }
                 : null,
           ),
+          if (quietHoursEnabled)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color:
+                    theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.5),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr(context, "Don't disturb me between"),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Text(
+                        _formatTimeStr(settings?.quietHoursStart ?? '22:00'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Divider(
+                            color: theme.colorScheme.primary.withOpacity(0.7),
+                            thickness: 2,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _formatTimeStr(settings?.quietHoursEnd ?? '07:00'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.bedtime_outlined, size: 16),
+                          label: Text(
+                            '${tr(context, 'Start')}: ${_formatTimeStr(settings?.quietHoursStart ?? '22:00')}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: masterEnabled
+                              ? () async {
+                                  final currentParts =
+                                      (settings?.quietHoursStart ?? '22:00')
+                                          .split(':')
+                                          .map(int.parse)
+                                          .toList();
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: TimeOfDay(
+                                      hour: currentParts[0],
+                                      minute: currentParts[1],
+                                    ),
+                                    builder: (context, child) {
+                                      return MediaQuery(
+                                        data: MediaQuery.of(context)
+                                            .copyWith(alwaysUse24HourFormat: false),
+                                        child: Localizations.override(
+                                          context: context,
+                                          locale: const Locale('en', 'US'),
+                                          child: child!,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                  if (picked != null) {
+                                    final formatted =
+                                        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                    await repo.updateSettings(
+                                        quietHoursStart: formatted);
+                                    ref
+                                        .read(notificationServiceProvider)
+                                        .reconcileAllReminders();
+                                  }
+                                }
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.wb_sunny_outlined, size: 16),
+                          label: Text(
+                            '${tr(context, 'End')}: ${_formatTimeStr(settings?.quietHoursEnd ?? '07:00')}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: masterEnabled
+                              ? () async {
+                                  final currentParts =
+                                      (settings?.quietHoursEnd ?? '07:00')
+                                          .split(':')
+                                          .map(int.parse)
+                                          .toList();
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: TimeOfDay(
+                                      hour: currentParts[0],
+                                      minute: currentParts[1],
+                                    ),
+                                    builder: (context, child) {
+                                      return MediaQuery(
+                                        data: MediaQuery.of(context)
+                                            .copyWith(alwaysUse24HourFormat: false),
+                                        child: Localizations.override(
+                                          context: context,
+                                          locale: const Locale('en', 'US'),
+                                          child: child!,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                  if (picked != null) {
+                                    final formatted =
+                                        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                    await repo.updateSettings(
+                                        quietHoursEnd: formatted);
+                                    ref
+                                        .read(notificationServiceProvider)
+                                        .reconcileAllReminders();
+                                  }
+                                }
+                              : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -442,6 +823,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -449,6 +831,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -456,6 +839,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -463,6 +847,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -470,6 +855,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -477,6 +863,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -484,6 +871,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -491,6 +879,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -498,6 +887,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -516,6 +906,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -523,6 +914,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -530,6 +922,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -537,6 +930,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -544,6 +938,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -551,6 +946,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -558,6 +954,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           ),
           ..._buildCategorySwitch(
             context,
+            ref,
             repo,
             prefs,
             masterEnabled,
@@ -566,26 +963,206 @@ class NotificationSettingsScreen extends ConsumerWidget {
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.notifications_active_outlined),
-              label: Text(tr(context, 'Send Test Notification')),
-              onPressed: () async {
-                final service = ref.read(notificationServiceProvider);
-                final granted =
-                    await service.requestPermissionWithExplainer(context);
-                await service.showTestNotification();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        granted
-                            ? 'Test notification sent to phone banner & lock screen!'
-                            : 'Test notification recorded in Notification Center (Permission needed for status bar).',
-                      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tr(context, 'Notification Preview'),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color:
+                        theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.6),
                     ),
-                  );
-                }
-              },
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.asset(
+                              'assets/OneBillLogo.png',
+                              width: 18,
+                              height: 18,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.receipt_long,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'OneBill',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          Text(
+                            ' · ${tr(context, 'Just now')}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withOpacity(0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            tr(context, 'OneBill Notifications'),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        tr(context, 'Notification system is working properly.'),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        tr(context, 'All summary alerts and due reminders are active.'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: null,
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          tr(context, 'View Status'),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: Text(tr(context, 'Send Test Notification')),
+                  onPressed: () async {
+                    final service = ref.read(notificationServiceProvider);
+                    final testTitle = tr(context, 'OneBill Notifications');
+                    final testBody = tr(context, 'Notification system is working properly.');
+                    final testAction = tr(context, 'View Status');
+                    final grantedMsg = tr(context, 'Test notification sent to phone banner & lock screen!');
+                    final deniedMsg = tr(context, 'Test notification recorded in Notification Center (Permission needed for status bar).');
+
+                    final granted =
+                        await service.requestPermissionWithExplainer(context);
+                    await service.showTestNotification(
+                      title: testTitle,
+                      body: testBody,
+                      actionLabel: testAction,
+                    );
+                    if (context.mounted) {
+                      if (granted) {
+                        AppToast.showSuccess(context, grantedMsg);
+                      } else {
+                        AppToast.showInfo(context, deniedMsg);
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.today_outlined),
+                  label: Text(tr(context, 'Test Daily Summary')),
+                  onPressed: () async {
+                    final service = ref.read(notificationServiceProvider);
+                    await service.requestPermissionWithExplainer(context);
+                    await service.showTestDailySummary();
+                    if (context.mounted) {
+                      AppToast.showSuccess(
+                        context,
+                        tr(context, 'Daily summary test notification triggered!'),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.date_range_outlined),
+                  label: Text(tr(context, 'Test Weekly Summary')),
+                  onPressed: () async {
+                    final service = ref.read(notificationServiceProvider);
+                    await service.requestPermissionWithExplainer(context);
+                    await service.showTestWeeklySummary();
+                    if (context.mounted) {
+                      AppToast.showSuccess(
+                        context,
+                        tr(context, 'Weekly summary test notification triggered!'),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  label: Text(tr(context, 'Test Monthly Summary')),
+                  onPressed: () async {
+                    final service = ref.read(notificationServiceProvider);
+                    await service.requestPermissionWithExplainer(context);
+                    await service.showTestMonthlySummary();
+                    if (context.mounted) {
+                      AppToast.showSuccess(
+                        context,
+                        tr(context, 'Monthly performance test notification triggered!'),
+                      );
+                    }
+                  },
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 32),
@@ -594,8 +1171,20 @@ class NotificationSettingsScreen extends ConsumerWidget {
     );
   }
 
+  String _formatTimeStr(String hhmm) {
+    try {
+      final parts = hhmm.split(':').map(int.parse).toList();
+      final hour = parts[0] % 12 == 0 ? 12 : parts[0] % 12;
+      final ampm = parts[0] >= 12 ? 'PM' : 'AM';
+      return '$hour:${parts[1].toString().padLeft(2, '0')} $ampm';
+    } catch (_) {
+      return hhmm;
+    }
+  }
+
   List<Widget> _buildCategorySwitch(
     BuildContext context,
+    WidgetRef ref,
     NotificationRepository repo,
     Map<String, bool> prefs,
     bool masterEnabled,
@@ -610,7 +1199,17 @@ class NotificationSettingsScreen extends ConsumerWidget {
         title: Text(tr(context, label)),
         value: enabled,
         onChanged: masterEnabled
-            ? (val) => repo.setPreference(key, val)
+            ? (val) async {
+                await repo.setPreference(key, val);
+                final service = ref.read(notificationServiceProvider);
+                if (key == NotificationCategories.dailySummary ||
+                    key == NotificationCategories.weeklySummary ||
+                    key == NotificationCategories.monthlySummary) {
+                  await service.reconcileSummaries();
+                } else {
+                  await service.reconcileAllReminders();
+                }
+              }
             : null,
       ),
     ];

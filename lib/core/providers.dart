@@ -17,6 +17,7 @@ import '../features/security/data/security_service.dart';
 import '../features/backup/data/backup_service.dart';
 import '../features/notifications/data/notification_repository.dart';
 import '../features/notifications/data/notification_service.dart';
+import '../features/receipts/data/paper_receipt_repository.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -116,6 +117,15 @@ final pdfInvoiceServiceProvider = Provider<PdfInvoiceService>(
   (ref) => PdfInvoiceService(),
 );
 
+final authStateProvider = StreamProvider<AuthState>((ref) {
+  if (!AppEnvironment.cloudConfigured) {
+    return const Stream.empty();
+  }
+  return ref.watch(authServiceProvider).authStateChanges;
+});
+
+final isPasswordRecoveryProvider = StateProvider<bool>((ref) => false);
+
 final authSessionProvider = StreamProvider<Session?>((ref) {
   if (!AppEnvironment.cloudConfigured) {
     return Stream.value(null);
@@ -162,6 +172,34 @@ final customerOutstandingProvider =
             customerId: ids.customerId,
           ),
     );
+
+final paperReceiptRepositoryProvider = Provider<PaperReceiptRepository>(
+  (ref) => PaperReceiptRepository(ref.watch(databaseProvider)),
+);
+
+final customerPaperReceiptsProvider = StreamProvider.family<
+  List<PaperReceipt>,
+  ({String businessId, String customerId})
+>(
+  (ref, ids) => ref
+      .watch(paperReceiptRepositoryProvider)
+      .watchReceiptsForCustomer(
+        businessId: ids.businessId,
+        customerId: ids.customerId,
+      ),
+);
+
+final customerPaperReceiptCountProvider = StreamProvider.family<
+  int,
+  ({String businessId, String customerId})
+>(
+  (ref, ids) => ref
+      .watch(paperReceiptRepositoryProvider)
+      .watchReceiptCountForCustomer(
+        businessId: ids.businessId,
+        customerId: ids.customerId,
+      ),
+);
 
 final businessBillingSummaryProvider =
     StreamProvider.family<BillingSummary, String>(

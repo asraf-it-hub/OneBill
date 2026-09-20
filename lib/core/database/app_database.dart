@@ -78,6 +78,7 @@ class Invoices extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
+  TextColumn get paperReceiptImage => text().nullable()();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -256,6 +257,22 @@ class InvoiceSequences extends Table {
   Set<Column> get primaryKey => {businessId};
 }
 
+class PaperReceipts extends Table {
+  TextColumn get id => text()();
+  TextColumn get businessId => text().references(Businesses, #id)();
+  TextColumn get customerId => text().references(Customers, #id)();
+  TextColumn get imagePath => text()();
+  TextColumn get remoteImageUrl => text().nullable()();
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get receiptDate => dateTime()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     UserAccounts,
@@ -276,13 +293,14 @@ class InvoiceSequences extends Table {
     NotificationPreferences,
     NotificationSettings,
     InvoiceSequences,
+    PaperReceipts,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'onebill'));
   AppDatabase.forTesting(super.executor);
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 11;
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
@@ -320,6 +338,12 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(businesses, businesses.invoiceNotes);
         await m.addColumn(businesses, businesses.termsAndConditions);
         await m.addColumn(businesses, businesses.tagline);
+      }
+      if (from < 10) {
+        await m.createTable(paperReceipts);
+      }
+      if (from < 11) {
+        await m.addColumn(invoices, invoices.paperReceiptImage);
       }
     },
     beforeOpen: (details) async {

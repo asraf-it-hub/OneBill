@@ -106,6 +106,7 @@ class InvoiceRepository {
     int interestPaise = 0,
     DateTime? dueAt,
     String? notes,
+    String? paperReceiptImage,
   }) async {
     if (items.isEmpty) {
       throw ArgumentError('Add at least one invoice item.');
@@ -151,6 +152,7 @@ class InvoiceRepository {
               notes: Value(
                 notes?.trim().isEmpty ?? true ? null : notes!.trim(),
               ),
+              paperReceiptImage: Value(paperReceiptImage),
               createdAt: now,
               updatedAt: now,
             ),
@@ -394,6 +396,7 @@ class InvoiceRepository {
     required DateTime? dueAt,
     required String? notes,
     List<InvoiceLineInput>? items,
+    Value<String?> paperReceiptImage = const Value.absent(),
   }) async {
     if (discountPaise < 0 || interestPaise < 0) {
       throw ArgumentError('Discount and interest cannot be negative.');
@@ -424,6 +427,7 @@ class InvoiceRepository {
           interestPaise: Value(interestPaise),
           dueAt: Value(dueAt?.toUtc()),
           notes: Value(notes?.trim().isEmpty ?? true ? null : notes!.trim()),
+          paperReceiptImage: paperReceiptImage,
           updatedAt: Value(now),
         ),
       );

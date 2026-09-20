@@ -58,6 +58,19 @@ class AuthErrorDetails {
         );
       }
 
+      // Email / SMTP delivery failure
+      if (msg.contains('Error sending recovery email') ||
+          msg.contains('Error sending confirmation email') ||
+          msg.contains('Error sending email') ||
+          str.contains('Error sending recovery email')) {
+        return const AuthErrorDetails(
+          type: AuthErrorType.somethingWentWrong,
+          title: 'Email delivery failed',
+          message:
+              'Could not send reset email. Please verify your Supabase SMTP settings (Gmail App Password and sender email) in the dashboard.',
+        );
+      }
+
       // Account not found (if safely provided by Supabase Auth response)
       if (code == 'user_not_found' ||
           code == 'email_not_found' ||

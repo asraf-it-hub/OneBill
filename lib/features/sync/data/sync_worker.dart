@@ -75,9 +75,15 @@ class SyncWorker {
         .get();
 
     if (localBusinesses.isNotEmpty) {
-      final activeId = localBusinesses.first.id;
-
       final sessions = await _database.select(_database.localSessions).get();
+      final currentSession = sessions.firstOrNull;
+      final existingActiveId = currentSession?.activeBusinessId;
+      final bool hasValidActiveBusiness = existingActiveId != null &&
+          localBusinesses.any((b) => b.id == existingActiveId);
+      final activeId = hasValidActiveBusiness
+          ? existingActiveId
+          : localBusinesses.first.id;
+
       if (sessions.isEmpty) {
         await _database.into(_database.localSessions).insert(
           LocalSessionsCompanion.insert(
@@ -148,22 +154,6 @@ class SyncWorker {
               .from('expenses')
               .select()
               .eq('owner_id', user.id);
-          final ipList = await _client
-              .from('inventory_products')
-              .select()
-              .eq('owner_id', user.id);
-          final imList = await _client
-              .from('inventory_movements')
-              .select()
-              .eq('owner_id', user.id);
-          final sList = await _client
-              .from('suppliers')
-              .select()
-              .eq('owner_id', user.id);
-          final spList = await _client
-              .from('supplier_payments')
-              .select()
-              .eq('owner_id', user.id);
           rawSnapshot = {
             'businesses': bList,
             'customers': cList,
@@ -172,10 +162,6 @@ class SyncWorker {
             'payments': pList,
             'income_entries': ieList,
             'expenses': exList,
-            'inventory_products': ipList,
-            'inventory_movements': imList,
-            'suppliers': sList,
-            'supplier_payments': spList,
           };
         }
       } catch (_) {
@@ -196,10 +182,6 @@ class SyncWorker {
     final allPayments = _snapshotRows(snapshot, 'payments');
     final allIncome = _snapshotRows(snapshot, 'income_entries');
     final allExpenses = _snapshotRows(snapshot, 'expenses');
-    final allInventory = _snapshotRows(snapshot, 'inventory_products');
-    final allMovements = _snapshotRows(snapshot, 'inventory_movements');
-    final allSuppliers = _snapshotRows(snapshot, 'suppliers');
-    final allSupplierPayments = _snapshotRows(snapshot, 'supplier_payments');
     if (businesses.isEmpty) return;
 
     await _database.customStatement('PRAGMA foreign_keys = OFF;');
@@ -324,6 +306,16 @@ class SyncWorker {
             if (custId == null || custId.trim().isEmpty) {
               custId = '00000000-0000-0000-0000-000000000000';
             }
+            final rawNotes = getVal(row, 'notes', 'notes');
+            String? parsedNotes = rawNotes;
+            String? parsedReceipt = getVal(row, 'paper_receipt_image', 'paperReceiptImage');
+            if (rawNotes != null && rawNotes.contains('---ONEBILL_RECEIPT_IMAGE---')) {
+              final parts = rawNotes.split('---ONEBILL_RECEIPT_IMAGE---');
+              parsedNotes = parts[0].trim().isEmpty ? null : parts[0].trim();
+              if (parts.length > 1 && parts[1].trim().isNotEmpty) {
+                parsedReceipt ??= parts[1].trim();
+              }
+            }
             await _database
                 .into(_database.invoices)
                 .insertOnConflictUpdate(
@@ -338,7 +330,8 @@ class SyncWorker {
                     discountPaise: Value(getInt(row, 'discount_paise', 'discountPaise')),
                     interestPaise: Value(getInt(row, 'interest_paise', 'interestPaise')),
                     paidPaise: Value(getInt(row, 'paid_paise', 'paidPaise')),
-                    notes: Value(getVal(row, 'notes', 'notes')),
+                    notes: Value(parsedNotes),
+                    paperReceiptImage: Value(parsedReceipt),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
                     deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
@@ -432,95 +425,6 @@ class SyncWorker {
                   ),
                 );
           }
-          final inventory = allInventory.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId,
-          );
-          for (final row in inventory) {
-            final prodId = getVal(row, 'id', 'id');
-            if (prodId == null) continue;
-            await _database
-                .into(_database.inventoryProducts)
-                .insertOnConflictUpdate(
-                  InventoryProductsCompanion.insert(
-                    id: prodId,
-                    businessId: businessId,
-                    name: getVal(row, 'name', 'name') ?? '',
-                    sku: Value(getVal(row, 'sku', 'sku')),
-                    unit: Value(getVal(row, 'unit', 'unit') ?? 'pcs'),
-                    stockMilliunits: Value(getInt(row, 'stock_milliunits', 'stockMilliunits')),
-                    lowStockThresholdMilliunits: Value(getInt(row, 'low_stock_threshold_milliunits', 'lowStockThresholdMilliunits')),
-                    unitCostPaise: Value(getInt(row, 'unit_cost_paise', 'unitCostPaise')),
-                    createdAt: getDate(row, 'created_at', 'createdAt'),
-                    updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
-                  ),
-                );
-          }
-          final movements = allMovements.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId,
-          );
-          for (final row in movements) {
-            final movId = getVal(row, 'id', 'id');
-            final prodId = getVal(row, 'product_id', 'productId');
-            if (movId == null || prodId == null || prodId.trim().isEmpty) continue;
-            await _database
-                .into(_database.inventoryMovements)
-                .insertOnConflictUpdate(
-                  InventoryMovementsCompanion.insert(
-                    id: movId,
-                    businessId: businessId,
-                    productId: prodId,
-                    deltaMilliunits: getInt(row, 'delta_milliunits', 'deltaMilliunits'),
-                    reason: getVal(row, 'reason', 'reason') ?? 'adjustment',
-                    createdAt: getDate(row, 'created_at', 'createdAt'),
-                  ),
-                );
-          }
-          final suppliers = allSuppliers.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId,
-          );
-          for (final row in suppliers) {
-            final supId = getVal(row, 'id', 'id');
-            if (supId == null) continue;
-            await _database
-                .into(_database.suppliers)
-                .insertOnConflictUpdate(
-                  SuppliersCompanion.insert(
-                    id: supId,
-                    businessId: businessId,
-                    name: getVal(row, 'name', 'name') ?? '',
-                    phone: getVal(row, 'phone', 'phone') ?? '',
-                    email: Value(getVal(row, 'email', 'email')),
-                    address: Value(getVal(row, 'address', 'address')),
-                    notes: Value(getVal(row, 'notes', 'notes')),
-                    createdAt: getDate(row, 'created_at', 'createdAt'),
-                    updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
-                  ),
-                );
-          }
-          final supplierPayments = allSupplierPayments.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId,
-          );
-          for (final row in supplierPayments) {
-            final spId = getVal(row, 'id', 'id');
-            final supId = getVal(row, 'supplier_id', 'supplierId');
-            if (spId == null || supId == null || supId.trim().isEmpty) continue;
-            await _database
-                .into(_database.supplierPayments)
-                .insertOnConflictUpdate(
-                  SupplierPaymentsCompanion.insert(
-                    id: spId,
-                    businessId: businessId,
-                    supplierId: supId,
-                    amountPaise: getInt(row, 'amount_paise', 'amountPaise'),
-                    paidAt: getDate(row, 'paid_at', 'paidAt'),
-                    note: Value(getVal(row, 'note', 'note')),
-                    createdAt: getDate(row, 'created_at', 'createdAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
-                  ),
-                );
-          }
         }
         final preferredLanguage =
             businesses.firstWhere(
@@ -529,13 +433,21 @@ class SyncWorker {
                 as String? ??
             'en';
         final sessions = await _database.select(_database.localSessions).get();
+        final currentSession = sessions.firstOrNull;
+        final existingActiveId = currentSession?.activeBusinessId;
+        final hasValidActiveBusiness = existingActiveId != null &&
+            businessIds.contains(existingActiveId);
+        final targetActiveId = hasValidActiveBusiness
+            ? existingActiveId
+            : businessIds.first;
+
         if (sessions.isEmpty) {
           await _database
               .into(_database.localSessions)
               .insert(
                 LocalSessionsCompanion.insert(
                   accountId: Value(user.id),
-                  activeBusinessId: Value(businessIds.first),
+                  activeBusinessId: Value(targetActiveId),
                   localeCode: Value(preferredLanguage),
                   updatedAt: now,
                 ),
@@ -543,13 +455,13 @@ class SyncWorker {
         } else {
           final keep = sessions.first;
           if (keep.accountId != user.id ||
-              keep.activeBusinessId != businessIds.first) {
+              keep.activeBusinessId != targetActiveId) {
             await (_database.update(
               _database.localSessions,
             )..where((row) => row.id.equals(keep.id))).write(
               LocalSessionsCompanion(
                 accountId: Value(user.id),
-                activeBusinessId: Value(businessIds.first),
+                activeBusinessId: Value(targetActiveId),
                 updatedAt: Value(now),
               ),
             );
@@ -901,24 +813,30 @@ class SyncWorker {
         if (exp != null) payload = _expensePayload(exp);
         break;
 
-      case 'InventoryProductCreated':
-      case 'InventoryProductUpdated':
-      case 'InventoryProductDeleted':
-      case 'InventoryAdjusted':
-        final prod = await (database.select(database.inventoryProducts)..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (prod != null) payload = _inventoryPayload(prod);
+      case 'PaperReceiptCreated':
+        final r = await (database.select(database.paperReceipts)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        if (r != null) {
+          payload = {
+            'id': r.id,
+            'businessId': r.businessId,
+            'customerId': r.customerId,
+            'receiptDate': r.receiptDate.toUtc().toIso8601String(),
+            'notes': r.notes,
+            'createdAt': r.createdAt.toUtc().toIso8601String(),
+            'updatedAt': r.updatedAt.toUtc().toIso8601String(),
+          };
+        }
         break;
 
-      case 'SupplierCreated':
-      case 'SupplierUpdated':
-      case 'SupplierDeleted':
-        final sup = await (database.select(database.suppliers)..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (sup != null) payload = _supplierPayload(sup);
-        break;
-
-      case 'SupplierPaymentRecorded':
-        final sp = await (database.select(database.supplierPayments)..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (sp != null) payload = _supplierPaymentPayload(sp);
+      case 'PaperReceiptDeleted':
+        final r = await (database.select(database.paperReceipts)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        if (r != null) {
+          payload = {
+            'id': r.id,
+            'businessId': r.businessId,
+            'deletedAt': (r.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+          };
+        }
         break;
     }
 
@@ -998,23 +916,32 @@ class SyncWorker {
   Map<String, Object?> _invoicePayload(
     Invoice invoice,
     List<InvoiceItem> items,
-  ) => {
-    'invoice': {
-      'id': invoice.id,
-      'businessId': invoice.businessId,
-      'customerId': invoice.customerId,
-      'invoiceNumber': invoice.invoiceNumber,
-      'issuedAt': invoice.issuedAt.toUtc().toIso8601String(),
-      'dueAt': invoice.dueAt?.toUtc().toIso8601String(),
-      'subtotalPaise': invoice.subtotalPaise,
-      'discountPaise': invoice.discountPaise,
-      'interestPaise': invoice.interestPaise,
-      'paidPaise': invoice.paidPaise,
-      'notes': invoice.notes,
-      'createdAt': invoice.createdAt.toUtc().toIso8601String(),
-      'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
-      'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
-    },
+  ) {
+    String? cloudNotes = invoice.notes;
+    if (invoice.paperReceiptImage != null && invoice.paperReceiptImage!.trim().isNotEmpty) {
+      const delimiter = '\n---ONEBILL_RECEIPT_IMAGE---\n';
+      cloudNotes = (cloudNotes != null && cloudNotes.trim().isNotEmpty)
+          ? '${cloudNotes.trim()}$delimiter${invoice.paperReceiptImage!.trim()}'
+          : '$delimiter${invoice.paperReceiptImage!.trim()}';
+    }
+    return {
+      'invoice': {
+        'id': invoice.id,
+        'businessId': invoice.businessId,
+        'customerId': invoice.customerId,
+        'invoiceNumber': invoice.invoiceNumber,
+        'issuedAt': invoice.issuedAt.toUtc().toIso8601String(),
+        'dueAt': invoice.dueAt?.toUtc().toIso8601String(),
+        'subtotalPaise': invoice.subtotalPaise,
+        'discountPaise': invoice.discountPaise,
+        'interestPaise': invoice.interestPaise,
+        'paidPaise': invoice.paidPaise,
+        'notes': cloudNotes,
+        'paperReceiptImage': invoice.paperReceiptImage,
+        'createdAt': invoice.createdAt.toUtc().toIso8601String(),
+        'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
+        'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
+      },
     'items': items
         .map(
           (item) => {
@@ -1027,7 +954,8 @@ class SyncWorker {
           },
         )
         .toList(),
-  };
+    };
+  }
 
   Map<String, Object?> _paymentPayload(Payment payment) => {
     'id': payment.id,
@@ -1062,44 +990,6 @@ class SyncWorker {
     'createdAt': expense.createdAt.toUtc().toIso8601String(),
     'updatedAt': expense.updatedAt.toUtc().toIso8601String(),
     'deletedAt': expense.deletedAt?.toUtc().toIso8601String(),
-  };
-
-  Map<String, Object?> _inventoryPayload(InventoryProduct product) => {
-    'id': product.id,
-    'businessId': product.businessId,
-    'name': product.name,
-    'sku': product.sku,
-    'unit': product.unit,
-    'stockMilliunits': product.stockMilliunits,
-    'lowStockThresholdMilliunits': product.lowStockThresholdMilliunits,
-    'unitCostPaise': product.unitCostPaise,
-    'createdAt': product.createdAt.toUtc().toIso8601String(),
-    'updatedAt': product.updatedAt.toUtc().toIso8601String(),
-    'deletedAt': product.deletedAt?.toUtc().toIso8601String(),
-  };
-
-  Map<String, Object?> _supplierPayload(Supplier supplier) => {
-    'id': supplier.id,
-    'businessId': supplier.businessId,
-    'name': supplier.name,
-    'phone': supplier.phone,
-    'email': supplier.email,
-    'address': supplier.address,
-    'notes': supplier.notes,
-    'createdAt': supplier.createdAt.toUtc().toIso8601String(),
-    'updatedAt': supplier.updatedAt.toUtc().toIso8601String(),
-    'deletedAt': supplier.deletedAt?.toUtc().toIso8601String(),
-  };
-
-  Map<String, Object?> _supplierPaymentPayload(SupplierPayment payment) => {
-    'id': payment.id,
-    'businessId': payment.businessId,
-    'supplierId': payment.supplierId,
-    'amountPaise': payment.amountPaise,
-    'paidAt': payment.paidAt.toUtc().toIso8601String(),
-    'note': payment.note,
-    'createdAt': payment.createdAt.toUtc().toIso8601String(),
-    'deletedAt': payment.deletedAt?.toUtc().toIso8601String(),
   };
 
   Future<void> _markSynced(String id) =>

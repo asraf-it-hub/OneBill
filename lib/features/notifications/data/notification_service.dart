@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart';
 import '../../../core/database/app_database.dart';
+import '../../../core/localization/app_localizations.dart';
 import 'notification_constants.dart';
 import 'notification_repository.dart';
 
@@ -15,14 +16,43 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
-  void Function(String payloadJson)? onNotificationSelect;
+  void Function(String payloadJson, String? actionId)? onNotificationSelect;
 
   NotificationService(this._db, this._repository);
 
-  Future<void> init({void Function(String payload)? onSelect}) async {
+  Future<String> _getLanguageCode([String? businessId]) async {
+    try {
+      if (businessId != null && businessId.isNotEmpty) {
+        final biz = await (_db.select(_db.businesses)
+              ..where((b) => b.id.equals(businessId)))
+            .getSingleOrNull();
+        if (biz?.preferredLanguage != null && biz!.preferredLanguage.isNotEmpty) {
+          return biz.preferredLanguage;
+        }
+      }
+      final active = await (_db.select(_db.businesses)
+            ..where((b) => b.deletedAt.isNull())
+            ..limit(1))
+          .getSingleOrNull();
+      return active?.preferredLanguage ?? 'en';
+    } catch (_) {
+      return 'en';
+    }
+  }
+
+  Future<void> init({void Function(String payload, String? actionId)? onSelect}) async {
     if (_initialized) return;
     onNotificationSelect = onSelect;
     tz.initializeTimeZones();
+    try {
+      final offsetMs = DateTime.now().timeZoneOffset.inMilliseconds;
+      for (final loc in tz.timeZoneDatabase.locations.values) {
+        if (loc.currentTimeZone.offset == offsetMs) {
+          tz.setLocalLocation(loc);
+          break;
+        }
+      }
+    } catch (_) {}
 
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
@@ -42,7 +72,7 @@ class NotificationService {
           } catch (_) {}
         }
         if (payload != null && onNotificationSelect != null) {
-          onNotificationSelect!(payload);
+          onNotificationSelect!(payload, actionId);
         }
       },
     );
@@ -50,6 +80,35 @@ class NotificationService {
     await _createNotificationChannels();
     _initialized = true;
   }
+
+  AndroidNotificationDetails _buildAndroidDetails({
+    required String channelId,
+    required String channelName,
+    String? channelDescription,
+    Importance importance = Importance.max,
+    Priority priority = Priority.high,
+    bool playSound = true,
+    bool enableVibration = true,
+    List<AndroidNotificationAction>? actions,
+  }) {
+    return AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: channelDescription,
+      importance: importance,
+      priority: priority,
+      playSound: playSound,
+      enableVibration: enableVibration,
+      icon: 'ic_notification',
+      color: const Color(0xFF126E5D),
+      largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
+      visibility: NotificationVisibility.public,
+      actions: actions,
+    );
+  }
+
+  Future<NotificationAppLaunchDetails?> getLaunchDetails() =>
+      _plugin.getNotificationAppLaunchDetails();
 
   Future<void> _createNotificationChannels() async {
     final androidImpl = _plugin.resolvePlatformSpecificImplementation<
@@ -310,12 +369,9 @@ class NotificationService {
           step.body,
           tzTarget,
           NotificationDetails(
-            android: AndroidNotificationDetails(
-              NotificationChannels.reminders,
-              'Payment & Invoice Reminders',
-              importance: Importance.max,
-              priority: Priority.high,
-              visibility: NotificationVisibility.public,
+            android: _buildAndroidDetails(
+              channelId: NotificationChannels.reminders,
+              channelName: 'Payment & Invoice Reminders',
               actions: const [
                 AndroidNotificationAction(
                   NotificationActionKeys.viewInvoice,
@@ -324,7 +380,7 @@ class NotificationService {
                 ),
                 AndroidNotificationAction(
                   NotificationActionKeys.remindLater,
-                  'Remind me later',
+                  'Remind Tomorrow',
                   showsUserInterface: false,
                 ),
               ],
@@ -371,7 +427,7 @@ class NotificationService {
     return target;
   }
 
-  Future<void> snoozeInvoiceReminder(String invoiceId) async {
+  Future<void> snoozeInvoiceReminder(String invoiceId, [DateTime? targetDate]) async {
     try {
       final invoice = await (_db.select(_db.invoices)
             ..where((i) => i.id.equals(invoiceId)))
@@ -388,7 +444,8 @@ class NotificationService {
           .getSingleOrNull();
 
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      final snoozeTarget = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
+      final snoozeTarget = targetDate ??
+          DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
       final notifId = _generateDeterministicId('${invoiceId}_snooze');
 
       final payload = jsonEncode({
@@ -404,12 +461,9 @@ class NotificationService {
         '${customer?.name ?? 'Customer'} · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
         tz.TZDateTime.from(snoozeTarget, tz.local),
         NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.reminders,
-            'Payment & Invoice Reminders',
-            importance: Importance.max,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.reminders,
+            channelName: 'Payment & Invoice Reminders',
             actions: const [
               AndroidNotificationAction(
                 NotificationActionKeys.viewInvoice,
@@ -425,11 +479,18 @@ class NotificationService {
         payload: payload,
       );
 
+      final isTomorrow = snoozeTarget.day == tomorrow.day &&
+          snoozeTarget.month == tomorrow.month &&
+          snoozeTarget.year == tomorrow.year;
+      final title = isTomorrow
+          ? 'Reminder scheduled for tomorrow'
+          : 'Reminder scheduled';
+
       await _repository.addNotification(
         id: 'snooze_${DateTime.now().millisecondsSinceEpoch}',
         businessId: invoice.businessId,
         category: NotificationCategories.paymentReminder,
-        title: 'Reminder scheduled for tomorrow',
+        title: title,
         body: 'Invoice #${invoice.invoiceNumber} (${_rupees(remainingPaise)})',
         entityType: 'invoice',
         entityId: invoiceId,
@@ -471,76 +532,271 @@ class NotificationService {
         await reconcileInvoice(invoice.id);
       }
 
-      final groupNotifId = _generateDeterministicId('grouped_overdue_invoices');
-      final settings = await _repository.getSettings();
+      try {
+        final groupNotifId = _generateDeterministicId('grouped_overdue_invoices');
+        final settings = await _repository.getSettings();
 
-      if (overdueInvoices.isEmpty) {
-        if (settings.lastOverdueSignature != null) {
-          await _plugin.cancel(groupNotifId);
-          await _repository.updateSettings(
-            lastOverdueSignature: const Value(null),
-          );
+        if (overdueInvoices.isEmpty) {
+          if (settings.lastOverdueSignature != null) {
+            await _plugin.cancel(groupNotifId);
+            await _repository.updateSettings(
+              lastOverdueSignature: const Value(null),
+            );
+          }
+        } else {
+          final prefs = await _repository.getPreferences();
+          if (prefs[NotificationCategories.paymentOverdue] == true &&
+              settings.masterEnabled) {
+            overdueInvoices.sort((a, b) => a.id.compareTo(b.id));
+            final overdueIds = overdueInvoices.map((i) => i.id).join(',');
+            final currentSignature =
+                '${overdueInvoices.length}:$totalOverduePaise:$overdueIds';
+
+            if (settings.lastOverdueSignature != currentSignature) {
+              final lang = await _getLanguageCode();
+              final overdueCount = overdueInvoices.length;
+              final invoiceWord = overdueCount == 1 ? trLang('invoice', lang) : trLang('invoices', lang);
+              final title = '$overdueCount $invoiceWord ${trLang('overdue', lang)}';
+              final body = '${trLang('Total outstanding', lang)}: ${_rupees(totalOverduePaise)}';
+              final payload = jsonEncode({'action': 'view_overdue'});
+
+              await _plugin.show(
+                groupNotifId,
+                title,
+                body,
+                NotificationDetails(
+                  android: _buildAndroidDetails(
+                    channelId: NotificationChannels.reminders,
+                    channelName: 'Payment & Invoice Reminders',
+                    actions: [
+                      AndroidNotificationAction(
+                        NotificationActionKeys.viewInvoice,
+                        trLang('View Outstanding', lang),
+                        showsUserInterface: true,
+                      ),
+                    ],
+                  ),
+                ),
+                payload: payload,
+              );
+
+              await _repository.addNotification(
+                id: 'grouped_overdue_invoices',
+                category: NotificationCategories.paymentOverdue,
+                title: title,
+                body: body,
+                entityType: 'overdue_summary',
+                payloadJson: payload,
+              );
+
+              await _repository.updateSettings(
+                lastOverdueSignature: Value(currentSignature),
+              );
+            }
+          }
         }
-        return;
-      }
+      } catch (_) {}
+
+      await reconcileSummaries();
+    } catch (_) {}
+  }
+
+  Future<void> reconcileSummaries() async {
+    try {
+      final settings = await _repository.getSettings();
+      if (!settings.masterEnabled) return;
 
       final prefs = await _repository.getPreferences();
-      if (prefs[NotificationCategories.paymentOverdue] != true ||
-          !settings.masterEnabled) {
-        return;
-      }
+      final businesses = await (_db.select(_db.businesses)
+            ..where((b) => b.deletedAt.isNull()))
+          .get();
 
-      overdueInvoices.sort((a, b) => a.id.compareTo(b.id));
-      final overdueIds = overdueInvoices.map((i) => i.id).join(',');
-      final currentSignature =
-          '${overdueInvoices.length}:$totalOverduePaise:$overdueIds';
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
+      final monthStart = DateTime(now.year, now.month, 1);
 
-      // Deduplication: If the overdue state signature has not changed, do NOT re-post the notification
-      if (settings.lastOverdueSignature == currentSignature) {
-        return;
-      }
+      for (final business in businesses) {
+        final lang = await _getLanguageCode(business.id);
+        final bizPrefix = businesses.length > 1 ? '${business.name} · ' : '';
 
-      final overdueCount = overdueInvoices.length;
-      final title =
-          '$overdueCount ${overdueCount == 1 ? 'invoice' : 'invoices'} overdue';
-      final body = 'Total outstanding: ${_rupees(totalOverduePaise)}';
-      final payload = jsonEncode({'action': 'view_overdue'});
+        final bizInvoices = await (_db.select(_db.invoices)
+              ..where((i) => i.businessId.equals(business.id) & i.deletedAt.isNull()))
+            .get();
 
-      await _plugin.show(
-        groupNotifId,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.reminders,
-            'Payment & Invoice Reminders',
-            importance: Importance.max,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
-            actions: const [
-              AndroidNotificationAction(
-                NotificationActionKeys.viewInvoice,
-                'View Outstanding',
-                showsUserInterface: true,
+        final bizPayments = await (_db.select(_db.payments)
+              ..where((p) => p.businessId.equals(business.id)))
+            .get();
+
+        final dailyNotifId = _generateDeterministicId('${business.id}_daily_summary');
+        final weeklyNotifId = _generateDeterministicId('${business.id}_weekly_summary');
+        final monthlyNotifId = _generateDeterministicId('${business.id}_monthly_summary');
+
+        // 1. Daily summary
+        if (prefs[NotificationCategories.dailySummary] == true) {
+          final todayPayments = bizPayments.where((p) => p.createdAt.isAfter(todayStart)).toList();
+          final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+          final todayInvoices = bizInvoices.where((i) => i.createdAt.isAfter(todayStart)).toList();
+
+          final title = '${bizPrefix}${trLang('Daily Summary', lang)}';
+          final body = lang == 'te'
+              ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
+              : lang == 'hi'
+                  ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
+                  : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
+
+          var target = DateTime(now.year, now.month, now.day, 20, 0); // 8:00 PM
+          if (target.isBefore(now)) {
+            target = target.add(const Duration(days: 1));
+          }
+          if (settings.quietHoursEnabled) {
+            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+          }
+
+          final payload = jsonEncode({
+            'action': NotificationActionKeys.viewSummary,
+            'businessId': business.id,
+          });
+
+          await _plugin.zonedSchedule(
+            dailyNotifId,
+            title,
+            body,
+            tz.TZDateTime.from(target, tz.local),
+            NotificationDetails(
+              android: _buildAndroidDetails(
+                channelId: NotificationChannels.summaries,
+                channelName: 'Business Summaries',
+                importance: Importance.defaultImportance,
+                actions: [
+                  AndroidNotificationAction(
+                    NotificationActionKeys.viewSummary,
+                    trLang('View Reports', lang),
+                    showsUserInterface: true,
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        payload: payload,
-      );
+            ),
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.time,
+            payload: payload,
+          );
+        } else {
+          await _plugin.cancel(dailyNotifId);
+        }
 
-      await _repository.addNotification(
-        id: 'grouped_overdue_invoices',
-        category: NotificationCategories.paymentOverdue,
-        title: title,
-        body: body,
-        entityType: 'overdue_summary',
-        payloadJson: payload,
-      );
+        // 2. Weekly summary
+        if (prefs[NotificationCategories.weeklySummary] == true) {
+          final weekPayments = bizPayments.where((p) => p.createdAt.isAfter(weekStart)).toList();
+          final weekCollectedPaise = weekPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+          final weekInvoices = bizInvoices.where((i) => i.createdAt.isAfter(weekStart)).toList();
 
-      await _repository.updateSettings(
-        lastOverdueSignature: Value(currentSignature),
-      );
+          final title = '${bizPrefix}${trLang('Weekly Summary', lang)}';
+          final body = lang == 'te'
+              ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
+              : lang == 'hi'
+                  ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
+                  : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} invoices';
+
+          var daysUntilSunday = (DateTime.sunday - now.weekday) % 7;
+          if (daysUntilSunday == 0 && now.hour >= 20) {
+            daysUntilSunday = 7;
+          }
+          var target = DateTime(now.year, now.month, now.day + daysUntilSunday, 20, 0);
+          if (settings.quietHoursEnabled) {
+            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+          }
+
+          final payload = jsonEncode({
+            'action': NotificationActionKeys.viewSummary,
+            'businessId': business.id,
+          });
+
+          await _plugin.zonedSchedule(
+            weeklyNotifId,
+            title,
+            body,
+            tz.TZDateTime.from(target, tz.local),
+            NotificationDetails(
+              android: _buildAndroidDetails(
+                channelId: NotificationChannels.summaries,
+                channelName: 'Business Summaries',
+                importance: Importance.defaultImportance,
+                actions: [
+                  AndroidNotificationAction(
+                    NotificationActionKeys.viewSummary,
+                    trLang('View Reports', lang),
+                    showsUserInterface: true,
+                  ),
+                ],
+              ),
+            ),
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+            payload: payload,
+          );
+        } else {
+          await _plugin.cancel(weeklyNotifId);
+        }
+
+        // 3. Monthly summary
+        if (prefs[NotificationCategories.monthlySummary] == true) {
+          final monthPayments = bizPayments.where((p) => p.createdAt.isAfter(monthStart)).toList();
+          final monthCollectedPaise = monthPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+          final monthInvoices = bizInvoices.where((i) => i.createdAt.isAfter(monthStart)).toList();
+
+          final title = '${bizPrefix}${trLang('Monthly Performance', lang)}';
+          final body = lang == 'te'
+              ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
+              : lang == 'hi'
+                  ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
+                  : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} invoices';
+
+          final nextMonth = now.month == 12 ? 1 : now.month + 1;
+          final nextYear = now.month == 12 ? now.year + 1 : now.year;
+          var target = DateTime(nextYear, nextMonth, 1, 9, 0);
+          if (settings.quietHoursEnabled) {
+            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+          }
+
+          final payload = jsonEncode({
+            'action': NotificationActionKeys.viewSummary,
+            'businessId': business.id,
+          });
+
+          await _plugin.zonedSchedule(
+            monthlyNotifId,
+            title,
+            body,
+            tz.TZDateTime.from(target, tz.local),
+            NotificationDetails(
+              android: _buildAndroidDetails(
+                channelId: NotificationChannels.summaries,
+                channelName: 'Business Summaries',
+                importance: Importance.defaultImportance,
+                actions: [
+                  AndroidNotificationAction(
+                    NotificationActionKeys.viewSummary,
+                    trLang('View Reports', lang),
+                    showsUserInterface: true,
+                  ),
+                ],
+              ),
+            ),
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
+            payload: payload,
+          );
+        } else {
+          await _plugin.cancel(monthlyNotifId);
+        }
+      }
     } catch (_) {}
   }
 
@@ -549,6 +805,7 @@ class NotificationService {
     required Invoice invoice,
     required Customer? customer,
     required bool isFullyPaid,
+    String? langCode,
   }) async {
     try {
       await reconcileInvoice(invoice.id);
@@ -560,15 +817,16 @@ class NotificationService {
 
       if (prefs[category] != true) return;
 
+      final lang = langCode ?? await _getLanguageCode(invoice.businessId);
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final remainingPaise = totalPaise - invoice.paidPaise;
-      final customerName = customer?.name ?? 'Customer';
+      final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final title = 'Payment received';
+      final title = trLang('Payment received', lang);
       final body = isFullyPaid
-          ? '$customerName · ${_rupees(payment.amountPaise)}\nInvoice #${invoice.invoiceNumber} · Fully paid'
-          : '${_rupees(payment.amountPaise)} from $customerName\n${_rupees(remainingPaise)} remaining';
+          ? '$customerName · ${_rupees(payment.amountPaise)}\n${trLang('Invoice', lang)} #${invoice.invoiceNumber} · ${trLang('Fully paid', lang)}'
+          : '${_rupees(payment.amountPaise)} ${trLang('from', lang)} $customerName\n${_rupees(remainingPaise)} ${trLang('remaining', lang)}';
 
       final payload = jsonEncode({
         'action': NotificationActionKeys.viewPayment,
@@ -584,16 +842,18 @@ class NotificationService {
         title,
         body,
         NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.payments,
-            'Payment Activity',
-            importance: Importance.max,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
-            actions: const [
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.payments,
+            channelName: 'Payment Activity',
+            actions: [
               AndroidNotificationAction(
                 NotificationActionKeys.viewPayment,
-                'View Payment',
+                trLang('View Payment', lang),
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
+                NotificationActionKeys.viewInvoice,
+                trLang('View Invoice', lang),
                 showsUserInterface: true,
               ),
             ],
@@ -615,18 +875,19 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> notifyInvoiceCreated(Invoice invoice, Customer? customer) async {
+  Future<void> notifyInvoiceCreated(Invoice invoice, Customer? customer, [String? langCode]) async {
     try {
       await reconcileInvoice(invoice.id);
 
       final prefs = await _repository.getPreferences();
       if (prefs[NotificationCategories.invoiceCreated] != true) return;
 
+      final lang = langCode ?? await _getLanguageCode(invoice.businessId);
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
-      final customerName = customer?.name ?? 'Customer';
-      final title = 'Invoice created';
-      final body = 'Invoice #${invoice.invoiceNumber} · $customerName · ${_rupees(totalPaise)}';
+      final customerName = customer?.name ?? trLang('Customer', lang);
+      final title = trLang('Invoice created', lang);
+      final body = '${trLang('Invoice', lang)} #${invoice.invoiceNumber} · $customerName · ${_rupees(totalPaise)}';
 
       final payload = jsonEncode({
         'action': NotificationActionKeys.viewInvoice,
@@ -641,12 +902,22 @@ class NotificationService {
         title,
         body,
         NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.reminders,
-            'Payment & Invoice Reminders',
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.reminders,
+            channelName: 'Payment & Invoice Reminders',
             importance: Importance.high,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewInvoice,
+                trLang('View Invoice', lang),
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
+                NotificationActionKeys.shareInvoice,
+                trLang('Share', lang),
+                showsUserInterface: true,
+              ),
+            ],
           ),
         ),
         payload: payload,
@@ -665,17 +936,18 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> notifyInvoiceSentShared(Invoice invoice, Customer? customer) async {
+  Future<void> notifyInvoiceSentShared(Invoice invoice, Customer? customer, [String? langCode]) async {
     try {
       final prefs = await _repository.getPreferences();
-      if (prefs[NotificationCategories.invoiceSentShared] != true) return;
+      if (prefs[NotificationCategories.invoiceSentShared] == false) return;
 
+      final lang = langCode ?? await _getLanguageCode(invoice.businessId);
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
-      final customerName = customer?.name ?? 'Customer';
-      final title = 'Invoice shared';
+      final customerName = customer?.name ?? trLang('Customer', lang);
+      final title = trLang('Invoice shared', lang);
       final body =
-          'Invoice #${invoice.invoiceNumber} shared with $customerName · ${_rupees(totalPaise)}';
+          '${trLang('Invoice', lang)} #${invoice.invoiceNumber} ${trLang('shared with', lang)} $customerName · ${_rupees(totalPaise)}';
 
       final payload = jsonEncode({
         'action': NotificationActionKeys.viewInvoice,
@@ -692,12 +964,16 @@ class NotificationService {
         title,
         body,
         NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.reminders,
-            'Payment & Invoice Reminders',
-            importance: Importance.high,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.reminders,
+            channelName: 'Payment & Invoice Reminders',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewInvoice,
+                trLang('View Invoice', lang),
+                showsUserInterface: true,
+              ),
+            ],
           ),
         ),
         payload: payload,
@@ -716,7 +992,6 @@ class NotificationService {
     } catch (_) {}
   }
 
-
   Future<void> notifySyncFailed(String userFriendlyMessage) async {
     try {
       final prefs = await _repository.getPreferences();
@@ -733,16 +1008,19 @@ class NotificationService {
         title,
         body,
         NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.sync,
-            'Sync & Backup',
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.sync,
+            channelName: 'Sync & Backup',
             importance: Importance.high,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
             actions: const [
               AndroidNotificationAction(
+                NotificationActionKeys.retrySync,
+                'Retry Sync',
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
                 NotificationActionKeys.viewSync,
-                'View Sync Status',
+                'View Status',
                 showsUserInterface: true,
               ),
             ],
@@ -762,25 +1040,33 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> showTestNotification() async {
+  Future<void> showTestNotification({
+    String? title,
+    String? body,
+    String? actionLabel,
+  }) async {
     try {
-      const title = 'OneBill Test Notification';
-      const body = 'Your notification system is working perfectly!';
+      final lang = await _getLanguageCode();
+      final notifTitle = title ?? trLang('OneBill Notifications', lang);
+      final notifBody = body ?? trLang('Notification system is working properly.', lang);
+      final notifAction = actionLabel ?? trLang('Open OneBill', lang);
       final notifId = _generateDeterministicId('test_${DateTime.now().millisecondsSinceEpoch}');
 
       await _plugin.show(
         notifId,
-        title,
-        body,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            NotificationChannels.alerts,
-            'Important OneBill Alerts',
-            importance: Importance.max,
-            priority: Priority.high,
-            visibility: NotificationVisibility.public,
-            playSound: true,
-            enableVibration: true,
+        notifTitle,
+        notifBody,
+        NotificationDetails(
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.reminders,
+            channelName: 'Payment & Invoice Reminders',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewInvoice,
+                notifAction,
+                showsUserInterface: true,
+              ),
+            ],
           ),
         ),
         payload: '{"action":"test"}',
@@ -788,9 +1074,105 @@ class NotificationService {
 
       await _repository.addNotification(
         id: 'test_${DateTime.now().millisecondsSinceEpoch}',
-        category: NotificationCategories.importantAlerts,
-        title: title,
-        body: body,
+        category: NotificationCategories.invoiceDueSoon,
+        title: notifTitle,
+        body: notifBody,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> showTestDailySummary({String? langCode}) async {
+    try {
+      final lang = langCode ?? await _getLanguageCode();
+      final title = trLang('Daily Summary', lang);
+      final body = lang == 'te'
+          ? 'ఈరోజు వసూలైన మొత్తం ₹4,500.00 · 3 ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
+          : lang == 'hi'
+              ? 'आज एकत्रित राशि ₹4,500.00 · 3 चालान बनाए गए'
+              : 'Collected ₹4,500.00 today · 3 invoices created';
+      final notifId = _generateDeterministicId('test_daily_${DateTime.now().millisecondsSinceEpoch}');
+      await _plugin.show(
+        notifId,
+        title,
+        body,
+        NotificationDetails(
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.summaries,
+            channelName: 'Business Summaries',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewSummary,
+                trLang('View Reports', lang),
+                showsUserInterface: true,
+              ),
+            ],
+          ),
+        ),
+        payload: '{"action":"view_summary"}',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> showTestWeeklySummary({String? langCode}) async {
+    try {
+      final lang = langCode ?? await _getLanguageCode();
+      final title = trLang('Weekly Summary', lang);
+      final body = lang == 'te'
+          ? 'ఈ వారం వసూళ్లు: ₹28,500.00 · 14 ఇన్‌వాయిస్‌లు'
+          : lang == 'hi'
+              ? 'इस सप्ताह का संग्रह: ₹28,500.00 · 14 चालान'
+              : 'Week collections: ₹28,500.00 · 14 invoices';
+      final notifId = _generateDeterministicId('test_weekly_${DateTime.now().millisecondsSinceEpoch}');
+      await _plugin.show(
+        notifId,
+        title,
+        body,
+        NotificationDetails(
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.summaries,
+            channelName: 'Business Summaries',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewSummary,
+                trLang('View Reports', lang),
+                showsUserInterface: true,
+              ),
+            ],
+          ),
+        ),
+        payload: '{"action":"view_summary"}',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> showTestMonthlySummary({String? langCode}) async {
+    try {
+      final lang = langCode ?? await _getLanguageCode();
+      final title = trLang('Monthly Performance', lang);
+      final body = lang == 'te'
+          ? 'ఈ నెల వసూళ్లు: ₹1,24,000.00 · 52 ఇన్‌వాయిస్‌లు'
+          : lang == 'hi'
+              ? 'इस महीने का संग्रह: ₹1,24,000.00 · 52 चालान'
+              : 'Month collections: ₹1,24,000.00 · 52 invoices';
+      final notifId = _generateDeterministicId('test_monthly_${DateTime.now().millisecondsSinceEpoch}');
+      await _plugin.show(
+        notifId,
+        title,
+        body,
+        NotificationDetails(
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.summaries,
+            channelName: 'Business Summaries',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewSummary,
+                trLang('View Reports', lang),
+                showsUserInterface: true,
+              ),
+            ],
+          ),
+        ),
+        payload: '{"action":"view_summary"}',
       );
     } catch (_) {}
   }

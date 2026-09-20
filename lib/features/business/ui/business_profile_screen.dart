@@ -313,7 +313,7 @@ class _BusinessProfileScreenState
                       tr(context, 'Business Logo'),
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1E293B),
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -572,7 +572,7 @@ class _BusinessProfileScreenState
                       tr(context, 'UPI Payment QR Code'),
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1E293B),
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -723,10 +723,10 @@ class _BusinessProfileScreenState
             // Notes & Terms block styled with distinct theme contrast
             Card(
               elevation: 0,
-              color: const Color(0xFFF8FAFC),
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                side: BorderSide(color: theme.colorScheme.outlineVariant),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -808,7 +808,7 @@ class _BusinessProfileScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            tr(context, 'Permanently delete this business and remove all invoices, customers, inventory, expenses, and cloud sync records. This action is irreversible.'),
+            tr(context, 'Permanently delete this business and remove all invoices, customers, expenses, and cloud sync records. This action is irreversible.'),
             style: const TextStyle(
               fontSize: 12.5,
               color: Color(0xFF7F1D1D),
@@ -910,8 +910,7 @@ class _BusinessProfileScreenState
                           const SizedBox(height: 6),
                           const Text(
                             '• Invoices, Line Items & Payments\n'
-                            '• Customer & Supplier Accounts\n'
-                            '• Inventory Stock & Movements\n'
+                            '• Customer Accounts\n'
                             '• Income & Expense Reports\n'
                             '• Cloud Backups & Sync Records',
                             style: TextStyle(
@@ -1013,24 +1012,25 @@ class _BusinessProfileScreenState
     required String subtitle,
     required Widget child,
   }) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           tr(context, title),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13.5,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF1E293B),
+            color: theme.colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           tr(context, subtitle),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11.5,
-            color: Color(0xFF64748B),
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 6),
@@ -1056,10 +1056,10 @@ class _BusinessProfileScreenState
           children: [
             Text(
               tr(context, title),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
+                color: theme.colorScheme.onSurface,
               ),
             ),
             Container(
@@ -1084,24 +1084,24 @@ class _BusinessProfileScreenState
         TextFormField(
           controller: controller,
           maxLines: maxLines,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13.5,
-            color: Color(0xFF334155),
+            color: theme.colorScheme.onSurface,
             height: 1.4,
           ),
           decoration: InputDecoration(
             hintText: hintText,
             prefixIcon: Icon(icon, color: theme.colorScheme.primary),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: theme.colorScheme.surface,
             contentPadding: const EdgeInsets.all(12),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),

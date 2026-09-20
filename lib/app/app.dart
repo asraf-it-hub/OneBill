@@ -1,3 +1,4 @@
+import '../core/ui/app_toast.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -28,13 +29,16 @@ import '../features/business/ui/post_creation_guidance_sheet.dart';
 import '../features/auth/domain/auth_error_details.dart';
 import '../features/auth/services/app_credential_manager.dart';
 import '../core/localization/app_localizations.dart';
+import '../core/localization/app_language_provider.dart';
 
 class OneBillApp extends ConsumerWidget {
   const OneBillApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final language = ref.watch(sessionProvider).valueOrNull?.localeCode ?? 'en';
+    final sessionLang = ref.watch(sessionProvider).valueOrNull?.localeCode;
+    final savedLang = ref.watch(appLanguageProvider);
+    final language = sessionLang ?? savedLang;
     final locale = {'en', 'hi', 'te'}.contains(language) ? language : 'en';
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
@@ -237,12 +241,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     try {
       await ref.read(authServiceProvider).resetPassword(email: email);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Password reset instructions have been sent to your email address.',
-            ),
-          ),
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Password reset instructions have been sent to your email address.'),
         );
       }
     } catch (error) {
@@ -284,12 +285,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
       );
 
       if (_registering && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Account created successfully! Welcome to OneBill.',
-            ),
-          ),
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Account created successfully! Welcome to OneBill.'),
         );
       }
     } catch (error) {
@@ -732,6 +730,84 @@ class _GoogleIconPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+class _LanguageChoiceCard extends StatelessWidget {
+  const _LanguageChoiceCard({
+    required this.code,
+    required this.nativeTitle,
+    required this.subtitle,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String code;
+  final String nativeTitle;
+  final String subtitle;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? primary.withOpacity(0.12)
+                : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? primary
+                  : theme.colorScheme.outlineVariant.withOpacity(0.5),
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    nativeTitle,
+                    style: TextStyle(
+                      fontWeight:
+                          isSelected ? FontWeight.bold : FontWeight.w600,
+                      fontSize: 14,
+                      color: isSelected ? primary : theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  if (isSelected) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.check_circle, size: 16, color: primary),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isSelected
+                      ? primary.withOpacity(0.85)
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _WorkspaceSetupScreen extends ConsumerStatefulWidget {
   const _WorkspaceSetupScreen();
   @override
@@ -752,6 +828,10 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
   @override
   void initState() {
     super.initState();
+    final currentLang = ref.read(appLanguageProvider);
+    if ({'en', 'hi', 'te'}.contains(currentLang)) {
+      _language = currentLang;
+    }
     if (AppEnvironment.cloudConfigured) {
       _restoring = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -783,6 +863,7 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      await ref.read(appLanguageProvider.notifier).setLanguage(_language);
       await ref
           .read(businessRepositoryProvider)
           .createLocalWorkspace(
@@ -886,7 +967,7 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Welcome to OneBill',
+                      _tr(context, 'Welcome to OneBill'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
@@ -895,7 +976,7 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Create your first business. Your information is saved on this device and works offline.',
+                      _tr(context, 'Create your first business. Your information is saved on this device and works offline.'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
@@ -919,13 +1000,64 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 24),
+                    // Prominent Preferred Language Choice
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _tr(context, 'Choose your preferred language'),
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _LanguageChoiceCard(
+                              code: 'en',
+                              nativeTitle: 'English',
+                              subtitle: 'English',
+                              isSelected: _language == 'en',
+                              onTap: () {
+                                setState(() => _language = 'en');
+                                ref.read(appLanguageProvider.notifier).setLanguage('en');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            _LanguageChoiceCard(
+                              code: 'te',
+                              nativeTitle: 'తెలుగు',
+                              subtitle: 'Telugu',
+                              isSelected: _language == 'te',
+                              onTap: () {
+                                setState(() => _language = 'te');
+                                ref.read(appLanguageProvider.notifier).setLanguage('te');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            _LanguageChoiceCard(
+                              code: 'hi',
+                              nativeTitle: 'हिन्दी',
+                              subtitle: 'Hindi',
+                              isSelected: _language == 'hi',
+                              onTap: () {
+                                setState(() => _language = 'hi');
+                                ref.read(appLanguageProvider.notifier).setLanguage('hi');
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
                     TextFormField(
                       controller: _owner,
                       textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        labelText: 'Owner name',
-                        prefixIcon: Icon(Icons.person_outline_rounded),
+                      decoration: InputDecoration(
+                        labelText: _tr(context, 'Owner name'),
+                        prefixIcon: const Icon(Icons.person_outline_rounded),
                       ),
                       validator: _required,
                     ),
@@ -933,9 +1065,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     TextFormField(
                       controller: _business,
                       textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        labelText: 'Business or shop name',
-                        prefixIcon: Icon(Icons.storefront_outlined),
+                      decoration: InputDecoration(
+                        labelText: _tr(context, 'Business or shop name'),
+                        prefixIcon: const Icon(Icons.storefront_outlined),
                       ),
                       validator: _required,
                     ),
@@ -943,27 +1075,11 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     TextFormField(
                       controller: _phone,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Business phone (optional)',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                      decoration: InputDecoration(
+                        labelText: _tr(context, 'Business phone (optional)'),
+                        prefixIcon: const Icon(Icons.phone_outlined),
                       ),
                       validator: _phoneValidator,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _language,
-                      decoration: const InputDecoration(
-                        labelText: 'Language',
-                        prefixIcon: Icon(Icons.language_rounded),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'en', child: Text('English')),
-                        DropdownMenuItem(value: 'hi', child: Text('हिन्दी')),
-                        DropdownMenuItem(value: 'te', child: Text('తెలుగు')),
-                      ],
-                      onChanged: _saving
-                          ? null
-                          : (value) => setState(() => _language = value!),
                     ),
                     const SizedBox(height: 28),
                     FilledButton(
@@ -977,7 +1093,7 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Create business'),
+                          : Text(_tr(context, 'Create business')),
                     ),
                   ],
                 ),
@@ -1023,10 +1139,19 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       try {
         final notifService = ref.read(notificationServiceProvider);
         await notifService.init(
-          onSelect: (payload) {
-            if (mounted) _handleNotificationPayload(payload);
+          onSelect: (payload, actionId) {
+            if (mounted) _handleNotificationPayload(payload, actionId);
           },
         );
+        final launchDetails = await notifService.getLaunchDetails();
+        if (launchDetails != null &&
+            launchDetails.didNotificationLaunchApp &&
+            launchDetails.notificationResponse != null) {
+          final res = launchDetails.notificationResponse!;
+          if (res.payload != null && mounted) {
+            _handleNotificationPayload(res.payload!, res.actionId);
+          }
+        }
         await notifService.reconcileAllReminders();
         if (mounted) {
           await notifService.requestPermissionWithExplainer(context);
@@ -1071,14 +1196,24 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     );
   }
 
-  void _handleNotificationPayload(String payloadStr) {
+  void _openReportsTab() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() => _tab = 6);
+  }
+
+  void _handleNotificationPayload(String payloadStr, [String? actionId]) {
     try {
       final data = jsonDecode(payloadStr) as Map<String, dynamic>;
-      final action = data['action'] as String?;
+      final action = actionId ?? (data['action'] as String?);
       if (action == 'view_overdue' ||
           (action == NotificationActionKeys.viewInvoice &&
               data['invoiceId'] == null)) {
         _openOverdueSheet();
+      } else if (action == NotificationActionKeys.viewSummary ||
+          action == 'view_summary' ||
+          action == 'view_reports') {
+        _openReportsTab();
       }
     } catch (_) {}
   }
@@ -1463,6 +1598,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
             NotificationBellIcon(
               businessId: session.activeBusinessId,
               onOpenOverdue: _openOverdueSheet,
+              onOpenReports: _openReportsTab,
             ),
             PopupMenuButton<String>(
               tooltip: 'Profile and tools',
@@ -1497,20 +1633,14 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                         );
                       }
                       break;
-                    case 'inventory':
+                    case 'recycle_bin':
                       setState(() => _tab = 4);
                       break;
-                    case 'suppliers':
+                    case 'activity':
                       setState(() => _tab = 5);
                       break;
-                    case 'recycle_bin':
-                      setState(() => _tab = 6);
-                      break;
-                    case 'activity':
-                      setState(() => _tab = 7);
-                      break;
                     case 'reports':
-                      setState(() => _tab = 8);
+                      setState(() => _tab = 6);
                       break;
                     case 'sign_out':
                       _confirmSignOut(context, ref);
@@ -1531,20 +1661,6 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   child: _ProfileMenuItem(
                     icon: Icons.settings_outlined,
                     label: 'Settings',
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'inventory',
-                  child: _ProfileMenuItem(
-                    icon: Icons.inventory_2_outlined,
-                    label: 'Inventory',
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'suppliers',
-                  child: _ProfileMenuItem(
-                    icon: Icons.local_shipping_outlined,
-                    label: 'Suppliers',
                   ),
                 ),
                 const PopupMenuItem(
@@ -1609,12 +1725,8 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                 : _tab == 3
                 ? _ExpensesTab(businessId: session.activeBusinessId!)
                 : _tab == 4
-                ? _InventoryTab(businessId: session.activeBusinessId!)
-                : _tab == 5
-                ? _SuppliersTab(businessId: session.activeBusinessId!)
-                : _tab == 6
                 ? _RecycleBinTab(businessId: session.activeBusinessId!)
-                : _tab == 7
+                : _tab == 5
                 ? _ActivityTab(businessId: session.activeBusinessId!)
                 : _ReportsTab(
                     businessId: session.activeBusinessId!,
@@ -1623,7 +1735,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   ),
           ),
         ),
-        floatingActionButton: (_tab >= 6)
+        floatingActionButton: (_tab >= 4)
             ? null
             : _tab == 2
             ? FloatingActionButton.extended(
@@ -1646,28 +1758,6 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                 ),
                 icon: const Icon(Icons.add),
                 label: Text(_tr(context, 'Add expense')),
-              )
-            : _tab == 4
-            ? FloatingActionButton.extended(
-                onPressed: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  builder: (_) =>
-                      _InventoryEditor(businessId: session.activeBusinessId!),
-                ),
-                icon: const Icon(Icons.add_box_outlined),
-                label: Text(_tr(context, 'Add product')),
-              )
-            : _tab == 5
-            ? FloatingActionButton.extended(
-                onPressed: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  builder: (_) =>
-                      _SupplierEditor(businessId: session.activeBusinessId!),
-                ),
-                icon: const Icon(Icons.person_add_alt_1),
-                label: Text(_tr(context, 'Add supplier')),
               )
             : FloatingActionButton.extended(
                 onPressed: () => showModalBottomSheet<void>(
@@ -2437,7 +2527,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
           children: [
             Expanded(
               child: _MetricCard(
-                label: 'Customer',
+                label: _tr(context, 'Customer'),
                 value: _rupees(customerTotal),
                 icon: Icons.people_outline,
               ),
@@ -2445,7 +2535,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
             const SizedBox(width: 6),
             Expanded(
               child: _MetricCard(
-                label: 'Owner added',
+                label: _tr(context, 'Owner added'),
                 value: _rupees(ownerTotal),
                 icon: Icons.person_add_alt_1_outlined,
               ),
@@ -2453,7 +2543,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
             const SizedBox(width: 6),
             Expanded(
               child: _MetricCard(
-                label: 'Total income',
+                label: _tr(context, 'Total income'),
                 value: _rupees(grandTotal),
                 icon: Icons.trending_up_outlined,
               ),
@@ -2526,7 +2616,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
             child: ListTile(
               title: Text(_monthLabel(entry.key)),
               subtitle: Text(
-                '${_rupees(monthTotal)} • $custCount customer • $ownerCount owner',
+                '${_rupees(monthTotal)} • $custCount ${_tr(context, 'Customer')} • $ownerCount ${_tr(context, 'Owner added')}',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => showModalBottomSheet<void>(
@@ -2616,11 +2706,22 @@ class _IncomeMonthSheet extends StatelessWidget {
           controller: controller,
           padding: const EdgeInsets.all(24),
           children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             Text(
               _monthLabel(month),
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            Text('Total income: ${_rupees(total)}'),
+            Text('${_tr(context, 'Total income')}: ${_rupees(total)}'),
             const SizedBox(height: 16),
             ...days.entries.map((entry) {
               final dayTotal = entry.value.fold<int>(
@@ -2630,9 +2731,9 @@ class _IncomeMonthSheet extends StatelessWidget {
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: ExpansionTile(
-                  initiallyExpanded: true,
+                  initiallyExpanded: false,
                   title: Text(_date(entry.key)),
-                  subtitle: Text('Day Total: ${_rupees(dayTotal)}'),
+                  subtitle: Text('${_tr(context, 'Day Total')}: ${_rupees(dayTotal)}'),
                   children: entry.value.map((item) {
                     if (item.sourceType == _IncomeSourceType.customer) {
                       final p = item.payment!;
@@ -2675,9 +2776,9 @@ class _IncomeMonthSheet extends StatelessWidget {
                           children: [
                             Text(
                               '+ ${_rupees(p.amountPaise)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green,
+                                color: Theme.of(context).colorScheme.onSurface,
                                 fontSize: 15,
                               ),
                             ),
@@ -2729,7 +2830,7 @@ class _IncomeMonthSheet extends StatelessWidget {
                               '+ ${_rupees(o.amountPaise)}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: Theme.of(context).primaryColor,
+                                color: Theme.of(context).colorScheme.onSurface,
                                 fontSize: 15,
                               ),
                             ),
@@ -3233,6 +3334,7 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
               else
                 ...list.map(
                   (expense) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       title: Text(_rupees(expense.amountPaise)),
                       subtitle: Text(
@@ -4925,9 +5027,11 @@ class _BusinessSettingsSheetState
             upiId: widget.business.upiId ?? '',
             paymentQrImage: widget.business.paymentQrImage,
           );
+      await ref.read(appLanguageProvider.notifier).setLanguage(newLanguage);
+      await ref.read(notificationServiceProvider).reconcileSummaries();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Language preference updated.')),
+          SnackBar(content: Text(_tr(context, 'Language preference updated.'))),
         );
       }
     } catch (error) {
@@ -5209,6 +5313,7 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      await ref.read(appLanguageProvider.notifier).setLanguage(_language);
       final newBizId = await ref
           .read(businessRepositoryProvider)
           .createBusiness(
@@ -5259,24 +5364,24 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Add new business',
+            _tr(context, 'Add new business'),
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
-          const Text(
-            'This business starts with empty customers, invoices, and payments.',
+          Text(
+            _tr(context, 'This business starts with empty customers, invoices, and payments.'),
           ),
           const SizedBox(height: 20),
           TextFormField(
             controller: _owner,
-            decoration: const InputDecoration(labelText: 'Owner name'),
+            decoration: InputDecoration(labelText: _tr(context, 'Owner name')),
             validator: _required,
           ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _name,
-            decoration: const InputDecoration(
-              labelText: 'Business or shop name',
+            decoration: InputDecoration(
+              labelText: _tr(context, 'Business or shop name'),
             ),
             validator: _required,
           ),
@@ -5284,15 +5389,15 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
           TextFormField(
             controller: _phone,
             keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(
-              labelText: 'Business phone (optional)',
+            decoration: InputDecoration(
+              labelText: _tr(context, 'Business phone (optional)'),
             ),
             validator: _phoneValidator,
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             initialValue: _language,
-            decoration: const InputDecoration(labelText: 'Language'),
+            decoration: InputDecoration(labelText: _tr(context, 'Language')),
             items: const [
               DropdownMenuItem(value: 'en', child: Text('English')),
               DropdownMenuItem(value: 'hi', child: Text('हिन्दी')),
@@ -5303,7 +5408,7 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
           const SizedBox(height: 24),
           FilledButton(
             onPressed: _saving ? null : _save,
-            child: Text(_saving ? 'Creating...' : 'Create empty business'),
+            child: Text(_saving ? _tr(context, 'Creating...') : _tr(context, 'Create empty business')),
           ),
         ],
       ),
@@ -5813,11 +5918,142 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
           .notifyInvoiceSentShared(invoice, customer);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not share invoice PDF: $error')),
-        );
+        AppToast.showError(context, 'Could not share invoice PDF: $error');
       }
     }
+  }
+
+  Future<void> _sharePaperReceipt(BuildContext context, WidgetRef ref) async {
+    try {
+      final database = ref.read(databaseProvider);
+      final business = await (database.select(
+        database.businesses,
+      )..where((entry) => entry.id.equals(businessId))).getSingle();
+      final customer =
+          await (database.select(database.customers)..where(
+                (entry) => Expression.and([
+                  entry.id.equals(invoice.customerId),
+                  entry.businessId.equals(businessId),
+                ]),
+              ))
+              .getSingle();
+
+      final bytes = await ref
+          .read(pdfInvoiceServiceProvider)
+          .generatePaperReceiptPdf(
+            business: business,
+            customer: customer,
+            invoice: invoice,
+            paperReceiptImage: invoice.paperReceiptImage!,
+          );
+
+      final fileName = 'Receipt_${invoice.invoiceNumber}.pdf';
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile(
+              file.path,
+              mimeType: 'application/pdf',
+              name: fileName,
+            ),
+          ],
+          title: fileName,
+          text: 'Paper Receipt ${invoice.invoiceNumber}',
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        AppToast.showError(context, 'Could not share paper receipt: $error');
+      }
+    }
+  }
+
+  void _openReceiptViewer(BuildContext context, String rawImage) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (context, scrollController) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _tr(context, 'Paper Receipt'),
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      color: Colors.black.withOpacity(0.04),
+                      child: InteractiveViewer(
+                        minScale: 0.5,
+                        maxScale: 4.0,
+                        child: _buildReceiptWidget(rawImage),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceiptWidget(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
+      try {
+        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final bytes = base64Decode(base64Data);
+        return Image.memory(bytes, fit: BoxFit.contain);
+      } catch (_) {}
+    }
+    final file = File(trimmed);
+    if (file.existsSync()) {
+      return Image.file(file, fit: BoxFit.contain);
+    }
+    return const Center(child: Icon(Icons.broken_image_outlined, size: 48));
+  }
+
+  Widget _buildReceiptThumb(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
+      try {
+        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final bytes = base64Decode(base64Data);
+        return Image.memory(bytes, fit: BoxFit.cover);
+      } catch (_) {}
+    }
+    final file = File(trimmed);
+    if (file.existsSync()) {
+      return Image.file(file, fit: BoxFit.cover);
+    }
+    return const Icon(Icons.document_scanner_outlined, size: 24);
   }
 
   Future<(Uint8List, BusinessesData, Customer)> _pdfData(WidgetRef ref) async {
@@ -6040,6 +6276,55 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 14),
+            if (invoice.paperReceiptImage != null && invoice.paperReceiptImage!.trim().isNotEmpty) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _openReceiptViewer(context, invoice.paperReceiptImage!),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          color: Colors.black12,
+                          child: _buildReceiptThumb(invoice.paperReceiptImage!),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _tr(context, 'Paper Receipt'),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _tr(context, 'View Paper Receipt'),
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -6096,6 +6381,24 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
                   ),
                 ),
+                if (invoice.paperReceiptImage != null &&
+                    invoice.paperReceiptImage!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () => _sharePaperReceipt(context, ref),
+                    icon: const Icon(Icons.receipt_long_outlined, size: 20),
+                    label: Text(
+                      _tr(context, 'Share Paper Receipt'),
+                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
                 if (invoice.paidPaise == 0) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
@@ -6263,6 +6566,9 @@ class _EditInvoiceDetailsSheetState
   DateTime? dueAt;
   final items = <_InvoiceItemDraft>[];
   bool saving = false;
+  String? _paperReceiptImage;
+  File? _paperReceiptFile;
+
   @override
   void initState() {
     super.initState();
@@ -6274,7 +6580,133 @@ class _EditInvoiceDetailsSheetState
     );
     notes = TextEditingController(text: widget.invoice.notes ?? '');
     dueAt = widget.invoice.dueAt;
+    _paperReceiptImage = widget.invoice.paperReceiptImage;
+    _initReceiptFile();
     _loadItems();
+  }
+
+  Future<void> _initReceiptFile() async {
+    if (_paperReceiptImage == null || _paperReceiptImage!.trim().isEmpty) return;
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final receiptsDir = Directory('${appDir.path}/receipts');
+      final localFile = File('${receiptsDir.path}/receipt_${widget.invoice.id}.jpg');
+      if (localFile.existsSync()) {
+        if (mounted) setState(() => _paperReceiptFile = localFile);
+      } else {
+        final base64Data = _paperReceiptImage!.contains(',')
+            ? _paperReceiptImage!.split(',').last
+            : _paperReceiptImage!;
+        final bytes = base64Decode(base64Data);
+        if (!receiptsDir.existsSync()) receiptsDir.createSync(recursive: true);
+        await localFile.writeAsBytes(bytes);
+        if (mounted) setState(() => _paperReceiptFile = localFile);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _pickReceipt(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        imageQuality: 65,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+      if (picked != null && mounted) {
+        final bytes = await picked.readAsBytes();
+        final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        try {
+          final appDir = await getApplicationDocumentsDirectory();
+          final receiptsDir = Directory('${appDir.path}/receipts');
+          if (!receiptsDir.existsSync()) receiptsDir.createSync(recursive: true);
+          final localFile = File('${receiptsDir.path}/receipt_${widget.invoice.id}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await localFile.writeAsBytes(bytes);
+          setState(() {
+            _paperReceiptFile = localFile;
+            _paperReceiptImage = base64String;
+          });
+        } catch (_) {
+          setState(() {
+            _paperReceiptFile = File(picked.path);
+            _paperReceiptImage = base64String;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Unable to select image')))),
+        );
+      }
+    }
+  }
+
+  void _showPickOptionsSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _tr(context, 'Attach Paper Receipt'),
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.camera_alt_rounded, color: theme.colorScheme.primary),
+                ),
+                title: Text(_tr(context, 'Take Photo')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickReceipt(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.photo_library_rounded, color: theme.colorScheme.secondary),
+                ),
+                title: Text(_tr(context, 'Choose from Gallery')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickReceipt(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceiptThumbnail(String raw) {
+    try {
+      final base64Data = raw.contains(',') ? raw.split(',').last : raw;
+      return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
+    } catch (_) {
+      return const Icon(Icons.receipt_long, size: 28);
+    }
   }
 
   Future<void> _loadItems() async {
@@ -6320,6 +6752,7 @@ class _EditInvoiceDetailsSheetState
             dueAt: dueAt,
             notes: notes.text,
             items: items.map((item) => item.toInput()).toList(),
+            paperReceiptImage: Value(_paperReceiptImage),
           );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -6337,10 +6770,12 @@ class _EditInvoiceDetailsSheetState
       discount.text.isNotEmpty ||
       interest.text.isNotEmpty ||
       notes.text.isNotEmpty ||
+      _paperReceiptImage != widget.invoice.paperReceiptImage ||
       items.any((i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty);
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return PopScope(
       canPop: !_isDirty || saving,
       onPopInvokedWithResult: (didPop, result) async {
@@ -6420,6 +6855,88 @@ class _EditInvoiceDetailsSheetState
                     },
               onClear: () => setState(() => dueAt = null),
             ),
+            const SizedBox(height: 16),
+            Text(
+              _tr(context, 'Paper Receipt (Optional)'),
+              style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
+                            ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
+                            : _buildReceiptThumbnail(_paperReceiptImage!),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _tr(context, 'Receipt Attached'),
+                            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            _tr(context, 'Tap to change or remove'),
+                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: _tr(context, 'Change Photo'),
+                      onPressed: saving ? null : () => _showPickOptionsSheet(context),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+                      tooltip: _tr(context, 'Remove Receipt'),
+                      onPressed: saving
+                          ? null
+                          : () {
+                              setState(() {
+                                _paperReceiptImage = null;
+                                _paperReceiptFile = null;
+                              });
+                            },
+                    ),
+                  ],
+                ),
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: Text(_tr(context, 'Take Photo')),
+                      onPressed: saving ? null : () => _pickReceipt(ImageSource.camera),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: Text(_tr(context, 'Choose from Gallery')),
+                      onPressed: saving ? null : () => _pickReceipt(ImageSource.gallery),
+                    ),
+                  ),
+                ],
+              ),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: saving ? null : save,
@@ -6826,72 +7343,78 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
           Navigator.pop(context);
         }
       },
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(_tr(context, 'Record payment'), style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text('${_tr(context, "Outstanding")}: ${_rupees(_remaining)}'),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _amount,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: _tr(context, 'Amount received (₹)')),
-                validator: (value) {
-                  final error = _amountValidator(value);
-                  if (error != null) return error;
-                  return _parseRupees(value!) > _remaining
-                      ? 'Payment cannot exceed ${_rupees(_remaining)}.'
-                      : null;
-                },
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _saving
-                      ? null
-                      : () {
-                          _amount.text = (_remaining / 100).toStringAsFixed(2);
-                        },
-                  child: Text(_tr(context, 'Use full balance')),
-                ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _method,
-                decoration: InputDecoration(labelText: _tr(context, 'Payment method')),
-                items: [
-                  DropdownMenuItem(value: 'Cash', child: Text(_tr(context, 'Cash'))),
-                  DropdownMenuItem(value: 'UPI', child: Text(_tr(context, 'UPI'))),
-                  DropdownMenuItem(
-                    value: 'Bank transfer',
-                    child: Text(_tr(context, 'Bank transfer')),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              20,
+              24,
+              20 +
+                  MediaQuery.viewInsetsOf(context).bottom +
+                  MediaQuery.paddingOf(context).bottom,
+            ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(_tr(context, 'Record payment'), style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text('${_tr(context, "Outstanding")}: ${_rupees(_remaining)}'),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: _amount,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(labelText: _tr(context, 'Amount received (₹)')),
+                    validator: (value) {
+                      final error = _amountValidator(value);
+                      if (error != null) return error;
+                      return _parseRupees(value!) > _remaining
+                          ? 'Payment cannot exceed ${_rupees(_remaining)}.'
+                          : null;
+                    },
                   ),
-                  DropdownMenuItem(value: 'Other', child: Text(_tr(context, 'Other'))),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              _amount.text = (_remaining / 100).toStringAsFixed(2);
+                            },
+                      child: Text(_tr(context, 'Use full balance')),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: _method,
+                    decoration: InputDecoration(labelText: _tr(context, 'Payment method')),
+                    items: [
+                      DropdownMenuItem(value: 'Cash', child: Text(_tr(context, 'Cash'))),
+                      DropdownMenuItem(value: 'UPI', child: Text(_tr(context, 'UPI'))),
+                      DropdownMenuItem(
+                        value: 'Bank transfer',
+                        child: Text(_tr(context, 'Bank transfer')),
+                      ),
+                      DropdownMenuItem(value: 'Other', child: Text(_tr(context, 'Other'))),
+                    ],
+                    onChanged: (value) => setState(() => _method = value!),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _note,
+                    decoration: InputDecoration(labelText: _tr(context, 'Note (optional)')),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: Text(_saving ? _tr(context, 'Recording...') : _tr(context, 'Confirm payment')),
+                  ),
                 ],
-                onChanged: (value) => setState(() => _method = value!),
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _note,
-                decoration: InputDecoration(labelText: _tr(context, 'Note (optional)')),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: Text(_saving ? _tr(context, 'Recording...') : _tr(context, 'Confirm payment')),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -6919,6 +7442,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
   final _notes = TextEditingController();
   DateTime? _dueAt;
   bool _saving = false;
+  String? _paperReceiptImage;
+  File? _paperReceiptFile;
+
   @override
   void dispose() {
     for (final item in _items) {
@@ -6928,6 +7454,110 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
     _interest.dispose();
     _notes.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickReceipt(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        imageQuality: 65,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+      if (picked != null && mounted) {
+        final bytes = await picked.readAsBytes();
+        final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        try {
+          final appDir = await getApplicationDocumentsDirectory();
+          final receiptsDir = Directory('${appDir.path}/receipts');
+          if (!receiptsDir.existsSync()) receiptsDir.createSync(recursive: true);
+          final localFile = File('${receiptsDir.path}/receipt_new_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await localFile.writeAsBytes(bytes);
+          setState(() {
+            _paperReceiptFile = localFile;
+            _paperReceiptImage = base64String;
+          });
+        } catch (_) {
+          setState(() {
+            _paperReceiptFile = File(picked.path);
+            _paperReceiptImage = base64String;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Unable to select image')))),
+        );
+      }
+    }
+  }
+
+  void _showPickOptionsSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _tr(context, 'Attach Paper Receipt'),
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.camera_alt_rounded, color: theme.colorScheme.primary),
+                ),
+                title: Text(_tr(context, 'Take Photo')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickReceipt(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.photo_library_rounded, color: theme.colorScheme.secondary),
+                ),
+                title: Text(_tr(context, 'Choose from Gallery')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickReceipt(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceiptThumbnail(String raw) {
+    try {
+      final base64Data = raw.contains(',') ? raw.split(',').last : raw;
+      return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
+    } catch (_) {
+      return const Icon(Icons.receipt_long, size: 28);
+    }
   }
 
   Future<void> _save() async {
@@ -6944,6 +7574,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
             interestPaise: _parseOptionalRupees(_interest.text),
             dueAt: _dueAt,
             notes: _notes.text,
+            paperReceiptImage: _paperReceiptImage,
           );
 
       try {
@@ -6999,7 +7630,8 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
       _items.any((i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty) ||
       _discount.text.isNotEmpty ||
       _interest.text.isNotEmpty ||
-      _notes.text.isNotEmpty;
+      _notes.text.isNotEmpty ||
+      _paperReceiptImage != null;
 
   @override
   Widget build(BuildContext context) {
@@ -7086,6 +7718,106 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       label: const Text('Add Another Item'),
                     ),
                   ),
+                  const SizedBox(height: 24),
+
+                  // Paper Receipt (Optional)
+                  Row(
+                    children: [
+                      Icon(Icons.receipt_long_outlined, size: 20, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        _tr(context, 'Paper Receipt (Optional)'),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _tr(context, 'Attach photo of handwritten bill'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: theme.colorScheme.outlineVariant),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: SizedBox(
+                              width: 56,
+                              height: 56,
+                              child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
+                                  ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
+                                  : _buildReceiptThumbnail(_paperReceiptImage!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _tr(context, 'Receipt Attached'),
+                                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  _tr(context, 'Tap to change or remove'),
+                                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: _tr(context, 'Change Photo'),
+                            onPressed: _saving ? null : () => _showPickOptionsSheet(context),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+                            tooltip: _tr(context, 'Remove Receipt'),
+                            onPressed: _saving
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _paperReceiptImage = null;
+                                      _paperReceiptFile = null;
+                                    });
+                                  },
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.camera_alt_outlined),
+                            label: Text(_tr(context, 'Take Photo')),
+                            onPressed: _saving ? null : () => _pickReceipt(ImageSource.camera),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: Text(_tr(context, 'Choose from Gallery')),
+                            onPressed: _saving ? null : () => _pickReceipt(ImageSource.gallery),
+                          ),
+                        ),
+                      ],
+                    ),
                   const SizedBox(height: 24),
 
                   // Section 2: Terms & Notes
@@ -7627,13 +8359,6 @@ String? _emailValidator(String? value) =>
 
 String? _optionalEmailValidator(String? value) =>
     value == null || value.trim().isEmpty ? null : _emailValidator(value);
-
-String? _upiValidator(String? value) {
-  if (value == null || value.trim().isEmpty) return null;
-  return RegExp(r'^[\w.\-]{2,}@[\w.\-]{2,}$').hasMatch(value.trim())
-      ? null
-      : 'Enter a valid UPI ID, for example name@bank.';
-}
 
 String? _passwordValidator(String? value) =>
     value == null || value.length < 8 ? 'Use at least 8 characters.' : null;

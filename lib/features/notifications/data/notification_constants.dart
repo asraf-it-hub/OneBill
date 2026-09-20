@@ -35,9 +35,9 @@ abstract final class NotificationCategories {
     paymentOverdue: true,
     customerOutstanding: true,
     customerFullyPaid: true,
-    dailySummary: false,
+    dailySummary: true,
     weeklySummary: true,
-    monthlySummary: false,
+    monthlySummary: true,
     syncCompleted: false,
     syncFailed: true,
     importantAlerts: true,
@@ -80,4 +80,8 @@ abstract final class NotificationActionKeys {
   static const viewCustomer = 'action_view_customer';
   static const viewPayment = 'action_view_payment';
   static const viewSync = 'action_view_sync';
+  static const retrySync = 'action_retry_sync';
+  static const shareInvoice = 'action_share_invoice';
+  static const viewSummary = 'action_view_summary';
 }
+

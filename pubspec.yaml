@@ -2,7 +2,7 @@ name: onebill
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+2017
+version: 1.0.0+8000
 
 environment:
   sdk: ^3.12.2

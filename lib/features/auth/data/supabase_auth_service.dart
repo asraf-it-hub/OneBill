@@ -42,7 +42,16 @@ class SupabaseAuthService {
   }
 
   Future<void> resetPassword({required String email}) async {
-    await _client.auth.resetPasswordForEmail(email.trim());
+    await _client.auth.resetPasswordForEmail(
+      email.trim(),
+      redirectTo: 'onebill://reset-password',
+    );
+  }
+
+  Future<void> updatePassword({required String newPassword}) async {
+    await _client.auth.updateUser(
+      UserAttributes(password: newPassword),
+    );
   }
 
   Future<bool> signInWithGoogle() async {

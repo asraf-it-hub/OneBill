@@ -2633,6 +2633,18 @@ class $InvoicesTable extends Invoices with TableInfo<$InvoicesTable, Invoice> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _paperReceiptImageMeta = const VerificationMeta(
+    'paperReceiptImage',
+  );
+  @override
+  late final GeneratedColumn<String> paperReceiptImage =
+      GeneratedColumn<String>(
+        'paper_receipt_image',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2649,6 +2661,7 @@ class $InvoicesTable extends Invoices with TableInfo<$InvoicesTable, Invoice> {
     createdAt,
     updatedAt,
     deletedAt,
+    paperReceiptImage,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2771,6 +2784,15 @@ class $InvoicesTable extends Invoices with TableInfo<$InvoicesTable, Invoice> {
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('paper_receipt_image')) {
+      context.handle(
+        _paperReceiptImageMeta,
+        paperReceiptImage.isAcceptableOrUnknown(
+          data['paper_receipt_image']!,
+          _paperReceiptImageMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -2836,6 +2858,10 @@ class $InvoicesTable extends Invoices with TableInfo<$InvoicesTable, Invoice> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      paperReceiptImage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}paper_receipt_image'],
+      ),
     );
   }
 
@@ -2860,6 +2886,7 @@ class Invoice extends DataClass implements Insertable<Invoice> {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
+  final String? paperReceiptImage;
   const Invoice({
     required this.id,
     required this.businessId,
@@ -2875,6 +2902,7 @@ class Invoice extends DataClass implements Insertable<Invoice> {
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
+    this.paperReceiptImage,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2898,6 +2926,9 @@ class Invoice extends DataClass implements Insertable<Invoice> {
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || paperReceiptImage != null) {
+      map['paper_receipt_image'] = Variable<String>(paperReceiptImage);
     }
     return map;
   }
@@ -2924,6 +2955,9 @@ class Invoice extends DataClass implements Insertable<Invoice> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      paperReceiptImage: paperReceiptImage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(paperReceiptImage),
     );
   }
 
@@ -2947,6 +2981,9 @@ class Invoice extends DataClass implements Insertable<Invoice> {
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      paperReceiptImage: serializer.fromJson<String?>(
+        json['paperReceiptImage'],
+      ),
     );
   }
   @override
@@ -2967,6 +3004,7 @@ class Invoice extends DataClass implements Insertable<Invoice> {
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'paperReceiptImage': serializer.toJson<String?>(paperReceiptImage),
     };
   }
 
@@ -2985,6 +3023,7 @@ class Invoice extends DataClass implements Insertable<Invoice> {
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> paperReceiptImage = const Value.absent(),
   }) => Invoice(
     id: id ?? this.id,
     businessId: businessId ?? this.businessId,
@@ -3000,6 +3039,9 @@ class Invoice extends DataClass implements Insertable<Invoice> {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    paperReceiptImage: paperReceiptImage.present
+        ? paperReceiptImage.value
+        : this.paperReceiptImage,
   );
   Invoice copyWithCompanion(InvoicesCompanion data) {
     return Invoice(
@@ -3029,6 +3071,9 @@ class Invoice extends DataClass implements Insertable<Invoice> {
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      paperReceiptImage: data.paperReceiptImage.present
+          ? data.paperReceiptImage.value
+          : this.paperReceiptImage,
     );
   }
 
@@ -3048,7 +3093,8 @@ class Invoice extends DataClass implements Insertable<Invoice> {
           ..write('notes: $notes, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('paperReceiptImage: $paperReceiptImage')
           ..write(')'))
         .toString();
   }
@@ -3069,6 +3115,7 @@ class Invoice extends DataClass implements Insertable<Invoice> {
     createdAt,
     updatedAt,
     deletedAt,
+    paperReceiptImage,
   );
   @override
   bool operator ==(Object other) =>
@@ -3087,7 +3134,8 @@ class Invoice extends DataClass implements Insertable<Invoice> {
           other.notes == this.notes &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.paperReceiptImage == this.paperReceiptImage);
 }
 
 class InvoicesCompanion extends UpdateCompanion<Invoice> {
@@ -3105,6 +3153,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
+  final Value<String?> paperReceiptImage;
   final Value<int> rowid;
   const InvoicesCompanion({
     this.id = const Value.absent(),
@@ -3121,6 +3170,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.paperReceiptImage = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   InvoicesCompanion.insert({
@@ -3138,6 +3188,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
     required DateTime createdAt,
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
+    this.paperReceiptImage = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        businessId = Value(businessId),
@@ -3162,6 +3213,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
+    Expression<String>? paperReceiptImage,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3179,6 +3231,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (paperReceiptImage != null) 'paper_receipt_image': paperReceiptImage,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3198,6 +3251,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
+    Value<String?>? paperReceiptImage,
     Value<int>? rowid,
   }) {
     return InvoicesCompanion(
@@ -3215,6 +3269,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      paperReceiptImage: paperReceiptImage ?? this.paperReceiptImage,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3264,6 +3319,9 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (paperReceiptImage.present) {
+      map['paper_receipt_image'] = Variable<String>(paperReceiptImage.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3287,6 +3345,7 @@ class InvoicesCompanion extends UpdateCompanion<Invoice> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('paperReceiptImage: $paperReceiptImage, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10155,6 +10214,637 @@ class InvoiceSequencesCompanion extends UpdateCompanion<InvoiceSequence> {
   }
 }
 
+class $PaperReceiptsTable extends PaperReceipts
+    with TableInfo<$PaperReceiptsTable, PaperReceipt> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PaperReceiptsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _businessIdMeta = const VerificationMeta(
+    'businessId',
+  );
+  @override
+  late final GeneratedColumn<String> businessId = GeneratedColumn<String>(
+    'business_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES businesses (id)',
+    ),
+  );
+  static const VerificationMeta _customerIdMeta = const VerificationMeta(
+    'customerId',
+  );
+  @override
+  late final GeneratedColumn<String> customerId = GeneratedColumn<String>(
+    'customer_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES customers (id)',
+    ),
+  );
+  static const VerificationMeta _imagePathMeta = const VerificationMeta(
+    'imagePath',
+  );
+  @override
+  late final GeneratedColumn<String> imagePath = GeneratedColumn<String>(
+    'image_path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _remoteImageUrlMeta = const VerificationMeta(
+    'remoteImageUrl',
+  );
+  @override
+  late final GeneratedColumn<String> remoteImageUrl = GeneratedColumn<String>(
+    'remote_image_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _receiptDateMeta = const VerificationMeta(
+    'receiptDate',
+  );
+  @override
+  late final GeneratedColumn<DateTime> receiptDate = GeneratedColumn<DateTime>(
+    'receipt_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    businessId,
+    customerId,
+    imagePath,
+    remoteImageUrl,
+    notes,
+    receiptDate,
+    createdAt,
+    updatedAt,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'paper_receipts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PaperReceipt> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('business_id')) {
+      context.handle(
+        _businessIdMeta,
+        businessId.isAcceptableOrUnknown(data['business_id']!, _businessIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_businessIdMeta);
+    }
+    if (data.containsKey('customer_id')) {
+      context.handle(
+        _customerIdMeta,
+        customerId.isAcceptableOrUnknown(data['customer_id']!, _customerIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_customerIdMeta);
+    }
+    if (data.containsKey('image_path')) {
+      context.handle(
+        _imagePathMeta,
+        imagePath.isAcceptableOrUnknown(data['image_path']!, _imagePathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_imagePathMeta);
+    }
+    if (data.containsKey('remote_image_url')) {
+      context.handle(
+        _remoteImageUrlMeta,
+        remoteImageUrl.isAcceptableOrUnknown(
+          data['remote_image_url']!,
+          _remoteImageUrlMeta,
+        ),
+      );
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('receipt_date')) {
+      context.handle(
+        _receiptDateMeta,
+        receiptDate.isAcceptableOrUnknown(
+          data['receipt_date']!,
+          _receiptDateMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_receiptDateMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PaperReceipt map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PaperReceipt(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      businessId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}business_id'],
+      )!,
+      customerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}customer_id'],
+      )!,
+      imagePath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}image_path'],
+      )!,
+      remoteImageUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_image_url'],
+      ),
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      ),
+      receiptDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}receipt_date'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $PaperReceiptsTable createAlias(String alias) {
+    return $PaperReceiptsTable(attachedDatabase, alias);
+  }
+}
+
+class PaperReceipt extends DataClass implements Insertable<PaperReceipt> {
+  final String id;
+  final String businessId;
+  final String customerId;
+  final String imagePath;
+  final String? remoteImageUrl;
+  final String? notes;
+  final DateTime receiptDate;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? deletedAt;
+  const PaperReceipt({
+    required this.id,
+    required this.businessId,
+    required this.customerId,
+    required this.imagePath,
+    this.remoteImageUrl,
+    this.notes,
+    required this.receiptDate,
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['business_id'] = Variable<String>(businessId);
+    map['customer_id'] = Variable<String>(customerId);
+    map['image_path'] = Variable<String>(imagePath);
+    if (!nullToAbsent || remoteImageUrl != null) {
+      map['remote_image_url'] = Variable<String>(remoteImageUrl);
+    }
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['receipt_date'] = Variable<DateTime>(receiptDate);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  PaperReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PaperReceiptsCompanion(
+      id: Value(id),
+      businessId: Value(businessId),
+      customerId: Value(customerId),
+      imagePath: Value(imagePath),
+      remoteImageUrl: remoteImageUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteImageUrl),
+      notes: notes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(notes),
+      receiptDate: Value(receiptDate),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory PaperReceipt.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PaperReceipt(
+      id: serializer.fromJson<String>(json['id']),
+      businessId: serializer.fromJson<String>(json['businessId']),
+      customerId: serializer.fromJson<String>(json['customerId']),
+      imagePath: serializer.fromJson<String>(json['imagePath']),
+      remoteImageUrl: serializer.fromJson<String?>(json['remoteImageUrl']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      receiptDate: serializer.fromJson<DateTime>(json['receiptDate']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'businessId': serializer.toJson<String>(businessId),
+      'customerId': serializer.toJson<String>(customerId),
+      'imagePath': serializer.toJson<String>(imagePath),
+      'remoteImageUrl': serializer.toJson<String?>(remoteImageUrl),
+      'notes': serializer.toJson<String?>(notes),
+      'receiptDate': serializer.toJson<DateTime>(receiptDate),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  PaperReceipt copyWith({
+    String? id,
+    String? businessId,
+    String? customerId,
+    String? imagePath,
+    Value<String?> remoteImageUrl = const Value.absent(),
+    Value<String?> notes = const Value.absent(),
+    DateTime? receiptDate,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Value<DateTime?> deletedAt = const Value.absent(),
+  }) => PaperReceipt(
+    id: id ?? this.id,
+    businessId: businessId ?? this.businessId,
+    customerId: customerId ?? this.customerId,
+    imagePath: imagePath ?? this.imagePath,
+    remoteImageUrl: remoteImageUrl.present
+        ? remoteImageUrl.value
+        : this.remoteImageUrl,
+    notes: notes.present ? notes.value : this.notes,
+    receiptDate: receiptDate ?? this.receiptDate,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  PaperReceipt copyWithCompanion(PaperReceiptsCompanion data) {
+    return PaperReceipt(
+      id: data.id.present ? data.id.value : this.id,
+      businessId: data.businessId.present
+          ? data.businessId.value
+          : this.businessId,
+      customerId: data.customerId.present
+          ? data.customerId.value
+          : this.customerId,
+      imagePath: data.imagePath.present ? data.imagePath.value : this.imagePath,
+      remoteImageUrl: data.remoteImageUrl.present
+          ? data.remoteImageUrl.value
+          : this.remoteImageUrl,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      receiptDate: data.receiptDate.present
+          ? data.receiptDate.value
+          : this.receiptDate,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PaperReceipt(')
+          ..write('id: $id, ')
+          ..write('businessId: $businessId, ')
+          ..write('customerId: $customerId, ')
+          ..write('imagePath: $imagePath, ')
+          ..write('remoteImageUrl: $remoteImageUrl, ')
+          ..write('notes: $notes, ')
+          ..write('receiptDate: $receiptDate, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    businessId,
+    customerId,
+    imagePath,
+    remoteImageUrl,
+    notes,
+    receiptDate,
+    createdAt,
+    updatedAt,
+    deletedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PaperReceipt &&
+          other.id == this.id &&
+          other.businessId == this.businessId &&
+          other.customerId == this.customerId &&
+          other.imagePath == this.imagePath &&
+          other.remoteImageUrl == this.remoteImageUrl &&
+          other.notes == this.notes &&
+          other.receiptDate == this.receiptDate &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.deletedAt == this.deletedAt);
+}
+
+class PaperReceiptsCompanion extends UpdateCompanion<PaperReceipt> {
+  final Value<String> id;
+  final Value<String> businessId;
+  final Value<String> customerId;
+  final Value<String> imagePath;
+  final Value<String?> remoteImageUrl;
+  final Value<String?> notes;
+  final Value<DateTime> receiptDate;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime?> deletedAt;
+  final Value<int> rowid;
+  const PaperReceiptsCompanion({
+    this.id = const Value.absent(),
+    this.businessId = const Value.absent(),
+    this.customerId = const Value.absent(),
+    this.imagePath = const Value.absent(),
+    this.remoteImageUrl = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.receiptDate = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PaperReceiptsCompanion.insert({
+    required String id,
+    required String businessId,
+    required String customerId,
+    required String imagePath,
+    this.remoteImageUrl = const Value.absent(),
+    this.notes = const Value.absent(),
+    required DateTime receiptDate,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       businessId = Value(businessId),
+       customerId = Value(customerId),
+       imagePath = Value(imagePath),
+       receiptDate = Value(receiptDate),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<PaperReceipt> custom({
+    Expression<String>? id,
+    Expression<String>? businessId,
+    Expression<String>? customerId,
+    Expression<String>? imagePath,
+    Expression<String>? remoteImageUrl,
+    Expression<String>? notes,
+    Expression<DateTime>? receiptDate,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (businessId != null) 'business_id': businessId,
+      if (customerId != null) 'customer_id': customerId,
+      if (imagePath != null) 'image_path': imagePath,
+      if (remoteImageUrl != null) 'remote_image_url': remoteImageUrl,
+      if (notes != null) 'notes': notes,
+      if (receiptDate != null) 'receipt_date': receiptDate,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PaperReceiptsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? businessId,
+    Value<String>? customerId,
+    Value<String>? imagePath,
+    Value<String?>? remoteImageUrl,
+    Value<String?>? notes,
+    Value<DateTime>? receiptDate,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<DateTime?>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return PaperReceiptsCompanion(
+      id: id ?? this.id,
+      businessId: businessId ?? this.businessId,
+      customerId: customerId ?? this.customerId,
+      imagePath: imagePath ?? this.imagePath,
+      remoteImageUrl: remoteImageUrl ?? this.remoteImageUrl,
+      notes: notes ?? this.notes,
+      receiptDate: receiptDate ?? this.receiptDate,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (businessId.present) {
+      map['business_id'] = Variable<String>(businessId.value);
+    }
+    if (customerId.present) {
+      map['customer_id'] = Variable<String>(customerId.value);
+    }
+    if (imagePath.present) {
+      map['image_path'] = Variable<String>(imagePath.value);
+    }
+    if (remoteImageUrl.present) {
+      map['remote_image_url'] = Variable<String>(remoteImageUrl.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (receiptDate.present) {
+      map['receipt_date'] = Variable<DateTime>(receiptDate.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PaperReceiptsCompanion(')
+          ..write('id: $id, ')
+          ..write('businessId: $businessId, ')
+          ..write('customerId: $customerId, ')
+          ..write('imagePath: $imagePath, ')
+          ..write('remoteImageUrl: $remoteImageUrl, ')
+          ..write('notes: $notes, ')
+          ..write('receiptDate: $receiptDate, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -10186,6 +10876,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $InvoiceSequencesTable invoiceSequences = $InvoiceSequencesTable(
     this,
   );
+  late final $PaperReceiptsTable paperReceipts = $PaperReceiptsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -10209,6 +10900,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     notificationPreferences,
     notificationSettings,
     invoiceSequences,
+    paperReceipts,
   ];
 }
 
@@ -10892,6 +11584,24 @@ final class $$BusinessesTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$PaperReceiptsTable, List<PaperReceipt>>
+  _paperReceiptsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.paperReceipts,
+    aliasName: 'businesses__id__paper_receipts__business_id',
+  );
+
+  $$PaperReceiptsTableProcessedTableManager get paperReceiptsRefs {
+    final manager = $$PaperReceiptsTableTableManager(
+      $_db,
+      $_db.paperReceipts,
+    ).filter((f) => f.businessId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_paperReceiptsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$BusinessesTableFilterComposer
@@ -11292,6 +12002,31 @@ class $$BusinessesTableFilterComposer
           }) => $$InvoiceSequencesTableFilterComposer(
             $db: $db,
             $table: $db.invoiceSequences,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> paperReceiptsRefs(
+    Expression<bool> Function($$PaperReceiptsTableFilterComposer f) f,
+  ) {
+    final $$PaperReceiptsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.paperReceipts,
+      getReferencedColumn: (t) => t.businessId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PaperReceiptsTableFilterComposer(
+            $db: $db,
+            $table: $db.paperReceipts,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -11813,6 +12548,31 @@ class $$BusinessesTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> paperReceiptsRefs<T extends Object>(
+    Expression<T> Function($$PaperReceiptsTableAnnotationComposer a) f,
+  ) {
+    final $$PaperReceiptsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.paperReceipts,
+      getReferencedColumn: (t) => t.businessId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PaperReceiptsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.paperReceipts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$BusinessesTableTableManager
@@ -11841,6 +12601,7 @@ class $$BusinessesTableTableManager
             bool suppliersRefs,
             bool supplierPaymentsRefs,
             bool invoiceSequencesRefs,
+            bool paperReceiptsRefs,
           })
         > {
   $$BusinessesTableTableManager(_$AppDatabase db, $BusinessesTable table)
@@ -11972,6 +12733,7 @@ class $$BusinessesTableTableManager
                 suppliersRefs = false,
                 supplierPaymentsRefs = false,
                 invoiceSequencesRefs = false,
+                paperReceiptsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -11987,6 +12749,7 @@ class $$BusinessesTableTableManager
                     if (suppliersRefs) db.suppliers,
                     if (supplierPaymentsRefs) db.supplierPayments,
                     if (invoiceSequencesRefs) db.invoiceSequences,
+                    if (paperReceiptsRefs) db.paperReceipts,
                   ],
                   addJoins:
                       <
@@ -12254,6 +13017,27 @@ class $$BusinessesTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (paperReceiptsRefs)
+                        await $_getPrefetchedData<
+                          BusinessesData,
+                          $BusinessesTable,
+                          PaperReceipt
+                        >(
+                          currentTable: table,
+                          referencedTable: $$BusinessesTableReferences
+                              ._paperReceiptsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$BusinessesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).paperReceiptsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.businessId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -12287,6 +13071,7 @@ typedef $$BusinessesTableProcessedTableManager =
         bool suppliersRefs,
         bool supplierPaymentsRefs,
         bool invoiceSequencesRefs,
+        bool paperReceiptsRefs,
       })
     >;
 typedef $$LocalSessionsTableCreateCompanionBuilder =
@@ -12764,6 +13549,24 @@ final class $$CustomersTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$PaperReceiptsTable, List<PaperReceipt>>
+  _paperReceiptsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.paperReceipts,
+    aliasName: 'customers__id__paper_receipts__customer_id',
+  );
+
+  $$PaperReceiptsTableProcessedTableManager get paperReceiptsRefs {
+    final manager = $$PaperReceiptsTableTableManager(
+      $_db,
+      $_db.paperReceipts,
+    ).filter((f) => f.customerId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_paperReceiptsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$CustomersTableFilterComposer
@@ -12854,6 +13657,31 @@ class $$CustomersTableFilterComposer
           }) => $$InvoicesTableFilterComposer(
             $db: $db,
             $table: $db.invoices,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> paperReceiptsRefs(
+    Expression<bool> Function($$PaperReceiptsTableFilterComposer f) f,
+  ) {
+    final $$PaperReceiptsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.paperReceipts,
+      getReferencedColumn: (t) => t.customerId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PaperReceiptsTableFilterComposer(
+            $db: $db,
+            $table: $db.paperReceipts,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -13017,6 +13845,31 @@ class $$CustomersTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> paperReceiptsRefs<T extends Object>(
+    Expression<T> Function($$PaperReceiptsTableAnnotationComposer a) f,
+  ) {
+    final $$PaperReceiptsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.paperReceipts,
+      getReferencedColumn: (t) => t.customerId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PaperReceiptsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.paperReceipts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$CustomersTableTableManager
@@ -13032,7 +13885,11 @@ class $$CustomersTableTableManager
           $$CustomersTableUpdateCompanionBuilder,
           (Customer, $$CustomersTableReferences),
           Customer,
-          PrefetchHooks Function({bool businessId, bool invoicesRefs})
+          PrefetchHooks Function({
+            bool businessId,
+            bool invoicesRefs,
+            bool paperReceiptsRefs,
+          })
         > {
   $$CustomersTableTableManager(_$AppDatabase db, $CustomersTable table)
     : super(
@@ -13101,67 +13958,98 @@ class $$CustomersTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({businessId = false, invoicesRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [if (invoicesRefs) db.invoices],
-              addJoins:
-                  <
-                    T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic
-                    >
-                  >(state) {
-                    if (businessId) {
-                      state =
-                          state.withJoin(
-                                currentTable: table,
-                                currentColumn: table.businessId,
-                                referencedTable: $$CustomersTableReferences
-                                    ._businessIdTable(db),
-                                referencedColumn: $$CustomersTableReferences
-                                    ._businessIdTable(db)
-                                    .id,
-                              )
-                              as T;
-                    }
+          prefetchHooksCallback:
+              ({
+                businessId = false,
+                invoicesRefs = false,
+                paperReceiptsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (invoicesRefs) db.invoices,
+                    if (paperReceiptsRefs) db.paperReceipts,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (businessId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.businessId,
+                                    referencedTable: $$CustomersTableReferences
+                                        ._businessIdTable(db),
+                                    referencedColumn: $$CustomersTableReferences
+                                        ._businessIdTable(db)
+                                        .id,
+                                  )
+                                  as T;
+                        }
 
-                    return state;
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (invoicesRefs)
+                        await $_getPrefetchedData<
+                          Customer,
+                          $CustomersTable,
+                          Invoice
+                        >(
+                          currentTable: table,
+                          referencedTable: $$CustomersTableReferences
+                              ._invoicesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$CustomersTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).invoicesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.customerId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (paperReceiptsRefs)
+                        await $_getPrefetchedData<
+                          Customer,
+                          $CustomersTable,
+                          PaperReceipt
+                        >(
+                          currentTable: table,
+                          referencedTable: $$CustomersTableReferences
+                              ._paperReceiptsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$CustomersTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).paperReceiptsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.customerId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
                   },
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (invoicesRefs)
-                    await $_getPrefetchedData<
-                      Customer,
-                      $CustomersTable,
-                      Invoice
-                    >(
-                      currentTable: table,
-                      referencedTable: $$CustomersTableReferences
-                          ._invoicesRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$CustomersTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).invoicesRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.customerId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -13178,7 +14066,11 @@ typedef $$CustomersTableProcessedTableManager =
       $$CustomersTableUpdateCompanionBuilder,
       (Customer, $$CustomersTableReferences),
       Customer,
-      PrefetchHooks Function({bool businessId, bool invoicesRefs})
+      PrefetchHooks Function({
+        bool businessId,
+        bool invoicesRefs,
+        bool paperReceiptsRefs,
+      })
     >;
 typedef $$InvoicesTableCreateCompanionBuilder =
     InvoicesCompanion Function({
@@ -13196,6 +14088,7 @@ typedef $$InvoicesTableCreateCompanionBuilder =
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<DateTime?> deletedAt,
+      Value<String?> paperReceiptImage,
       Value<int> rowid,
     });
 typedef $$InvoicesTableUpdateCompanionBuilder =
@@ -13214,6 +14107,7 @@ typedef $$InvoicesTableUpdateCompanionBuilder =
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime?> deletedAt,
+      Value<String?> paperReceiptImage,
       Value<int> rowid,
     });
 
@@ -13359,6 +14253,11 @@ class $$InvoicesTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get paperReceiptImage => $composableBuilder(
+    column: $table.paperReceiptImage,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13528,6 +14427,11 @@ class $$InvoicesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get paperReceiptImage => $composableBuilder(
+    column: $table.paperReceiptImage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$BusinessesTableOrderingComposer get businessId {
     final $$BusinessesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -13627,6 +14531,11 @@ class $$InvoicesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get paperReceiptImage => $composableBuilder(
+    column: $table.paperReceiptImage,
+    builder: (column) => column,
+  );
 
   $$BusinessesTableAnnotationComposer get businessId {
     final $$BusinessesTableAnnotationComposer composer = $composerBuilder(
@@ -13772,6 +14681,7 @@ class $$InvoicesTableTableManager
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> paperReceiptImage = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => InvoicesCompanion(
                 id: id,
@@ -13788,6 +14698,7 @@ class $$InvoicesTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                paperReceiptImage: paperReceiptImage,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -13806,6 +14717,7 @@ class $$InvoicesTableTableManager
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> paperReceiptImage = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => InvoicesCompanion.insert(
                 id: id,
@@ -13822,6 +14734,7 @@ class $$InvoicesTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                paperReceiptImage: paperReceiptImage,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -18980,6 +19893,512 @@ typedef $$InvoiceSequencesTableProcessedTableManager =
       InvoiceSequence,
       PrefetchHooks Function({bool businessId})
     >;
+typedef $$PaperReceiptsTableCreateCompanionBuilder =
+    PaperReceiptsCompanion Function({
+      required String id,
+      required String businessId,
+      required String customerId,
+      required String imagePath,
+      Value<String?> remoteImageUrl,
+      Value<String?> notes,
+      required DateTime receiptDate,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$PaperReceiptsTableUpdateCompanionBuilder =
+    PaperReceiptsCompanion Function({
+      Value<String> id,
+      Value<String> businessId,
+      Value<String> customerId,
+      Value<String> imagePath,
+      Value<String?> remoteImageUrl,
+      Value<String?> notes,
+      Value<DateTime> receiptDate,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+
+final class $$PaperReceiptsTableReferences
+    extends BaseReferences<_$AppDatabase, $PaperReceiptsTable, PaperReceipt> {
+  $$PaperReceiptsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $BusinessesTable _businessIdTable(_$AppDatabase db) =>
+      db.businesses.createAlias('paper_receipts__business_id__businesses__id');
+
+  $$BusinessesTableProcessedTableManager get businessId {
+    final $_column = $_itemColumn<String>('business_id')!;
+
+    final manager = $$BusinessesTableTableManager(
+      $_db,
+      $_db.businesses,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_businessIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $CustomersTable _customerIdTable(_$AppDatabase db) =>
+      db.customers.createAlias('paper_receipts__customer_id__customers__id');
+
+  $$CustomersTableProcessedTableManager get customerId {
+    final $_column = $_itemColumn<String>('customer_id')!;
+
+    final manager = $$CustomersTableTableManager(
+      $_db,
+      $_db.customers,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_customerIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$PaperReceiptsTableFilterComposer
+    extends Composer<_$AppDatabase, $PaperReceiptsTable> {
+  $$PaperReceiptsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get imagePath => $composableBuilder(
+    column: $table.imagePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteImageUrl => $composableBuilder(
+    column: $table.remoteImageUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get receiptDate => $composableBuilder(
+    column: $table.receiptDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$BusinessesTableFilterComposer get businessId {
+    final $$BusinessesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.businessId,
+      referencedTable: $db.businesses,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BusinessesTableFilterComposer(
+            $db: $db,
+            $table: $db.businesses,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$CustomersTableFilterComposer get customerId {
+    final $$CustomersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.customerId,
+      referencedTable: $db.customers,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CustomersTableFilterComposer(
+            $db: $db,
+            $table: $db.customers,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PaperReceiptsTableOrderingComposer
+    extends Composer<_$AppDatabase, $PaperReceiptsTable> {
+  $$PaperReceiptsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get imagePath => $composableBuilder(
+    column: $table.imagePath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteImageUrl => $composableBuilder(
+    column: $table.remoteImageUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get receiptDate => $composableBuilder(
+    column: $table.receiptDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$BusinessesTableOrderingComposer get businessId {
+    final $$BusinessesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.businessId,
+      referencedTable: $db.businesses,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BusinessesTableOrderingComposer(
+            $db: $db,
+            $table: $db.businesses,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$CustomersTableOrderingComposer get customerId {
+    final $$CustomersTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.customerId,
+      referencedTable: $db.customers,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CustomersTableOrderingComposer(
+            $db: $db,
+            $table: $db.customers,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PaperReceiptsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PaperReceiptsTable> {
+  $$PaperReceiptsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get imagePath =>
+      $composableBuilder(column: $table.imagePath, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteImageUrl => $composableBuilder(
+    column: $table.remoteImageUrl,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get receiptDate => $composableBuilder(
+    column: $table.receiptDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  $$BusinessesTableAnnotationComposer get businessId {
+    final $$BusinessesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.businessId,
+      referencedTable: $db.businesses,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$BusinessesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.businesses,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$CustomersTableAnnotationComposer get customerId {
+    final $$CustomersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.customerId,
+      referencedTable: $db.customers,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CustomersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.customers,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PaperReceiptsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PaperReceiptsTable,
+          PaperReceipt,
+          $$PaperReceiptsTableFilterComposer,
+          $$PaperReceiptsTableOrderingComposer,
+          $$PaperReceiptsTableAnnotationComposer,
+          $$PaperReceiptsTableCreateCompanionBuilder,
+          $$PaperReceiptsTableUpdateCompanionBuilder,
+          (PaperReceipt, $$PaperReceiptsTableReferences),
+          PaperReceipt,
+          PrefetchHooks Function({bool businessId, bool customerId})
+        > {
+  $$PaperReceiptsTableTableManager(_$AppDatabase db, $PaperReceiptsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PaperReceiptsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PaperReceiptsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PaperReceiptsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> businessId = const Value.absent(),
+                Value<String> customerId = const Value.absent(),
+                Value<String> imagePath = const Value.absent(),
+                Value<String?> remoteImageUrl = const Value.absent(),
+                Value<String?> notes = const Value.absent(),
+                Value<DateTime> receiptDate = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PaperReceiptsCompanion(
+                id: id,
+                businessId: businessId,
+                customerId: customerId,
+                imagePath: imagePath,
+                remoteImageUrl: remoteImageUrl,
+                notes: notes,
+                receiptDate: receiptDate,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String businessId,
+                required String customerId,
+                required String imagePath,
+                Value<String?> remoteImageUrl = const Value.absent(),
+                Value<String?> notes = const Value.absent(),
+                required DateTime receiptDate,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PaperReceiptsCompanion.insert(
+                id: id,
+                businessId: businessId,
+                customerId: customerId,
+                imagePath: imagePath,
+                remoteImageUrl: remoteImageUrl,
+                notes: notes,
+                receiptDate: receiptDate,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$PaperReceiptsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({businessId = false, customerId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (businessId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.businessId,
+                                referencedTable: $$PaperReceiptsTableReferences
+                                    ._businessIdTable(db),
+                                referencedColumn: $$PaperReceiptsTableReferences
+                                    ._businessIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+                    if (customerId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.customerId,
+                                referencedTable: $$PaperReceiptsTableReferences
+                                    ._customerIdTable(db),
+                                referencedColumn: $$PaperReceiptsTableReferences
+                                    ._customerIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$PaperReceiptsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PaperReceiptsTable,
+      PaperReceipt,
+      $$PaperReceiptsTableFilterComposer,
+      $$PaperReceiptsTableOrderingComposer,
+      $$PaperReceiptsTableAnnotationComposer,
+      $$PaperReceiptsTableCreateCompanionBuilder,
+      $$PaperReceiptsTableUpdateCompanionBuilder,
+      (PaperReceipt, $$PaperReceiptsTableReferences),
+      PaperReceipt,
+      PrefetchHooks Function({bool businessId, bool customerId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -19023,4 +20442,6 @@ class $AppDatabaseManager {
       $$NotificationSettingsTableTableManager(_db, _db.notificationSettings);
   $$InvoiceSequencesTableTableManager get invoiceSequences =>
       $$InvoiceSequencesTableTableManager(_db, _db.invoiceSequences);
+  $$PaperReceiptsTableTableManager get paperReceipts =>
+      $$PaperReceiptsTableTableManager(_db, _db.paperReceipts);
 }
