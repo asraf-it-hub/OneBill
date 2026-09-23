@@ -279,6 +279,63 @@ class BusinessRepository {
     });
   }
 
+  Future<void> updateLanguage({
+    required String businessId,
+    required String languageCode,
+  }) async {
+    final now = DateTime.now().toUtc();
+    await _database.transaction(() async {
+      final business = await (_database.select(_database.businesses)
+            ..where((entry) => entry.id.equals(businessId) & entry.deletedAt.isNull()))
+          .getSingleOrNull();
+      if (business == null) return;
+
+      await (_database.update(
+        _database.businesses,
+      )..where((entry) => entry.id.equals(businessId))).write(
+        BusinessesCompanion(
+          preferredLanguage: Value(languageCode),
+          updatedAt: Value(now),
+        ),
+      );
+      await (_database.update(
+        _database.localSessions,
+      )..where((session) => session.activeBusinessId.equals(businessId))).write(
+        LocalSessionsCompanion(
+          localeCode: Value(languageCode),
+          updatedAt: Value(now),
+        ),
+      );
+      await _enqueue(
+        businessId: businessId,
+        entityType: 'business',
+        entityId: businessId,
+        operationType: 'BusinessUpdated',
+        payload: {
+          'id': businessId,
+          'name': business.name,
+          'ownerName': business.ownerName,
+          'phone': business.phone,
+          'email': business.email,
+          'address': business.address,
+          'website': business.website,
+          'tagline': business.tagline,
+          'gstin': business.gstin,
+          'upiId': business.upiId,
+          'upiName': business.upiName,
+          'invoiceNotes': business.invoiceNotes,
+          'termsAndConditions': business.termsAndConditions,
+          'logoImage': business.logoImage,
+          'paymentQrImage': business.paymentQrImage,
+          'preferredLanguage': languageCode,
+          'createdAt': business.createdAt.toUtc().toIso8601String(),
+          'updatedAt': now.toIso8601String(),
+        },
+        now: now,
+      );
+    });
+  }
+
   Future<void> deleteBusiness({required String businessId}) async {
     final now = DateTime.now().toUtc();
     await _database.transaction(() async {

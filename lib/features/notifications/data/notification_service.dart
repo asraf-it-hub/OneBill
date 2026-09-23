@@ -101,7 +101,6 @@ class NotificationService {
       enableVibration: enableVibration,
       icon: 'ic_notification',
       color: const Color(0xFF126E5D),
-      largeIcon: const DrawableResourceAndroidBitmap('ic_notification_large'),
       visibility: NotificationVisibility.public,
       actions: actions,
     );
@@ -1083,14 +1082,42 @@ class NotificationService {
 
   Future<void> showTestDailySummary({String? langCode}) async {
     try {
-      final lang = langCode ?? await _getLanguageCode();
+      final active = await (_db.select(_db.businesses)
+            ..where((b) => b.deletedAt.isNull())
+            ..limit(1))
+          .getSingleOrNull();
+      final lang = langCode ?? await _getLanguageCode(active?.id);
+      final bizId = active?.id;
+
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+
+      final bizInvoices = bizId != null
+          ? await (_db.select(_db.invoices)
+                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+              .get()
+          : <Invoice>[];
+
+      final bizPayments = bizId != null
+          ? await (_db.select(_db.payments)
+                ..where((p) => p.businessId.equals(bizId)))
+              .get()
+          : <Payment>[];
+
+      final todayPayments = bizPayments.where((p) => p.createdAt.isAfter(todayStart)).toList();
+      final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+      final todayInvoices = bizInvoices.where((i) => i.createdAt.isAfter(todayStart)).toList();
+
       final title = trLang('Daily Summary', lang);
       final body = lang == 'te'
-          ? 'ఈరోజు వసూలైన మొత్తం ₹4,500.00 · 3 ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
+          ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
           : lang == 'hi'
-              ? 'आज एकत्रित राशि ₹4,500.00 · 3 चालान बनाए गए'
-              : 'Collected ₹4,500.00 today · 3 invoices created';
+              ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
+              : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
+
       final notifId = _generateDeterministicId('test_daily_${DateTime.now().millisecondsSinceEpoch}');
+      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+
       await _plugin.show(
         notifId,
         title,
@@ -1108,21 +1135,59 @@ class NotificationService {
             ],
           ),
         ),
-        payload: '{"action":"view_summary"}',
+        payload: payload,
+      );
+
+      await _repository.addNotification(
+        id: 'test_daily_${DateTime.now().millisecondsSinceEpoch}',
+        category: NotificationCategories.dailySummary,
+        title: title,
+        body: body,
+        entityType: 'summary',
+        payloadJson: payload,
       );
     } catch (_) {}
   }
 
   Future<void> showTestWeeklySummary({String? langCode}) async {
     try {
-      final lang = langCode ?? await _getLanguageCode();
+      final active = await (_db.select(_db.businesses)
+            ..where((b) => b.deletedAt.isNull())
+            ..limit(1))
+          .getSingleOrNull();
+      final lang = langCode ?? await _getLanguageCode(active?.id);
+      final bizId = active?.id;
+
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final weekStartDate = DateTime(weekStart.year, weekStart.month, weekStart.day);
+
+      final bizInvoices = bizId != null
+          ? await (_db.select(_db.invoices)
+                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+              .get()
+          : <Invoice>[];
+
+      final bizPayments = bizId != null
+          ? await (_db.select(_db.payments)
+                ..where((p) => p.businessId.equals(bizId)))
+              .get()
+          : <Payment>[];
+
+      final weekPayments = bizPayments.where((p) => p.createdAt.isAfter(weekStartDate)).toList();
+      final weekCollectedPaise = weekPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+      final weekInvoices = bizInvoices.where((i) => i.createdAt.isAfter(weekStartDate)).toList();
+
       final title = trLang('Weekly Summary', lang);
       final body = lang == 'te'
-          ? 'ఈ వారం వసూళ్లు: ₹28,500.00 · 14 ఇన్‌వాయిస్‌లు'
+          ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'
-              ? 'इस सप्ताह का संग्रह: ₹28,500.00 · 14 चालान'
-              : 'Week collections: ₹28,500.00 · 14 invoices';
+              ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
+              : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ${weekInvoices.length == 1 ? 'invoice' : 'invoices'}';
+
       final notifId = _generateDeterministicId('test_weekly_${DateTime.now().millisecondsSinceEpoch}');
+      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+
       await _plugin.show(
         notifId,
         title,
@@ -1140,21 +1205,58 @@ class NotificationService {
             ],
           ),
         ),
-        payload: '{"action":"view_summary"}',
+        payload: payload,
+      );
+
+      await _repository.addNotification(
+        id: 'test_weekly_${DateTime.now().millisecondsSinceEpoch}',
+        category: NotificationCategories.weeklySummary,
+        title: title,
+        body: body,
+        entityType: 'summary',
+        payloadJson: payload,
       );
     } catch (_) {}
   }
 
   Future<void> showTestMonthlySummary({String? langCode}) async {
     try {
-      final lang = langCode ?? await _getLanguageCode();
+      final active = await (_db.select(_db.businesses)
+            ..where((b) => b.deletedAt.isNull())
+            ..limit(1))
+          .getSingleOrNull();
+      final lang = langCode ?? await _getLanguageCode(active?.id);
+      final bizId = active?.id;
+
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+
+      final bizInvoices = bizId != null
+          ? await (_db.select(_db.invoices)
+                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+              .get()
+          : <Invoice>[];
+
+      final bizPayments = bizId != null
+          ? await (_db.select(_db.payments)
+                ..where((p) => p.businessId.equals(bizId)))
+              .get()
+          : <Payment>[];
+
+      final monthPayments = bizPayments.where((p) => p.createdAt.isAfter(monthStart)).toList();
+      final monthCollectedPaise = monthPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+      final monthInvoices = bizInvoices.where((i) => i.createdAt.isAfter(monthStart)).toList();
+
       final title = trLang('Monthly Performance', lang);
       final body = lang == 'te'
-          ? 'ఈ నెల వసూళ్లు: ₹1,24,000.00 · 52 ఇన్‌వాయిస్‌లు'
+          ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'
-              ? 'इस महीने का संग्रह: ₹1,24,000.00 · 52 चालान'
-              : 'Month collections: ₹1,24,000.00 · 52 invoices';
+              ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
+              : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ${monthInvoices.length == 1 ? 'invoice' : 'invoices'}';
+
       final notifId = _generateDeterministicId('test_monthly_${DateTime.now().millisecondsSinceEpoch}');
+      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+
       await _plugin.show(
         notifId,
         title,
@@ -1172,7 +1274,16 @@ class NotificationService {
             ],
           ),
         ),
-        payload: '{"action":"view_summary"}',
+        payload: payload,
+      );
+
+      await _repository.addNotification(
+        id: 'test_monthly_${DateTime.now().millisecondsSinceEpoch}',
+        category: NotificationCategories.monthlySummary,
+        title: title,
+        body: body,
+        entityType: 'summary',
+        payloadJson: payload,
       );
     } catch (_) {}
   }

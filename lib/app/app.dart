@@ -2821,28 +2821,32 @@ class _IncomeMonthSheet extends StatelessWidget {
                                         children: [
                                           Row(
                                             children: [
-                                              Text(
-                                                isCust ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
-                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                                decoration: BoxDecoration(
-                                                  color: isCust
-                                                      ? Colors.teal.withValues(alpha: 0.12)
-                                                      : theme.colorScheme.primary.withValues(alpha: 0.12),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                ),
+                                              Flexible(
                                                 child: Text(
-                                                  method,
-                                                  style: TextStyle(
-                                                    color: isCust ? Colors.teal : theme.colorScheme.primary,
-                                                    fontSize: 10.5,
-                                                    fontWeight: FontWeight.bold,
+                                                  isCust ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                                ),
+                                              ),
+                                              if (isCust) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.teal.withValues(alpha: 0.12),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    method,
+                                                    style: const TextStyle(
+                                                      color: Colors.teal,
+                                                      fontSize: 10.5,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
+                                              ],
                                             ],
                                           ),
                                           const SizedBox(height: 2),
@@ -3239,26 +3243,26 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
         shrinkWrap: true,
         children: [
           Text(
-            widget.income == null ? 'Add income' : 'Edit income',
+            widget.income == null ? _tr(context, 'Add income') : _tr(context, 'Edit income'),
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
           TextField(
             controller: amount,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Amount (₹)'),
+            decoration: InputDecoration(labelText: _tr(context, 'Amount (₹)')),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: description,
-            decoration: const InputDecoration(
-              labelText: 'Description (optional)',
+            decoration: InputDecoration(
+              labelText: _tr(context, 'Description (optional)'),
             ),
           ),
           const SizedBox(height: 12),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Income date'),
+            title: Text(_tr(context, 'Income date')),
             subtitle: Text(_date(date)),
             onTap: saving
                 ? null
@@ -3280,7 +3284,7 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
                   onPressed: saving ? null : delete,
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                   icon: const Icon(Icons.delete_outline),
-                  label: const Text('Delete'),
+                  label: Text(_tr(context, 'Delete')),
                 ),
               if (widget.income != null) const SizedBox(width: 12),
               Expanded(
@@ -3288,8 +3292,8 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
                   onPressed: saving ? null : save,
                   child: Text(
                     saving
-                        ? 'Saving...'
-                        : (widget.income == null ? 'Save income' : 'Update income'),
+                        ? _tr(context, 'Saving...')
+                        : (widget.income == null ? _tr(context, 'Save income') : _tr(context, 'Update income')),
                   ),
                 ),
               ),
@@ -4180,6 +4184,7 @@ class _ActivityTab extends ConsumerWidget {
                 final item = items[index];
                 final status = item.status;
                 return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: Icon(
                       status == 'synced'
@@ -4571,6 +4576,7 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
         itemBuilder: (context, index) {
           final record = records[index];
           return Card(
+            margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               leading: const Icon(Icons.delete_outline),
               title: Text(record.title),
@@ -5075,16 +5081,9 @@ class _BusinessSettingsSheetState
       _saving = true;
     });
     try {
-      await ref.read(businessRepositoryProvider).updateBusiness(
+      await ref.read(businessRepositoryProvider).updateLanguage(
             businessId: widget.business.id,
-            ownerName: widget.business.ownerName,
-            name: widget.business.name,
             languageCode: newLanguage,
-            phone: widget.business.phone ?? '',
-            email: widget.business.email ?? '',
-            address: widget.business.address ?? '',
-            upiId: widget.business.upiId ?? '',
-            paymentQrImage: widget.business.paymentQrImage,
           );
       await ref.read(appLanguageProvider.notifier).setLanguage(newLanguage);
       await ref.read(notificationServiceProvider).reconcileSummaries();
@@ -5873,12 +5872,40 @@ class _InvoiceListItem extends ConsumerWidget {
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ),
-        subtitle: Text(
-          '#${invoice.invoiceNumber}  •  ${_tr(context, "Total")} ${_rupees(total)}  •  ${_tr(context, "Due")} ${_rupees(balance)}',
-          style: TextStyle(
-            color: theme.colorScheme.onSurfaceVariant,
-            fontSize: 12.5,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 3),
+            Text(
+              '#${invoice.invoiceNumber}  •  ${_date(invoice.issuedAt)}',
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 12.5,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Row(
+              children: [
+                Text(
+                  '${_tr(context, "Total")}:\u00A0${_rupees(total)}',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '${_tr(context, "Due")}:\u00A0${_rupees(balance)}',
+                  style: TextStyle(
+                    color: balance > 0 ? theme.colorScheme.error : theme.colorScheme.primary,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         trailing: _InvoiceStatusBadge(status: status),
       ),
@@ -7225,10 +7252,14 @@ class _AmountLine extends StatelessWidget {
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          _tr(context, label),
-          style: bold ? const TextStyle(fontWeight: FontWeight.w700) : null,
+        Flexible(
+          child: Text(
+            _tr(context, label),
+            style: bold ? const TextStyle(fontWeight: FontWeight.w700) : null,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
+        const SizedBox(width: 8),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 320),
           switchInCurve: Curves.easeOutCubic,
@@ -7763,7 +7794,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                           ? null
                           : () => setState(() => _items.add(_InvoiceItemDraft())),
                       icon: const Icon(Icons.add_circle_outline, size: 18),
-                      label: const Text('Add Another Item'),
+                      label: Text(_tr(context, 'Add Another Item')),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -7874,7 +7905,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       Icon(Icons.event_note_outlined, size: 20, color: theme.colorScheme.primary),
                       const SizedBox(width: 8),
                       Text(
-                        'Due Date & Notes',
+                        _tr(context, 'Due Date & Notes'),
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: theme.colorScheme.primary,
@@ -7885,7 +7916,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                   const SizedBox(height: 12),
 
                   _DatePickerField(
-                    label: 'Payment Due Date',
+                    label: _tr(context, 'Payment Due Date'),
                     selectedDate: _dueAt,
                     onTap: _saving ? () {} : _selectDueDate,
                     onClear: () => setState(() => _dueAt = null),
@@ -7896,9 +7927,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     controller: _notes,
                     minLines: 2,
                     maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'Invoice Notes (Optional)',
-                      hintText: 'e.g. Thank you for your business!',
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Invoice Notes (Optional)'),
+                      hintText: _tr(context, 'e.g. Thank you for your business!'),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -7909,7 +7940,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       Icon(Icons.calculate_outlined, size: 20, color: theme.colorScheme.primary),
                       const SizedBox(width: 8),
                       Text(
-                        'Bill Summary & Adjustments',
+                        _tr(context, 'Bill Summary & Adjustments'),
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: theme.colorScheme.primary,
@@ -7924,22 +7955,23 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Discount (₹, optional)',
-                      prefixIcon: Icon(Icons.discount_outlined),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Discount (₹, optional)'),
+                      prefixIcon: const Icon(Icons.discount_outlined),
                     ),
                     validator: _optionalAmountValidator,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
+
                   TextFormField(
                     controller: _interest,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Extra Charge / Interest (₹, optional)',
-                      prefixIcon: Icon(Icons.add_card_outlined),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Extra Charge / Interest (₹, optional)'),
+                      prefixIcon: const Icon(Icons.add_card_outlined),
                     ),
                     validator: _optionalAmountValidator,
                     onChanged: (_) => setState(() {}),
@@ -7982,7 +8014,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       onPressed: _saving ? null : _save,
                       icon: const Icon(Icons.check_circle_outline),
                       label: Text(
-                        _saving ? 'Creating Invoice...' : 'Create Invoice',
+                        _saving ? _tr(context, 'Creating Invoice...') : _tr(context, 'Create Invoice'),
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -8056,7 +8088,7 @@ class _InvoiceItemEditor extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    'Item #$itemNumber',
+                    '${_tr(context, 'Item')} #$itemNumber',
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: theme.colorScheme.onPrimaryContainer,
@@ -8066,7 +8098,7 @@ class _InvoiceItemEditor extends StatelessWidget {
                 const Spacer(),
                 if (canRemove)
                   IconButton(
-                    tooltip: 'Remove item',
+                    tooltip: _tr(context, 'Remove item'),
                     onPressed: onRemove,
                     icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
                   ),
@@ -8075,9 +8107,9 @@ class _InvoiceItemEditor extends StatelessWidget {
             const SizedBox(height: 10),
             TextFormField(
               controller: draft.description,
-              decoration: const InputDecoration(
-                labelText: 'Item / Service Description *',
-                hintText: 'e.g. Rice Bag 25kg or Plumbing Service',
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Item / Service Description *'),
+                hintText: _tr(context, 'e.g. Rice Bag 25kg or Plumbing Service'),
               ),
               validator: _required,
             ),
@@ -8090,7 +8122,7 @@ class _InvoiceItemEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(labelText: 'Qty *'),
+                    decoration: InputDecoration(labelText: _tr(context, 'Qty *')),
                     validator: _quantityValidator,
                     onChanged: (_) => onChanged(),
                   ),
@@ -8102,8 +8134,8 @@ class _InvoiceItemEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Unit Price (₹) *',
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Unit Price (₹) *'),
                     ),
                     validator: _amountValidator,
                     onChanged: (_) => onChanged(),
@@ -8115,7 +8147,7 @@ class _InvoiceItemEditor extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'Line Total: ${_rupees(draft.lineTotalPaise)}',
+                '${_tr(context, 'Line Total')}: ${_rupees(draft.lineTotalPaise)}',
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: theme.colorScheme.primary,
@@ -8262,9 +8294,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
               const SizedBox(height: 20),
               TextFormField(
                 controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'Customer name',
-                  prefixIcon: Icon(Icons.person_outline_rounded),
+                decoration: InputDecoration(
+                  labelText: _tr(context, 'Customer name'),
+                  prefixIcon: const Icon(Icons.person_outline_rounded),
                 ),
                 validator: _required,
               ),
@@ -8278,7 +8310,7 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                   }
                 },
                 decoration: InputDecoration(
-                  labelText: 'Mobile number',
+                  labelText: _tr(context, 'Mobile number'),
                   prefixIcon: const Icon(Icons.phone_outlined),
                   errorText: _phoneError,
                   suffixIcon: _verifyingPhone
@@ -8343,10 +8375,10 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                 onPressed: (_saving || _verifyingPhone) ? null : _save,
                 child: Text(
                   _verifyingPhone
-                      ? 'Verifying number...'
+                      ? _tr(context, 'Verifying number...')
                       : _saving
-                          ? 'Saving...'
-                          : 'Save customer',
+                          ? _tr(context, 'Saving...')
+                          : _tr(context, 'Save customer'),
                 ),
               ),
             ],
@@ -8553,7 +8585,7 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${overdueInvoices.length} ${overdueInvoices.length == 1 ? 'invoice' : 'invoices'}  •  ${_tr(context, "Total outstanding")} ${_rupees(totalOutstandingPaise)}',
+                              '${overdueInvoices.length} ${overdueInvoices.length == 1 ? _tr(context, "invoice") : _tr(context, "invoices")}  •  ${_tr(context, "Total outstanding")} ${_rupees(totalOutstandingPaise)}',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
@@ -8741,7 +8773,7 @@ class _OverdueInvoiceCard extends ConsumerWidget {
                     Text(
                       dueAt == null
                           ? _tr(context, 'Overdue')
-                          : '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? "day" : "days"} ${_tr(context, "overdue")}',
+                          : '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? _tr(context, "day") : _tr(context, "days")} ${_tr(context, "overdue")}',
                       style: TextStyle(
                         fontSize: 12.5,
                         color: theme.colorScheme.error,
