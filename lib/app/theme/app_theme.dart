@@ -152,8 +152,15 @@ abstract final class OneBillTheme {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF1E293B),
+      contentTextStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      insetPadding: const EdgeInsets.all(16),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      elevation: 6,
     ),
   );
 
@@ -295,8 +302,18 @@ abstract final class OneBillTheme {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      insetPadding: const EdgeInsets.all(16),
+      backgroundColor: const Color(0xFF232A34),
+      contentTextStyle: const TextStyle(
+        color: Color(0xFFF1F5F9),
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF333E4F)),
+      ),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      elevation: 6,
     ),
     dividerTheme: const DividerThemeData(color: Color(0xFF2C323B)),
   );

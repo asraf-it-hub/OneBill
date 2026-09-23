@@ -1824,9 +1824,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        const SnackBar(
-          content: Text('Press back again to exit OneBill'),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(_tr(context, 'Press back again to exit OneBill')),
+          duration: const Duration(seconds: 2),
         ),
       );
   }
@@ -1876,9 +1876,9 @@ Future<void> _configurePin(BuildContext context, WidgetRef ref) async {
   } catch (_) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'App lock storage is unavailable. Please restart the app and try again.',
+            _tr(context, 'App lock storage is unavailable. Please restart the app and try again.'),
           ),
         ),
       );
@@ -1901,8 +1901,8 @@ Future<void> _configurePin(BuildContext context, WidgetRef ref) async {
       SnackBar(
         content: Text(
           result == 'disabled'
-              ? 'App lock disabled'
-              : 'App lock PIN saved',
+              ? _tr(context, 'App lock disabled')
+              : _tr(context, 'App lock PIN saved'),
         ),
       ),
     );
@@ -2702,151 +2702,189 @@ class _IncomeMonthSheet extends StatelessWidget {
       child: DraggableScrollableSheet(
         expand: false,
         initialChildSize: .8,
-        builder: (context, controller) => ListView(
-          controller: controller,
-          padding: const EdgeInsets.all(24),
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).dividerColor,
-                  borderRadius: BorderRadius.circular(2),
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, controller) {
+          final theme = Theme.of(context);
+          return ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _monthLabel(month),
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_tr(context, 'Total income')}: ${_rupees(total)}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${items.length} ${items.length == 1 ? _tr(context, 'Entry') : _tr(context, 'Entries')}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            Text(
-              _monthLabel(month),
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            Text('${_tr(context, 'Total income')}: ${_rupees(total)}'),
-            const SizedBox(height: 16),
-            ...days.entries.map((entry) {
-              final dayTotal = entry.value.fold<int>(
-                0,
-                (sum, item) => sum + item.amountPaise,
-              );
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ExpansionTile(
-                  initiallyExpanded: false,
-                  title: Text(_date(entry.key)),
-                  subtitle: Text('${_tr(context, 'Day Total')}: ${_rupees(dayTotal)}'),
-                  children: entry.value.map((item) {
-                    if (item.sourceType == _IncomeSourceType.customer) {
-                      final p = item.payment!;
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.teal.withValues(alpha: 0.12),
-                          child: const Icon(Icons.receipt_long_outlined, color: Colors.teal),
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Customer Payment (${_formatTitleCase(p.method)})',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'Customer',
-                                style: TextStyle(
-                                  color: Colors.teal,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+              ...days.entries.map((entry) {
+                final dayTotal = entry.value.fold<int>(
+                  0,
+                  (sum, item) => sum + item.amountPaise,
+                );
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                  ),
+                  child: Theme(
+                    data: theme.copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      initiallyExpanded: false,
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                      title: Text(
+                        _date(entry.key),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      subtitle: Text(
+                        '${_tr(context, 'Day Total')}: ${_rupees(dayTotal)} • ${entry.value.length} ${entry.value.length == 1 ? _tr(context, 'entry') : _tr(context, 'entries')}',
+                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                      ),
+                      children: entry.value.map((item) {
+                        final isCust = item.sourceType == _IncomeSourceType.customer;
+                        final p = item.payment;
+                        final o = item.ownerEntry;
+                        final method = isCust ? _formatTitleCase(p?.method ?? 'Cash') : _tr(context, 'Owner Entry');
+                        final note = isCust ? p?.note : o?.description;
+                        final timeStr = TimeOfDay.fromDateTime(item.date).format(context);
+
+                        return Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => _showIncomeDetailSheet(context, businessId: businessId, item: item),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: isCust
+                                          ? Colors.teal.withValues(alpha: 0.15)
+                                          : theme.colorScheme.primary.withValues(alpha: 0.15),
+                                      child: Icon(
+                                        isCust ? Icons.receipt_long_outlined : Icons.person_add_alt_1_outlined,
+                                        color: isCust ? Colors.teal : theme.colorScheme.primary,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                isCust ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
+                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                decoration: BoxDecoration(
+                                                  color: isCust
+                                                      ? Colors.teal.withValues(alpha: 0.12)
+                                                      : theme.colorScheme.primary.withValues(alpha: 0.12),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  method,
+                                                  style: TextStyle(
+                                                    color: isCust ? Colors.teal : theme.colorScheme.primary,
+                                                    fontSize: 10.5,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            note != null && note.trim().isNotEmpty
+                                                ? '$timeStr • ${_formatTitleCase(note.trim())}'
+                                                : timeStr,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: theme.colorScheme.onSurfaceVariant,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '+ ${_rupees(item.amountPaise)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isCust ? Colors.teal : theme.colorScheme.primary,
+                                        fontSize: 14.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.outline),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        subtitle: Text(
-                          '${TimeOfDay.fromDateTime(p.receivedAt).format(context)}'
-                          '${p.note != null && p.note!.trim().isNotEmpty ? ' • ${_formatTitleCase(p.note!.trim())}' : ''}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '+ ${_rupees(p.amountPaise)}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.chevron_right, size: 18),
-                          ],
-                        ),
-                        onTap: () => _showIncomeDetailSheet(context, businessId: businessId, item: item),
-                      );
-                    } else {
-                      final o = item.ownerEntry!;
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.12),
-                          child: Icon(Icons.person_add_alt_1_outlined, color: Theme.of(context).primaryColor),
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                (o.description != null && o.description!.trim().isNotEmpty)
-                                    ? _formatTitleCase(o.description!.trim())
-                                    : 'Owner Manual Income',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).primaryColor.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                'Owner Added',
-                                style: TextStyle(
-                                  color: Theme.of(context).primaryColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        subtitle: Text('Added by owner on ${_date(o.incomeDate)}'),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '+ ${_rupees(o.amountPaise)}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.chevron_right, size: 18),
-                          ],
-                        ),
-                        onTap: () => _showIncomeDetailSheet(context, businessId: businessId, item: item),
-                      );
-                    }
-                  }).toList(),
-                ),
-              );
-            }),
-          ],
-        ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          );
+        },
       ),
     );
   }
@@ -2870,10 +2908,10 @@ void _showIncomeDetailSheet(
   final o = item.ownerEntry;
 
   final title = isCustomer
-      ? 'Customer Payment (${_formatTitleCase(p?.method ?? 'cash')})'
+      ? '${_tr(context, 'Customer Payment')}${p?.method != null ? ' (${_formatTitleCase(p!.method)})' : ''}'
       : (o?.description != null && o!.description!.trim().isNotEmpty)
           ? _formatTitleCase(o.description!)
-          : 'Owner Manual Income';
+          : _tr(context, 'Owner Entry');
 
   final formattedDate = '${_date(item.date)} at ${TimeOfDay.fromDateTime(item.date).format(context)}';
   final note = isCustomer ? p?.note : o?.description;
@@ -2882,165 +2920,186 @@ void _showIncomeDetailSheet(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (ctx) {
       final theme = Theme.of(ctx);
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: isCustomer
-                      ? Colors.teal.withValues(alpha: 0.15)
-                      : theme.primaryColor.withValues(alpha: 0.15),
-                  radius: 24,
-                  child: Icon(
-                    isCustomer ? Icons.receipt_long_outlined : Icons.person_add_alt_1_outlined,
-                    color: isCustomer ? Colors.teal : theme.primaryColor,
-                    size: 26,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isCustomer
-                              ? Colors.teal.withValues(alpha: 0.12)
-                              : theme.primaryColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          isCustomer ? 'Customer Payment' : 'Owner Added Entry',
-                          style: TextStyle(
-                            color: isCustomer ? Colors.teal : theme.primaryColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Card(
-              elevation: 0,
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Amount Received', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        Text(
-                          '+ ${_rupees(item.amountPaise)}',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: isCustomer ? Colors.teal.shade700 : theme.primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Date & Time', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        Text(formattedDate, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      ],
-                    ),
-                    if (isCustomer && p?.method != null) ...[
-                      const Divider(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Payment Method', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                          Text(
-                            _formatTitleCase(p!.method),
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Description / Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.cardColor,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Text(
-                (note != null && note.trim().isNotEmpty)
-                    ? _formatTitleCase(note.trim())
-                    : (isCustomer ? 'Payment received for customer invoice.' : 'Manual income recorded by owner.'),
-                style: const TextStyle(fontSize: 13.5, height: 1.4),
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (!isCustomer && o != null) ...[
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
+                  CircleAvatar(
+                    backgroundColor: isCustomer
+                        ? Colors.teal.withValues(alpha: 0.15)
+                        : theme.primaryColor.withValues(alpha: 0.15),
+                    radius: 22,
+                    child: Icon(
+                      isCustomer ? Icons.receipt_long_outlined : Icons.person_add_alt_1_outlined,
+                      color: isCustomer ? Colors.teal : theme.primaryColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        showModalBottomSheet<void>(
-                          context: context,
-                          isScrollControlled: true,
-                          builder: (_) => _IncomeEditor(
-                            businessId: businessId,
-                            income: o,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      label: const Text('Edit Entry'),
+                        ),
+                        const SizedBox(height: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isCustomer
+                                ? Colors.teal.withValues(alpha: 0.12)
+                                : theme.primaryColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            isCustomer ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
+                            style: TextStyle(
+                              color: isCustomer ? Colors.teal : theme.primaryColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ] else ...[
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
+              const SizedBox(height: 20),
+              Card(
+                elevation: 0,
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _tr(context, 'Amount Received'),
+                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                          ),
+                          Text(
+                            '+ ${_rupees(item.amountPaise)}',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: isCustomer ? Colors.teal : theme.primaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _tr(context, 'Date & Time'),
+                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                          ),
+                          Text(formattedDate, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        ],
+                      ),
+                      if (isCustomer && p?.method != null) ...[
+                        const Divider(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _tr(context, 'Payment Method'),
+                              style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                            ),
+                            Text(
+                              _formatTitleCase(p!.method),
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                _tr(context, 'Description / Notes'),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                ),
+                child: Text(
+                  (note != null && note.trim().isNotEmpty)
+                      ? _formatTitleCase(note.trim())
+                      : (isCustomer ? _tr(context, 'Payment received for customer invoice.') : _tr(context, 'Manual income recorded by owner.')),
+                  style: const TextStyle(fontSize: 13.5, height: 1.4),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (!isCustomer && o != null) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            builder: (_) => _IncomeEditor(
+                              businessId: businessId,
+                              income: o,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: Text(_tr(context, 'Edit Entry')),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text(_tr(context, 'Close')),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(_tr(context, 'Close')),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       );
     },
@@ -3082,7 +3141,7 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
     final paise = _parseOptionalRupees(amount.text);
     if (paise <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter an amount greater than zero.')),
+        SnackBar(content: Text(_tr(context, 'Enter an amount greater than zero.'))),
       );
       return;
     }
@@ -3110,7 +3169,7 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(_cleanErrorMessage(e, 'Failed to save income'))));
+        ).showSnackBar(SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Failed to save income')))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -3121,17 +3180,17 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete income entry?'),
-        content: const Text('Are you sure you want to delete this manual income entry?'),
+        title: Text(_tr(context, 'Delete income entry?')),
+        content: Text(_tr(context, 'Are you sure you want to delete this manual income entry?')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(_tr(context, 'Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: Text(_tr(context, 'Delete')),
           ),
         ],
       ),
@@ -5590,7 +5649,7 @@ class _CustomerInfoSheet extends StatelessWidget {
                   await Clipboard.setData(ClipboardData(text: customer.phone));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Mobile number copied')),
+                      SnackBar(content: Text(_tr(context, 'Mobile number copied'))),
                     );
                   }
                 },
@@ -6153,17 +6212,6 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         child: ListView(
           controller: controller,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).dividerColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
