@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:onebill/core/database/app_database.dart';
 import 'package:onebill/core/localization/app_localizations.dart';
 import 'package:onebill/features/businesses/data/business_repository.dart';
+import 'package:onebill/features/invoices/services/pdf_invoice_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -102,5 +103,78 @@ void main() {
 
     expect(trLang('day', 'te'), 'రోజు');
     expect(trLang('days', 'te'), 'రోజులు');
+
+    expect(trLang('Fill in line items, payment terms, and adjustments below.', 'te'), 'క్రింద వస్తువులు, చెల్లింపు నిబంధనలు మరియు సర్దుబాట్లను పూరించండి.');
+    expect(trLang('Fill in line items, payment terms, and adjustments below.', 'hi'), 'नीचे आइटम, भुगतान शर्तें और समायोजन भरें।');
+    expect(trLang('Optional', 'te'), 'ఐచ్ఛికం');
+    expect(trLang('Optional', 'hi'), 'वैकल्पिक');
+    expect(trLang('Tap to change or remove', 'te'), 'మార్చడానికి లేదా తొలగించడానికి నొక్కండి');
+    expect(trLang('Tap to change or remove', 'hi'), 'बदलने या हटाने के लिए टैप करें');
+  });
+
+  test('PdfInvoiceService includes invoice notes, business notes and terms in PDF and receipt', () async {
+    final pdfService = PdfInvoiceService();
+    final now = DateTime.now();
+    final business = BusinessesData(
+      id: 'biz-1',
+      accountId: 'user-1',
+      name: 'Sri Krishna Kirana',
+      ownerName: 'Krishna',
+      phone: '9876543210',
+      invoiceNotes: 'Goods once sold cannot be returned without bill.',
+      termsAndConditions: 'All disputes are subject to local jurisdiction.',
+      preferredLanguage: 'te',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final customer = Customer(
+      id: 'cust-1',
+      businessId: 'biz-1',
+      name: 'Ramesh Babu',
+      phone: '9123456780',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final invoice = Invoice(
+      id: 'inv-1',
+      businessId: 'biz-1',
+      customerId: 'cust-1',
+      invoiceNumber: 'INV-2026-001',
+      subtotalPaise: 100000,
+      discountPaise: 5000,
+      interestPaise: 0,
+      paidPaise: 0,
+      notes: 'Delivered via express delivery.',
+      issuedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final items = [
+      InvoiceItem(
+        id: 'item-1',
+        invoiceId: 'inv-1',
+        description: 'Rice Bag 25kg',
+        quantityMilliunits: 1000,
+        unitPricePaise: 100000,
+        lineTotalPaise: 100000,
+        sortOrder: 0,
+      ),
+    ];
+
+    final invoicePdf = await pdfService.generate(
+      business: business,
+      customer: customer,
+      invoice: invoice,
+      items: items,
+    );
+    expect(invoicePdf.isNotEmpty, isTrue);
+
+    final receiptPdf = await pdfService.generatePaperReceiptPdf(
+      business: business,
+      customer: customer,
+      invoice: invoice,
+      paperReceiptImage: 'data:image/jpeg;base64,dGVzdA==',
+    );
+    expect(receiptPdf.isNotEmpty, isTrue);
   });
 }

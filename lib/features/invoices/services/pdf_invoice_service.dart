@@ -272,7 +272,39 @@ class PdfInvoiceService {
             ],
           ),
 
-          pw.SizedBox(height: 20),
+          if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F8FAFC'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                border: pw.Border.all(color: borderGrey, width: 0.75),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'NOTE: ',
+                    style: pw.TextStyle(
+                      fontSize: 8.5,
+                      fontWeight: pw.FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  pw.Expanded(
+                    child: pw.Text(
+                      invoice.notes!.trim(),
+                      style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          pw.SizedBox(height: 16),
           pw.Divider(color: borderGrey, thickness: 1),
           pw.SizedBox(height: 16),
 
@@ -532,11 +564,9 @@ class PdfInvoiceService {
             pw.SizedBox(height: 20),
           ],
 
-          // 6. NOTES & TERMS & CONDITIONS
-          if ((business.invoiceNotes != null &&
-                  business.invoiceNotes!.trim().isNotEmpty) ||
-              (invoice.notes != null &&
-                  invoice.notes!.trim().isNotEmpty)) ...[
+          // 6. NOTES & TERMS & CONDITIONS (From Business Profile)
+          if (business.invoiceNotes != null &&
+              business.invoiceNotes!.trim().isNotEmpty) ...[
             pw.Text(
               'NOTES',
               style: pw.TextStyle(
@@ -547,7 +577,7 @@ class PdfInvoiceService {
             ),
             pw.SizedBox(height: 4),
             pw.Text(
-              (business.invoiceNotes ?? invoice.notes!).trim(),
+              business.invoiceNotes!.trim(),
               style: pw.TextStyle(fontSize: 9, color: darkSlate),
             ),
             pw.SizedBox(height: 12),
@@ -1068,6 +1098,57 @@ class PdfInvoiceService {
                 ),
               ),
             ],
+          ],
+
+          if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Text(
+                'Note: ${invoice.notes!.trim()}',
+                style: pw.TextStyle(fontSize: 7.5, color: darkSlate, fontStyle: pw.FontStyle.italic),
+              ),
+            ),
+          ],
+          if (business.invoiceNotes != null && business.invoiceNotes!.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'NOTES:',
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: primaryColor),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    business.invoiceNotes!.trim(),
+                    style: pw.TextStyle(fontSize: 7.5, color: darkSlate),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (business.termsAndConditions != null && business.termsAndConditions!.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'TERMS & CONDITIONS:',
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: primaryColor),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    business.termsAndConditions!.trim(),
+                    style: pw.TextStyle(fontSize: 7.5, color: darkSlate),
+                  ),
+                ],
+              ),
+            ),
           ],
 
           // 4. FOOTER & ONEBILL BRANDING
