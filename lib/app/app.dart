@@ -1120,7 +1120,29 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   // Keeps the main navigation highlighted while a tool from the profile menu
   // is open.
   var _bottomTab = 0;
+  late final PageController _pageController = PageController(initialPage: _tab);
   DateTime? _lastBackPress;
+
+  void _setTab(int index, {bool animate = true}) {
+    if (_tab == index) return;
+    setState(() {
+      _tab = index;
+      if (index < 4) {
+        _bottomTab = index;
+      }
+    });
+    if (_pageController.hasClients) {
+      if (animate) {
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOutCubic,
+        );
+      } else {
+        _pageController.jumpToPage(index);
+      }
+    }
+  }
   var _lockChecking = true;
   var _locked = false;
   var _biometricEnabled = false;
@@ -1199,7 +1221,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   void _openReportsTab() {
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
-    setState(() => _tab = 6);
+    _setTab(6);
   }
 
   void _handleNotificationPayload(String payloadStr, [String? actionId]) {
@@ -1225,6 +1247,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
   @override
   void dispose() {
+    _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _syncQueueSubscription?.close();
     _syncTimer?.cancel();
@@ -1634,13 +1657,13 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                       }
                       break;
                     case 'recycle_bin':
-                      setState(() => _tab = 4);
+                      _setTab(4);
                       break;
                     case 'activity':
-                      setState(() => _tab = 5);
+                      _setTab(5);
                       break;
                     case 'reports':
-                      setState(() => _tab = 6);
+                      _setTab(6);
                       break;
                     case 'sign_out':
                       _confirmSignOut(context, ref);
@@ -1698,42 +1721,39 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
             ),
           ],
         ),
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: KeyedSubtree(
-            key: ValueKey<int>(_tab),
-            child: _tab == 0
-                ? _DashboardTab(
-                    businessId: session.activeBusinessId!,
-                    customers: customers,
-                    summary: summary,
-                    inventory: inventory,
-                    onShowCustomers: () => setState(() {
-                      _tab = 1;
-                      _bottomTab = 1;
-                    }),
-                  )
-                : _tab == 1
-                ? _CustomersTab(
-                    businessId: session.activeBusinessId!,
-                    customers: customers,
-                  )
-                : _tab == 2
-                ? _IncomeTab(businessId: session.activeBusinessId!)
-                : _tab == 3
-                ? _ExpensesTab(businessId: session.activeBusinessId!)
-                : _tab == 4
-                ? _RecycleBinTab(businessId: session.activeBusinessId!)
-                : _tab == 5
-                ? _ActivityTab(businessId: session.activeBusinessId!)
-                : _ReportsTab(
-                    businessId: session.activeBusinessId!,
-                    summary: summary,
-                    customers: customers,
-                  ),
-          ),
+        body: PageView(
+          controller: _pageController,
+          physics: const BouncingScrollPhysics(),
+          onPageChanged: (value) {
+            setState(() {
+              _tab = value;
+              if (value < 4) {
+                _bottomTab = value;
+              }
+            });
+          },
+          children: [
+            _DashboardTab(
+              businessId: session.activeBusinessId!,
+              customers: customers,
+              summary: summary,
+              inventory: inventory,
+              onShowCustomers: () => _setTab(1),
+            ),
+            _CustomersTab(
+              businessId: session.activeBusinessId!,
+              customers: customers,
+            ),
+            _IncomeTab(businessId: session.activeBusinessId!),
+            _ExpensesTab(businessId: session.activeBusinessId!),
+            _RecycleBinTab(businessId: session.activeBusinessId!),
+            _ActivityTab(businessId: session.activeBusinessId!),
+            _ReportsTab(
+              businessId: session.activeBusinessId!,
+              summary: summary,
+              customers: customers,
+            ),
+          ],
         ),
         floatingActionButton: (_tab >= 4)
             ? null
@@ -1771,10 +1791,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _bottomTab,
-          onDestinationSelected: (value) => setState(() {
-            _tab = value;
-            _bottomTab = value;
-          }),
+          onDestinationSelected: (value) => _setTab(value),
           destinations: [
             NavigationDestination(
               icon: Icon(Icons.dashboard_outlined),
@@ -1814,10 +1831,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
     _lastBackPress = now;
     if (_tab != 0) {
-      setState(() {
-        _tab = 0;
-        _bottomTab = 0;
-      });
+      _setTab(0);
       return;
     }
 
@@ -2613,6 +2627,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
           final custCount = entry.value.where((e) => e.sourceType == _IncomeSourceType.customer).length;
           final ownerCount = entry.value.where((e) => e.sourceType == _IncomeSourceType.owner).length;
           return Card(
+            margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               title: Text(_monthLabel(entry.key)),
               subtitle: Text(
@@ -3673,6 +3688,7 @@ class _InventoryTab extends ConsumerWidget {
                     product.stockMilliunits <=
                     product.lowStockThresholdMilliunits;
                 return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: CircleAvatar(
                       child: Icon(
@@ -4015,6 +4031,7 @@ class _SuppliersTab extends ConsumerWidget {
               itemBuilder: (_, i) {
                 final s = items[i];
                 return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: const CircleAvatar(
                       child: Icon(Icons.local_shipping_outlined),
@@ -4570,31 +4587,82 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
               'Deleted expenses, products, and suppliers will appear here.',
         );
       }
-      return ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        itemCount: records.length,
-        itemBuilder: (context, index) {
-          final record = records[index];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text(record.title),
-              subtitle: Text(record.subtitle),
-              trailing: TextButton(
-                onPressed: () async {
-                  await record.restore();
-                  if (!context.mounted) return;
-                  setState(() => _records = _load());
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(_tr(context, 'Record restored'))),
-                  );
-                },
-                child: Text(_tr(context, 'Restore')),
+      return Column(
+        children: [
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.error.withValues(alpha: 0.25),
               ),
             ),
-          );
-        },
+            child: Row(
+              children: [
+                Icon(
+                  Icons.delete_sweep_outlined,
+                  color: Theme.of(context).colorScheme.error,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tr(context, 'Recycle Bin'),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _tr(context, 'Deleted items can be restored back to your active lists.'),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+              itemCount: records.length,
+              itemBuilder: (context, index) {
+                final record = records[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: const Icon(Icons.delete_outline),
+                    title: Text(record.title),
+                    subtitle: Text(record.subtitle),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await record.restore();
+                        if (!context.mounted) return;
+                        setState(() => _records = _load());
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(_tr(context, 'Record restored'))),
+                        );
+                      },
+                      child: Text(_tr(context, 'Restore')),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       );
     },
   );
@@ -5985,23 +6053,25 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
       final file = File('${tempDir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [
-            XFile(
-              file.path,
-              mimeType: 'application/pdf',
-              name: fileName,
-            ),
-          ],
-          title: fileName,
-          text: 'Invoice ${invoice.invoiceNumber}',
-        ),
-      );
-
-      await ref
-          .read(notificationServiceProvider)
-          .notifyInvoiceSentShared(invoice, customer);
+      try {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [
+              XFile(
+                file.path,
+                mimeType: 'application/pdf',
+                name: fileName,
+              ),
+            ],
+            title: fileName,
+            text: 'Invoice ${invoice.invoiceNumber}',
+          ),
+        );
+      } finally {
+        await ref
+            .read(notificationServiceProvider)
+            .notifyInvoiceSentShared(invoice, customer);
+      }
     } catch (error) {
       if (context.mounted) {
         AppToast.showError(context, 'Could not share invoice PDF: $error');
@@ -6011,19 +6081,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
 
   Future<void> _sharePaperReceipt(BuildContext context, WidgetRef ref) async {
     try {
-      final database = ref.read(databaseProvider);
-      final business = await (database.select(
-        database.businesses,
-      )..where((entry) => entry.id.equals(businessId))).getSingle();
-      final customer =
-          await (database.select(database.customers)..where(
-                (entry) => Expression.and([
-                  entry.id.equals(invoice.customerId),
-                  entry.businessId.equals(businessId),
-                ]),
-              ))
-              .getSingle();
-
+      final (_, business, customer) = await _pdfData(ref);
       final bytes = await ref
           .read(pdfInvoiceServiceProvider)
           .generatePaperReceiptPdf(
@@ -6038,19 +6096,25 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
       final file = File('${tempDir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [
-            XFile(
-              file.path,
-              mimeType: 'application/pdf',
-              name: fileName,
-            ),
-          ],
-          title: fileName,
-          text: 'Paper Receipt ${invoice.invoiceNumber}',
-        ),
-      );
+      try {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [
+              XFile(
+                file.path,
+                mimeType: 'application/pdf',
+                name: fileName,
+              ),
+            ],
+            title: fileName,
+            text: 'Paper Receipt ${invoice.invoiceNumber}',
+          ),
+        );
+      } finally {
+        await ref
+            .read(notificationServiceProvider)
+            .notifyPaperReceiptShared(invoice, customer);
+      }
     } catch (error) {
       if (context.mounted) {
         AppToast.showError(context, 'Could not share paper receipt: $error');

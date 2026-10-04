@@ -991,6 +991,62 @@ class NotificationService {
     } catch (_) {}
   }
 
+  Future<void> notifyPaperReceiptShared(Invoice invoice, Customer? customer, [String? langCode]) async {
+    try {
+      final prefs = await _repository.getPreferences();
+      if (prefs[NotificationCategories.invoiceSentShared] == false) return;
+
+      final lang = langCode ?? await _getLanguageCode(invoice.businessId);
+      final totalPaise =
+          invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
+      final customerName = customer?.name ?? trLang('Customer', lang);
+      final title = trLang('Paper receipt shared', lang);
+      final body =
+          '${trLang('Paper receipt', lang)} #${invoice.invoiceNumber} ${trLang('shared with', lang)} $customerName \u2022 ${_rupees(totalPaise)}';
+
+      final payload = jsonEncode({
+        'action': NotificationActionKeys.viewInvoice,
+        'invoiceId': invoice.id,
+        'businessId': invoice.businessId,
+      });
+
+      final notifId = _generateDeterministicId(
+        'receipt_shared_${invoice.id}_${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      await _plugin.show(
+        notifId,
+        title,
+        body,
+        NotificationDetails(
+          android: _buildAndroidDetails(
+            channelId: NotificationChannels.reminders,
+            channelName: 'Payment & Invoice Reminders',
+            actions: [
+              AndroidNotificationAction(
+                NotificationActionKeys.viewInvoice,
+                trLang('View Invoice', lang),
+                showsUserInterface: true,
+              ),
+            ],
+          ),
+        ),
+        payload: payload,
+      );
+
+      await _repository.addNotification(
+        id: 'shared_receipt_${invoice.id}_${DateTime.now().millisecondsSinceEpoch}',
+        businessId: invoice.businessId,
+        category: NotificationCategories.invoiceSentShared,
+        title: title,
+        body: body,
+        entityType: 'invoice',
+        entityId: invoice.id,
+        payloadJson: payload,
+      );
+    } catch (_) {}
+  }
+
   Future<void> notifySyncFailed(String userFriendlyMessage) async {
     try {
       final prefs = await _repository.getPreferences();
