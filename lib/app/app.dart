@@ -1,4 +1,6 @@
 import '../core/ui/app_toast.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import '../features/customers/services/contact_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8973,6 +8975,8 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   bool _saving = false;
   bool _verifyingPhone = false;
   bool _phoneValid = false;
+  bool _pickingContact = false;
+  bool _saveToPhoneContacts = false;
   String? _phoneError;
 
   @override
@@ -8980,6 +8984,155 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
     _name.dispose();
     _phone.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickFromContacts() async {
+    setState(() {
+      _pickingContact = true;
+      _phoneError = null;
+    });
+
+    try {
+      final contactService = ref.read(contactServiceProvider);
+      final status = await contactService.requestContactsPermission();
+
+      if (!mounted) return;
+
+      if (status == PermissionStatus.permanentlyDenied) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(_tr(ctx, 'Contact permission is required')),
+            content: Text(
+              _tr(ctx, 'Contact permission is permanently denied. Please allow it from App Settings.'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(_tr(ctx, 'Cancel')),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  contactService.openAppSettings();
+                },
+                child: Text(_tr(ctx, 'Open Settings')),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      if (status == PermissionStatus.denied || status == PermissionStatus.restricted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _tr(context, 'Contact permission is needed to import customer from phonebook.'),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
+      final contact = await contactService.pickSingleContact();
+      if (!mounted || contact == null) {
+        // User cancelled or pressed back
+        return;
+      }
+
+      final displayName = contact.displayName?.trim() ?? '';
+      final firstName = contact.name?.first?.trim() ?? '';
+      final lastName = contact.name?.last?.trim() ?? '';
+      final fullName = '$firstName $lastName'.trim();
+      final name = displayName.isNotEmpty ? displayName : fullName;
+
+      final phones = contact.phones;
+      String chosenNumber = '';
+
+      if (phones.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_tr(context, 'No phone number found')),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (phones.length == 1) {
+        chosenNumber = phones.first.number;
+      } else {
+        final selected = await showModalBottomSheet<String>(
+          context: context,
+          builder: (ctx) => _SelectPhoneNumberSheet(
+            contactName: name,
+            phones: phones,
+          ),
+        );
+        if (!mounted || selected == null) return;
+        chosenNumber = selected;
+      }
+
+      final normalized = ContactService.normalizePhone(chosenNumber);
+
+      // Check if this contact already exists as a OneBill customer
+      if (normalized.isNotEmpty) {
+        final db = ref.read(databaseProvider);
+        final existing = await (db.select(db.customers)
+              ..where((c) =>
+                  c.businessId.equals(widget.businessId) &
+                  c.phone.equals(normalized) &
+                  c.deletedAt.isNull()))
+            .getSingleOrNull();
+
+        if (existing != null && mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_tr(context, 'This customer already exists')),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+          showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            builder: (_) => _CustomerDetailsSheet(
+              businessId: widget.businessId,
+              customer: existing,
+            ),
+          );
+          return;
+        }
+      }
+
+      // Populate form for new customer
+      if (mounted) {
+        setState(() {
+          if (name.isNotEmpty) {
+            _name.text = name;
+          }
+          if (normalized.isNotEmpty) {
+            _phone.text = normalized;
+          } else if (chosenNumber.isNotEmpty) {
+            _phone.text = chosenNumber;
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_tr(context, 'Unable to access contacts')),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pickingContact = false);
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -8994,7 +9147,7 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
     // Smooth 1.2s verification animation inside input field
     await Future.delayed(const Duration(milliseconds: 1200));
 
-    final normalized = _phone.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final normalized = ContactService.normalizePhone(_phone.text);
     if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(normalized)) {
       if (mounted) {
         setState(() {
@@ -9036,8 +9189,18 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
       await ref.read(customerRepositoryProvider).create(
             businessId: widget.businessId,
             name: _name.text,
-            phone: _phone.text,
+            phone: normalized,
           );
+
+      if (_saveToPhoneContacts) {
+        try {
+          await ref.read(contactServiceProvider).saveContactToPhone(
+                name: _name.text,
+                phone: normalized,
+              );
+        } catch (_) {}
+      }
+
       if (mounted) {
         Navigator.pop(context);
       }
@@ -9057,14 +9220,14 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   }
 
   bool get _isDirty =>
-      _name.text.trim().isNotEmpty || _phone.text.trim().isNotEmpty;
+      _name.text.trim().isNotEmpty || _phone.text.trim().isNotEmpty || _saveToPhoneContacts;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return PopScope(
-      canPop: !_isDirty || _saving || _verifyingPhone,
+      canPop: !_isDirty || _saving || _verifyingPhone || _pickingContact,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         final discard = await _showDiscardChangesDialog(context);
@@ -9072,115 +9235,243 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
           Navigator.pop(context);
         }
       },
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                _tr(context, 'Add customer'),
-                style: theme.textTheme.titleLarge,
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _name,
-                decoration: InputDecoration(
-                  labelText: _tr(context, 'Customer name'),
-                  prefixIcon: const Icon(Icons.person_outline_rounded),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            32 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  _tr(context, 'Add customer'),
+                  style: theme.textTheme.titleLarge,
                 ),
-                validator: _required,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phone,
-                keyboardType: TextInputType.phone,
-                onChanged: (_) {
-                  if (_phoneError != null) {
-                    setState(() => _phoneError = null);
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: _tr(context, 'Mobile number'),
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                  errorText: _phoneError,
-                  suffixIcon: _verifyingPhone
-                      ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: (_saving || _verifyingPhone || _pickingContact)
+                      ? null
+                      : _pickFromContacts,
+                  icon: _pickingContact
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : _phoneValid
-                          ? const Icon(
-                              Icons.check_circle_rounded,
-                              color: Color(0xFF10B981),
-                            )
-                          : _phoneError != null
-                              ? const Icon(
-                                  Icons.error_outline_rounded,
-                                  color: Color(0xFFEF4444),
-                                )
-                              : null,
-                ),
-                validator: _required,
-              ),
-              if (_phoneError != null) ...[
-                const SizedBox(height: 8),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: theme.colorScheme.error.withOpacity(0.5),
+                      : const Icon(Icons.contacts_outlined),
+                  label: Text(_tr(context, 'Add from Contacts')),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        size: 18,
-                        color: theme.colorScheme.error,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _phoneError!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onErrorContainer,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        _tr(context, 'OR'),
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _name,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Customer name'),
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  onChanged: (_) {
+                    if (_phoneError != null) {
+                      setState(() => _phoneError = null);
+                    }
+                  },
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Mobile number'),
+                    prefixIcon: const Icon(Icons.phone_outlined),
+                    errorText: _phoneError,
+                    suffixIcon: _verifyingPhone
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : _phoneValid
+                            ? const Icon(
+                                Icons.check_circle_rounded,
+                                color: Color(0xFF10B981),
+                              )
+                            : _phoneError != null
+                                ? const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: Color(0xFFEF4444),
+                                  )
+                                : null,
+                  ),
+                  validator: _required,
+                ),
+                if (_phoneError != null) ...[
+                  const SizedBox(height: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: theme.colorScheme.error.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: theme.colorScheme.error,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _phoneError!,
+                            style: TextStyle(
+                              color: theme.colorScheme.onErrorContainer,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  value: _saveToPhoneContacts,
+                  onChanged: (_saving || _verifyingPhone || _pickingContact)
+                      ? null
+                      : (val) => setState(() => _saveToPhoneContacts = val ?? false),
+                  title: Text(
+                    _tr(context, 'Save to phone contacts'),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: (_saving || _verifyingPhone || _pickingContact) ? null : _save,
+                  child: Text(
+                    _verifyingPhone
+                        ? _tr(context, 'Verifying number...')
+                        : _saving
+                            ? _tr(context, 'Saving...')
+                            : _tr(context, 'Save customer'),
                   ),
                 ),
               ],
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: (_saving || _verifyingPhone) ? null : _save,
-                child: Text(
-                  _verifyingPhone
-                      ? _tr(context, 'Verifying number...')
-                      : _saving
-                          ? _tr(context, 'Saving...')
-                          : _tr(context, 'Save customer'),
-                ),
-              ),
-            ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectPhoneNumberSheet extends StatelessWidget {
+  const _SelectPhoneNumberSheet({
+    required this.contactName,
+    required this.phones,
+  });
+
+  final String contactName;
+  final List<Phone> phones;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tr(context, 'Select a phone number'),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (contactName.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          contactName,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            ...phones.map((phone) {
+              final label = (phone.label.customLabel ?? phone.label.label.name).toUpperCase();
+              return ListTile(
+                leading: const Icon(Icons.phone_outlined),
+                title: Text(
+                  phone.number,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(label),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onTap: () => Navigator.pop(context, phone.number),
+              );
+            }),
+          ],
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'config/app_environment.dart';
 import 'database/app_database.dart';
 import '../features/businesses/data/business_repository.dart';
 import '../features/customers/data/customer_repository.dart';
+import '../features/customers/services/contact_service.dart';
 import '../features/invoices/data/invoice_repository.dart';
 import '../features/auth/data/supabase_auth_service.dart';
 import '../features/invoices/services/pdf_invoice_service.dart';
@@ -27,6 +28,9 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 
 final businessRepositoryProvider = Provider<BusinessRepository>(
   (ref) => BusinessRepository(ref.watch(databaseProvider)),
+);
+final contactServiceProvider = Provider<ContactService>(
+  (ref) => const ContactService(),
 );
 final customerRepositoryProvider = Provider<CustomerRepository>(
   (ref) => CustomerRepository(ref.watch(databaseProvider)),
