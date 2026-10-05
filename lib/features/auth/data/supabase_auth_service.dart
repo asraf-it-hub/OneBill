@@ -1,8 +1,13 @@
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/config/app_environment.dart';
 
 class SupabaseAuthService {
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: AppEnvironment.googleWebClientId,
+  );
+
   SupabaseClient get _client {
     if (!AppEnvironment.cloudConfigured) {
       throw StateError(
@@ -76,12 +81,62 @@ class SupabaseAuthService {
     );
   }
 
+  /// Native Android Google Sign-In with Supabase ID Token.
+  /// Returns true if sign-in succeeded, false if user cancelled.
   Future<bool> signInWithGoogle() async {
-    return await _client.auth.signInWithOAuth(
-      OAuthProvider.google,
-      redirectTo: 'onebill://login-callback/',
-    );
+    try {
+      // Disconnect or sign out previous local Google session so user can pick account
+      try {
+        if (await _googleSignIn.isSignedIn()) {
+          await _googleSignIn.signOut();
+        }
+      } catch (_) {}
+
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        // User backed out or cancelled the account chooser
+        return false;
+      }
+
+      final googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      final accessToken = googleAuth.accessToken;
+
+      if (idToken == null) {
+        throw const AuthException(
+          'Could not retrieve Google ID token.',
+          statusCode: '400',
+        );
+      }
+
+      // ignore: avoid_print
+      print('DEBUG_AUTH: user=${googleUser.email}, idTokenLen=${idToken.length}, hasAccessToken=${accessToken != null}');
+
+      final response = await _client.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
+
+      if (response.session == null) {
+        throw const AuthException(
+          'Failed to establish session with Supabase.',
+          statusCode: '400',
+        );
+      }
+
+      return true;
+    } catch (e) {
+      rethrow;
+    }
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() async {
+    try {
+      if (await _googleSignIn.isSignedIn()) {
+        await _googleSignIn.signOut();
+      }
+    } catch (_) {}
+    await _client.auth.signOut();
+  }
 }

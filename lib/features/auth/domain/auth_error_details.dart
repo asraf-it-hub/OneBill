@@ -97,13 +97,22 @@ class AuthErrorDetails {
           message: 'The password you entered is incorrect. Please try again.',
         );
       }
+
+      // If it's another Supabase AuthException, display the actual message
+      if (msg.trim().isNotEmpty) {
+        return AuthErrorDetails(
+          type: AuthErrorType.somethingWentWrong,
+          title: 'Sign-in error',
+          message: msg,
+        );
+      }
     }
 
-    // 3. Fallback generic server/auth error
-    return const AuthErrorDetails(
+    // 3. Platform / API / Fallback error
+    return AuthErrorDetails(
       type: AuthErrorType.somethingWentWrong,
-      title: 'Something went wrong',
-      message: "We couldn't sign you in right now. Please try again.",
+      title: 'Sign-in issue',
+      message: str.replaceAll('Exception: ', '').replaceAll('PlatformException(', '').replaceAll(')', ''),
     );
   }
 }

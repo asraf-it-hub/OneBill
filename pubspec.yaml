@@ -36,6 +36,7 @@ dependencies:
   credential_manager: ^5.0.0
   app_links: ^6.4.1
   flutter_contacts: ^2.6.0
+  google_sign_in: 6.2.2
 
 dev_dependencies:
   flutter_test:

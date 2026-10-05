@@ -642,16 +642,12 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     });
     ref.read(isSigningOutProvider.notifier).state = false;
     try {
-      final launched = await ref.read(authServiceProvider).signInWithGoogle();
-      if (!launched && mounted) {
+      final success = await ref.read(authServiceProvider).signInWithGoogle();
+      if (!success && mounted) {
+        // User cancelled or dismissed the Google account chooser
         setState(() {
           _submitting = false;
           _isGoogleAuthPending = false;
-          _authErrorDetails = const AuthErrorDetails(
-            type: AuthErrorType.somethingWentWrong,
-            title: 'Google sign-in',
-            message: 'Could not launch Google authentication browser.',
-          );
         });
       }
     } catch (error) {
