@@ -111,7 +111,7 @@ class AuthErrorDetails {
     // 3. Platform / API / Fallback error
     return AuthErrorDetails(
       type: AuthErrorType.somethingWentWrong,
-      title: 'Sign-in issue',
+      title: 'Something went wrong',
       message: str.replaceAll('Exception: ', '').replaceAll('PlatformException(', '').replaceAll(')', ''),
     );
   }

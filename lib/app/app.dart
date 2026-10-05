@@ -1552,7 +1552,28 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   void _openReportsTab() {
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
-    _setTab(6);
+    final activeId = widget.session.activeBusinessId;
+    if (activeId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Consumer(
+          builder: (context, ref, _) {
+            final summary = ref.watch(businessBillingSummaryProvider(activeId));
+            final customers = ref.watch(customersProvider(activeId));
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(_tr(context, 'Reports')),
+              ),
+              body: _ReportsTab(
+                businessId: activeId,
+                summary: summary,
+                customers: customers,
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _handleNotificationPayload(String payloadStr, [String? actionId]) {
@@ -1988,13 +2009,35 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                       }
                       break;
                     case 'recycle_bin':
-                      _setTab(4);
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => Scaffold(
+                            appBar: AppBar(
+                              title: Text(_tr(context, 'Recycle Bin')),
+                            ),
+                            body: _RecycleBinTab(
+                              businessId: session.activeBusinessId!,
+                            ),
+                          ),
+                        ),
+                      );
                       break;
                     case 'activity':
-                      _setTab(5);
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => Scaffold(
+                            appBar: AppBar(
+                              title: Text(_tr(context, 'Activity')),
+                            ),
+                            body: _ActivityTab(
+                              businessId: session.activeBusinessId!,
+                            ),
+                          ),
+                        ),
+                      );
                       break;
                     case 'reports':
-                      _setTab(6);
+                      _openReportsTab();
                       break;
                     case 'sign_out':
                       _confirmSignOut(context, ref);
@@ -2077,18 +2120,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
             ),
             _IncomeTab(businessId: session.activeBusinessId!),
             _ExpensesTab(businessId: session.activeBusinessId!),
-            _RecycleBinTab(businessId: session.activeBusinessId!),
-            _ActivityTab(businessId: session.activeBusinessId!),
-            _ReportsTab(
-              businessId: session.activeBusinessId!,
-              summary: summary,
-              customers: customers,
-            ),
           ],
         ),
-        floatingActionButton: (_tab >= 4)
-            ? null
-            : _tab == 2
+        floatingActionButton: _tab == 2
             ? FloatingActionButton.extended(
                 onPressed: () => showModalBottomSheet<void>(
                   context: context,
@@ -6410,6 +6444,31 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     }
   }
 
+  Future<void> _printPaperReceipt(BuildContext context, WidgetRef ref) async {
+    try {
+      final (_, business, customer) = await _pdfData(ref);
+      final bytes = await ref
+          .read(pdfInvoiceServiceProvider)
+          .generatePaperReceiptPdf(
+            business: business,
+            customer: customer,
+            invoice: invoice,
+            paperReceiptImage: invoice.paperReceiptImage!,
+          );
+      final fileName = 'Receipt_${invoice.invoiceNumber}.pdf';
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: fileName,
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not print receipt: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _sharePaperReceipt(BuildContext context, WidgetRef ref) async {
     try {
       final (_, business, customer) = await _pdfData(ref);
@@ -6861,6 +6920,21 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                 ),
                 if (invoice.paperReceiptImage != null &&
                     invoice.paperReceiptImage!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () => _printPaperReceipt(context, ref),
+                    icon: const Icon(Icons.print_outlined, size: 20),
+                    label: Text(
+                      _tr(context, 'Print Paper Receipt'),
+                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(

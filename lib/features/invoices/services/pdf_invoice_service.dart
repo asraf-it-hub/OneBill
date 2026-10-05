@@ -701,234 +701,291 @@ class PdfInvoiceService {
     final borderGrey = PdfColor.fromHex('#E2E8F0');
     final subtleText = PdfColor.fromHex('#64748B');
 
-    // 80mm thermal receipt format with clean proportions
-    const receiptPageFormat = PdfPageFormat(
-      80 * PdfPageFormat.mm,
-      260 * PdfPageFormat.mm,
-      marginLeft: 5 * PdfPageFormat.mm,
-      marginRight: 5 * PdfPageFormat.mm,
-      marginTop: 6 * PdfPageFormat.mm,
-      marginBottom: 6 * PdfPageFormat.mm,
-    );
+    // Build contact info items
+    final contactDetails = <String>[];
+    if (business.phone != null && business.phone!.trim().isNotEmpty) {
+      contactDetails.add(business.phone!.trim());
+    }
+    if (business.email != null && business.email!.trim().isNotEmpty) {
+      contactDetails.add(business.email!.trim());
+    }
+    if (business.website != null && business.website!.trim().isNotEmpty) {
+      contactDetails.add(business.website!.trim());
+    }
 
     final upiUrl = (business.upiId != null && business.upiId!.trim().isNotEmpty)
-        ? 'upi://pay?pa=${business.upiId!.trim()}&pn=${Uri.encodeComponent(business.name)}&cu=INR${balance > 0 ? '&am=${(balance / 100).toStringAsFixed(2)}' : ''}'
+        ? 'upi://pay?pa=${business.upiId!.trim()}&pn=${Uri.encodeComponent(business.upiName?.trim().isNotEmpty == true ? business.upiName!.trim() : business.name)}&cu=INR${balance > 0 ? '&am=${(balance / 100).toStringAsFixed(2)}' : ''}'
         : null;
+
+    final accountHolderName = (business.upiName != null && business.upiName!.trim().isNotEmpty)
+        ? business.upiName!.trim()
+        : business.ownerName.trim();
+
+    final notes = <String>[];
+    if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) {
+      notes.add(invoice.notes!.trim());
+    }
+    if (business.invoiceNotes != null &&
+        business.invoiceNotes!.trim().isNotEmpty &&
+        !notes.contains(business.invoiceNotes!.trim())) {
+      notes.add(business.invoiceNotes!.trim());
+    }
+    if (notes.isEmpty) {
+      notes.add('Thank you for your business! Please reach out if you have any questions.');
+    }
+
+    final terms = (business.termsAndConditions != null &&
+            business.termsAndConditions!.trim().isNotEmpty)
+        ? business.termsAndConditions!.trim()
+        : '1. Goods once sold will not be taken back or exchanged.\n2. Payment is due as per agreed payment terms.\n3. E.&O.E.';
 
     document.addPage(
       pw.MultiPage(
-        pageFormat: receiptPageFormat,
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(36),
         build: (context) => [
-          // 1. SHOP INFORMATION — TOP OF RECEIPT
-          if (logoImage != null) ...[
-            pw.Center(
-              child: pw.Container(
-                width: 44,
-                height: 44,
-                margin: const pw.EdgeInsets.only(bottom: 6),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.white,
-                  borderRadius: pw.BorderRadius.circular(6),
-                  border: pw.Border.all(color: borderGrey, width: 0.5),
-                ),
-                child: pw.Center(child: pw.Image(logoImage, fit: pw.BoxFit.contain)),
-              ),
-            ),
-          ],
-          pw.Center(
-            child: pw.Text(
-              business.name,
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-                color: darkSlate,
-              ),
-            ),
-          ),
-          if (business.businessType != null &&
-              business.businessType!.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 2),
-            pw.Center(
-              child: pw.Text(
-                business.businessType!.trim(),
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(
-                  fontSize: 8.5,
-                  fontStyle: pw.FontStyle.italic,
-                  color: subtleText,
-                ),
-              ),
-            ),
-          ],
-          pw.SizedBox(height: 4),
-          if (business.phone != null && business.phone!.trim().isNotEmpty)
-            pw.Center(
-              child: pw.Text(
-                'Phone: ${business.phone!.trim()}',
-                style: pw.TextStyle(fontSize: 8, color: subtleText),
-              ),
-            ),
-          if (business.email != null && business.email!.trim().isNotEmpty)
-            pw.Center(
-              child: pw.Text(
-                'Email: ${business.email!.trim()}',
-                style: pw.TextStyle(fontSize: 8, color: subtleText),
-              ),
-            ),
-          if (business.address != null && business.address!.trim().isNotEmpty)
-            pw.Center(
-              child: pw.Text(
-                'Address: ${business.address!.trim()}',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontSize: 8, color: subtleText),
-              ),
-            ),
-          pw.SizedBox(height: 4),
-          pw.Center(
-            child: pw.Row(
-              mainAxisSize: pw.MainAxisSize.min,
-              children: [
-                pw.Text(
-                  'Powered by OneBill',
-                  style: pw.TextStyle(
-                    fontSize: 7.5,
-                    fontWeight: pw.FontWeight.bold,
-                    color: subtleText,
-                  ),
-                ),
-                if (oneBillLogo != null) ...[
-                  pw.SizedBox(width: 3),
-                  pw.Container(
-                    width: 10,
-                    height: 10,
-                    child: pw.Image(oneBillLogo, fit: pw.BoxFit.contain),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Divider(color: borderGrey, thickness: 0.5),
-          pw.SizedBox(height: 4),
-
-          // 2. KEEP EXISTING RECEIPT INFORMATION
-          pw.Center(
-            child: pw.Text(
-              'PAPER RECEIPT',
-              style: pw.TextStyle(
-                fontSize: 12,
-                fontWeight: pw.FontWeight.bold,
-                color: primaryColor,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 4),
+          // 1. HEADER SECTION
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Left: Logo & Business Info
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    if (logoImage != null) ...[
+                      pw.Container(
+                        width: 50,
+                        height: 50,
+                        padding: const pw.EdgeInsets.all(3),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.white,
+                          borderRadius: pw.BorderRadius.circular(6),
+                          border: pw.Border.all(color: borderGrey, width: 0.75),
+                        ),
+                        child: pw.Center(
+                          child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                        ),
+                      ),
+                      pw.SizedBox(height: 8),
+                    ],
+                    pw.Text(
+                      business.name,
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                        color: darkSlate,
+                      ),
+                    ),
+                    if (business.tagline != null &&
+                        business.tagline!.trim().isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        business.tagline!.trim(),
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontStyle: pw.FontStyle.italic,
+                          color: subtleText,
+                        ),
+                      ),
+                    ],
+                    if (contactDetails.isNotEmpty) ...[
+                      pw.SizedBox(height: 3),
+                      pw.Text(
+                        contactDetails.join('  •  '),
+                        style: pw.TextStyle(fontSize: 8.5, color: subtleText),
+                      ),
+                    ],
+                    if (business.address != null &&
+                        business.address!.trim().isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        business.address!.trim(),
+                        style: pw.TextStyle(fontSize: 8.5, color: subtleText),
+                      ),
+                    ],
+                    if (business.gstin != null &&
+                        business.gstin!.trim().isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'GSTIN: ${business.gstin!.trim()}',
+                        style: pw.TextStyle(
+                          fontSize: 8.5,
+                          fontWeight: pw.FontWeight.bold,
+                          color: darkSlate,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(width: 16),
+
+              // Right: Invoice Metadata & Status
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Row(
+                    mainAxisSize: pw.MainAxisSize.min,
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text(
+                        'Powered by OneBill',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                          color: subtleText,
+                        ),
+                      ),
+                      if (oneBillLogo != null) ...[
+                        pw.SizedBox(width: 4),
+                        pw.Container(
+                          width: 16,
+                          height: 16,
+                          child: pw.Image(oneBillLogo, fit: pw.BoxFit.contain),
+                        ),
+                      ],
+                    ],
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Text(
+                    'INVOICE',
+                    style: pw.TextStyle(
+                      fontSize: 22,
+                      fontWeight: pw.FontWeight.bold,
+                      color: primaryColor,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  pw.SizedBox(height: 5),
+                  pw.Text(
+                    invoice.invoiceNumber,
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                      color: darkSlate,
+                    ),
+                  ),
+                  pw.SizedBox(height: 3),
+                  pw.Text(
+                    'Date: ${_date(invoice.issuedAt)}',
+                    style: pw.TextStyle(fontSize: 8.5, color: subtleText),
+                  ),
+                  if (invoice.dueAt != null) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      'Due Date: ${_date(invoice.dueAt!)}',
+                      style: pw.TextStyle(fontSize: 8.5, color: subtleText),
+                    ),
+                  ],
+                  pw.SizedBox(height: 6),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: pw.BoxDecoration(
+                      color: isFullyPaid
+                          ? PdfColor.fromHex('#DCFCE7')
+                          : isPartiallyPaid
+                          ? PdfColor.fromHex('#FEF3C7')
+                          : PdfColor.fromHex('#FEE2E2'),
+                      borderRadius: pw.BorderRadius.circular(4),
+                    ),
+                    child: pw.Text(
+                      isFullyPaid
+                          ? 'PAID IN FULL'
+                          : isPartiallyPaid
+                          ? 'PARTIALLY PAID'
+                          : 'UNPAID',
+                      style: pw.TextStyle(
+                        fontSize: 8.5,
+                        fontWeight: pw.FontWeight.bold,
+                        color: isFullyPaid
+                            ? PdfColor.fromHex('#166534')
+                            : isPartiallyPaid
+                            ? PdfColor.fromHex('#92400E')
+                            : PdfColor.fromHex('#991B1B'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          pw.SizedBox(height: 18),
+
+          // 2. BILL TO SECTION
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                'Receipt No: ${invoice.invoiceNumber}',
+                'BILL TO',
                 style: pw.TextStyle(
-                  fontSize: 8.5,
+                  fontSize: 10,
+                  fontWeight: pw.FontWeight.bold,
+                  color: primaryColor,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                customer.name,
+                style: pw.TextStyle(
+                  fontSize: 13,
                   fontWeight: pw.FontWeight.bold,
                   color: darkSlate,
                 ),
               ),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: pw.BoxDecoration(
-                  color: isFullyPaid
-                      ? PdfColor.fromHex('#DCFCE7')
-                      : isPartiallyPaid
-                      ? PdfColor.fromHex('#FEF3C7')
-                      : PdfColor.fromHex('#FEE2E2'),
-                  borderRadius: pw.BorderRadius.circular(3),
+              if (customer.phone.isNotEmpty) ...[
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Phone: ${customer.phone}',
+                  style: pw.TextStyle(fontSize: 8.5, color: subtleText),
                 ),
-                child: pw.Text(
-                  isFullyPaid
-                      ? 'PAID IN FULL'
-                      : isPartiallyPaid
-                      ? 'PARTIALLY PAID'
-                      : 'UNPAID',
-                  style: pw.TextStyle(
-                    fontSize: 7.5,
-                    fontWeight: pw.FontWeight.bold,
-                    color: isFullyPaid
-                        ? PdfColor.fromHex('#166534')
-                        : isPartiallyPaid
-                        ? PdfColor.fromHex('#92400E')
-                        : PdfColor.fromHex('#991B1B'),
-                  ),
+              ],
+              if (customer.email != null && customer.email!.trim().isNotEmpty) ...[
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Email: ${customer.email!.trim()}',
+                  style: pw.TextStyle(fontSize: 8.5, color: subtleText),
                 ),
-              ),
+              ],
+              if (customer.notes != null && customer.notes!.trim().isNotEmpty) ...[
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  customer.notes!.trim(),
+                  style: pw.TextStyle(fontSize: 8.5, color: subtleText),
+                ),
+              ],
             ],
           ),
-          pw.SizedBox(height: 2),
-          pw.Text(
-            'Date: ${_date(invoice.issuedAt)}',
-            style: pw.TextStyle(fontSize: 8, color: subtleText),
-          ),
-          if (invoice.dueAt != null) ...[
-            pw.SizedBox(height: 1),
-            pw.Text(
-              'Due Date: ${_date(invoice.dueAt!)}',
-              style: pw.TextStyle(fontSize: 8, color: subtleText),
-            ),
-          ],
-          pw.SizedBox(height: 6),
-          pw.Divider(color: borderGrey, thickness: 0.5),
-          pw.SizedBox(height: 4),
 
-          // Customer Info
-          pw.Text(
-            'BILL TO',
-            style: pw.TextStyle(
-              fontSize: 8,
-              fontWeight: pw.FontWeight.bold,
-              color: primaryColor,
-              letterSpacing: 0.6,
-            ),
-          ),
-          pw.SizedBox(height: 1),
-          pw.Text(
-            customer.name,
-            style: pw.TextStyle(
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
-              color: darkSlate,
-            ),
-          ),
-          if (customer.phone.isNotEmpty) ...[
-            pw.SizedBox(height: 1),
-            pw.Text(
-              'Phone: ${customer.phone}',
-              style: pw.TextStyle(fontSize: 8, color: subtleText),
-            ),
-          ],
-          pw.SizedBox(height: 6),
-          pw.Divider(color: borderGrey, thickness: 0.5),
-          pw.SizedBox(height: 6),
+          pw.SizedBox(height: 14),
 
-          // Handwritten Receipt Photo
+          // 3. PAPER RECEIPT PHOTO
           if (receiptImage != null)
-            pw.Container(
-              alignment: pw.Alignment.center,
-              constraints: const pw.BoxConstraints(maxHeight: 280),
-              decoration: pw.BoxDecoration(
-                borderRadius: pw.BorderRadius.circular(6),
-                border: pw.Border.all(color: borderGrey, width: 0.5),
-              ),
-              child: pw.ClipRRect(
-                horizontalRadius: 6,
-                verticalRadius: 6,
-                child: pw.Image(receiptImage, fit: pw.BoxFit.contain),
+            pw.Center(
+              child: pw.Container(
+                alignment: pw.Alignment.center,
+                constraints: const pw.BoxConstraints(maxHeight: 280, maxWidth: 360),
+                decoration: pw.BoxDecoration(
+                  borderRadius: pw.BorderRadius.circular(6),
+                  border: pw.Border.all(color: borderGrey, width: 0.75),
+                ),
+                child: pw.ClipRRect(
+                  horizontalRadius: 6,
+                  verticalRadius: 6,
+                  child: pw.Image(receiptImage, fit: pw.BoxFit.contain),
+                ),
               ),
             )
           else
             pw.Container(
-              height: 100,
+              height: 120,
               alignment: pw.Alignment.center,
               child: pw.Text(
                 'Receipt photo unavailable',
@@ -936,256 +993,125 @@ class PdfInvoiceService {
               ),
             ),
 
-          if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 6),
-            pw.Text(
-              'Notes: ${invoice.notes!.trim()}',
-              style: pw.TextStyle(
-                fontSize: 8,
-                fontStyle: pw.FontStyle.italic,
-                color: subtleText,
-              ),
-            ),
-          ],
-
-          // Transaction Totals
-          if (total > 0) ...[
-            pw.SizedBox(height: 8),
+          // 4. UPI PAYMENT SECTION
+          if (qrImage != null || upiUrl != null || (business.upiId != null && business.upiId!.trim().isNotEmpty)) ...[
+            pw.SizedBox(height: 14),
             pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
                 color: lightGrey,
-                borderRadius: pw.BorderRadius.circular(4),
-                border: pw.Border.all(color: borderGrey, width: 0.5),
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(color: borderGrey, width: 0.75),
               ),
               child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'TOTAL AMOUNT',
-                        style: pw.TextStyle(
-                          fontSize: 7.5,
-                          fontWeight: pw.FontWeight.bold,
-                          color: subtleText,
-                        ),
+                  if (qrImage != null || upiUrl != null) ...[
+                    pw.Container(
+                      width: 75,
+                      height: 75,
+                      padding: const pw.EdgeInsets.all(5),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.white,
+                        borderRadius: pw.BorderRadius.circular(6),
+                        border: pw.Border.all(color: borderGrey, width: 0.75),
                       ),
-                      pw.Text(
-                        _money(total),
-                        style: pw.TextStyle(
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                          color: darkSlate,
-                        ),
+                      child: pw.Center(
+                        child: qrImage != null
+                            ? pw.Image(qrImage, fit: pw.BoxFit.contain)
+                            : pw.BarcodeWidget(
+                                barcode: pw.Barcode.qrCode(),
+                                data: upiUrl!,
+                              ),
                       ),
-                    ],
-                  ),
-                  if (invoice.paidPaise > 0)
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    ),
+                    pw.SizedBox(width: 14),
+                  ],
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text(
-                          'PAID',
+                          isFullyPaid
+                              ? 'PAYMENT DETAILS (PAID)'
+                              : isPartiallyPaid
+                              ? 'PAY BALANCE VIA UPI'
+                              : 'PAY VIA UPI',
                           style: pw.TextStyle(
-                            fontSize: 7.5,
+                            fontSize: 9.5,
                             fontWeight: pw.FontWeight.bold,
-                            color: PdfColor.fromHex('#166534'),
+                            color: primaryColor,
+                            letterSpacing: 0.5,
                           ),
                         ),
+                        pw.SizedBox(height: 3),
                         pw.Text(
-                          _money(invoice.paidPaise),
-                          style: pw.TextStyle(
-                            fontSize: 10,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColor.fromHex('#166534'),
-                          ),
+                          'Scan QR code with any UPI app to pay',
+                          style: pw.TextStyle(fontSize: 8.5, color: subtleText),
                         ),
+                        if (business.upiId != null && business.upiId!.trim().isNotEmpty) ...[
+                          pw.SizedBox(height: 3),
+                          pw.Text(
+                            'UPI ID: ${business.upiId!.trim()}',
+                            style: pw.TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: pw.FontWeight.bold,
+                              color: darkSlate,
+                            ),
+                          ),
+                        ],
+                        if (accountHolderName.isNotEmpty) ...[
+                          pw.SizedBox(height: 2),
+                          pw.Text(
+                            'Account Holder Name: $accountHolderName',
+                            style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
+                          ),
+                        ],
                       ],
                     ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Text(
-                        'BALANCE DUE',
-                        style: pw.TextStyle(
-                          fontSize: 7.5,
-                          fontWeight: pw.FontWeight.bold,
-                          color: balance > 0
-                              ? PdfColor.fromHex('#991B1B')
-                              : PdfColor.fromHex('#166534'),
-                        ),
-                      ),
-                      pw.Text(
-                        _money(balance > 0 ? balance : 0),
-                        style: pw.TextStyle(
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                          color: balance > 0
-                              ? PdfColor.fromHex('#991B1B')
-                              : PdfColor.fromHex('#166534'),
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),
             ),
           ],
 
-          // 3. ADD UPI PAYMENT SECTION
-          if (qrImage != null || upiUrl != null) ...[
-            pw.SizedBox(height: 8),
-            pw.Divider(color: borderGrey, thickness: 0.5),
-            pw.SizedBox(height: 6),
-            pw.Center(
-              child: pw.Text(
-                'PAY VIA UPI',
-                style: pw.TextStyle(
-                  fontSize: 10,
-                  fontWeight: pw.FontWeight.bold,
-                  color: primaryColor,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Center(
-              child: pw.Container(
-                padding: const pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.white,
-                  borderRadius: pw.BorderRadius.circular(6),
-                  border: pw.Border.all(color: borderGrey, width: 0.5),
-                ),
-                child: qrImage != null
-                    ? pw.Image(qrImage, width: 85, height: 85, fit: pw.BoxFit.contain)
-                    : pw.BarcodeWidget(
-                        barcode: pw.Barcode.qrCode(),
-                        data: upiUrl!,
-                        width: 85,
-                        height: 85,
-                      ),
-              ),
-            ),
-            pw.SizedBox(height: 5),
-            pw.Center(
-              child: pw.Text(
-                'Scan QR code with any UPI app to pay',
-                style: pw.TextStyle(fontSize: 8, color: subtleText),
-              ),
-            ),
-            if (business.upiId != null && business.upiId!.trim().isNotEmpty) ...[
-              pw.SizedBox(height: 2),
-              pw.Center(
-                child: pw.Text(
-                  'UPI ID: ${business.upiId!.trim()}',
-                  style: pw.TextStyle(
-                    fontSize: 9,
-                    fontWeight: pw.FontWeight.bold,
-                    color: darkSlate,
-                  ),
-                ),
-              ),
-            ],
-            if (business.upiName != null && business.upiName!.trim().isNotEmpty) ...[
-              pw.SizedBox(height: 1),
-              pw.Center(
-                child: pw.Text(
-                  'Account: ${business.upiName!.trim()}',
-                  style: pw.TextStyle(fontSize: 7.5, color: subtleText),
-                ),
-              ),
-            ],
-          ],
-
-          if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 6),
-            pw.Align(
-              alignment: pw.Alignment.centerLeft,
-              child: pw.Text(
-                'Note: ${invoice.notes!.trim()}',
-                style: pw.TextStyle(fontSize: 7.5, color: darkSlate, fontStyle: pw.FontStyle.italic),
-              ),
-            ),
-          ],
-          if (business.invoiceNotes != null && business.invoiceNotes!.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 6),
-            pw.Align(
-              alignment: pw.Alignment.centerLeft,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'NOTES:',
-                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: primaryColor),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    business.invoiceNotes!.trim(),
-                    style: pw.TextStyle(fontSize: 7.5, color: darkSlate),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (business.termsAndConditions != null && business.termsAndConditions!.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 6),
-            pw.Align(
-              alignment: pw.Alignment.centerLeft,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'TERMS & CONDITIONS:',
-                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: primaryColor),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    business.termsAndConditions!.trim(),
-                    style: pw.TextStyle(fontSize: 7.5, color: darkSlate),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // 4. FOOTER & ONEBILL BRANDING
-          pw.SizedBox(height: 10),
-          pw.Divider(color: borderGrey, thickness: 0.5),
-          pw.SizedBox(height: 6),
-          pw.Center(
-            child: pw.Text(
-              'Thank you for your business!',
-              style: pw.TextStyle(
-                fontSize: 9,
-                fontWeight: pw.FontWeight.bold,
-                color: darkSlate,
-              ),
+          // 5. NOTES SECTION
+          pw.SizedBox(height: 14),
+          pw.Text(
+            'NOTES',
+            style: pw.TextStyle(
+              fontSize: 9.5,
+              fontWeight: pw.FontWeight.bold,
+              color: primaryColor,
+              letterSpacing: 0.5,
             ),
           ),
-          pw.SizedBox(height: 3),
-          pw.Center(
-            child: pw.Row(
-              mainAxisSize: pw.MainAxisSize.min,
-              children: [
-                pw.Text(
-                  'Powered by OneBill',
-                  style: pw.TextStyle(fontSize: 7.5, color: subtleText),
-                ),
-                if (oneBillLogo != null) ...[
-                  pw.SizedBox(width: 3),
-                  pw.Container(
-                    width: 10,
-                    height: 10,
-                    child: pw.Image(oneBillLogo, fit: pw.BoxFit.contain),
-                  ),
-                ],
-              ],
+          pw.SizedBox(height: 4),
+          pw.Text(
+            notes.join('\n'),
+            style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
+          ),
+
+          // 6. PAGE 2: TERMS & CONDITIONS
+          pw.NewPage(),
+          pw.Text(
+            'TERMS & CONDITIONS',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: primaryColor,
+              letterSpacing: 0.5,
             ),
           ),
-          pw.SizedBox(height: 6),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            terms,
+            style: pw.TextStyle(
+              fontSize: 9.5,
+              color: darkSlate,
+              lineSpacing: 2,
+            ),
+          ),
         ],
       ),
     );
