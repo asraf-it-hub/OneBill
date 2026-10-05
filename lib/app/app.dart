@@ -13,6 +13,7 @@ import 'package:printing/printing.dart';
 import 'package:drift/drift.dart'
     show BooleanExpressionOperators, Expression, OrderingTerm, Value;
 import 'package:share_plus/share_plus.dart';
+import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/config/app_environment.dart';
@@ -139,10 +140,71 @@ Future<bool> _showDiscardChangesDialog(BuildContext context) async {
   return result ?? false;
 }
 
-class _StartupGate extends ConsumerWidget {
+class _StartupGate extends ConsumerStatefulWidget {
   const _StartupGate();
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_StartupGate> createState() => _StartupGateState();
+}
+
+class _StartupGateState extends ConsumerState<_StartupGate> {
+  StreamSubscription<Uri>? _appLinksSub;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupDeepLinks();
+  }
+
+  void _setupDeepLinks() {
+    final appLinks = AppLinks();
+
+    // Check initial launch link (cold start)
+    appLinks.getInitialLink().then((uri) {
+      if (uri != null) _handleUri(uri);
+    }).catchError((_) {});
+
+    // Listen to deep links while app is open / foregrounded / backgrounded
+    _appLinksSub = appLinks.uriLinkStream.listen((uri) {
+      _handleUri(uri);
+    }, onError: (_) {});
+
+    // Listen to Supabase auth state changes for recovery events
+    if (AppEnvironment.cloudConfigured) {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        if (data.event == AuthChangeEvent.passwordRecovery) {
+          if (mounted) {
+            ref.read(isPasswordRecoveryProvider.notifier).state = true;
+          }
+        }
+      });
+    }
+  }
+
+  void _handleUri(Uri uri) {
+    final isRecovery = uri.host == 'reset-password' ||
+        uri.path.contains('reset-password') ||
+        uri.fragment.contains('type=recovery') ||
+        uri.queryParameters['type'] == 'recovery';
+    if (isRecovery && mounted) {
+      ref.read(isPasswordRecoveryProvider.notifier).state = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _appLinksSub?.cancel();
+    _authSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPasswordRecovery = ref.watch(isPasswordRecoveryProvider);
+    if (isPasswordRecovery) {
+      return const _ResetPasswordScreen();
+    }
+
     final isSigningOut = ref.watch(isSigningOutProvider);
     if (isSigningOut) return const _AuthScreen();
 
@@ -163,6 +225,277 @@ class _StartupGate extends ConsumerWidget {
               ? const _WorkspaceSetupScreen()
               : _HomeScreen(session: session),
         );
+  }
+}
+
+class _ResetPasswordScreen extends ConsumerStatefulWidget {
+  const _ResetPasswordScreen();
+
+  @override
+  ConsumerState<_ResetPasswordScreen> createState() =>
+      _ResetPasswordScreenState();
+}
+
+class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _submitting = false;
+  AuthErrorDetails? _authErrorDetails;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  String? _passwordValidator(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Password is required';
+    }
+    if (value.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  }
+
+  String? _confirmPasswordValidator(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please confirm your password';
+    }
+    if (value != _passwordController.text) {
+      return 'Passwords do not match';
+    }
+    return null;
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _submitting = true;
+      _authErrorDetails = null;
+    });
+
+    final newPassword = _passwordController.text;
+    try {
+      await ref.read(authServiceProvider).updatePassword(newPassword: newPassword);
+      if (!mounted) return;
+
+      AppToast.showSuccess(
+        context,
+        _tr(context, 'Password updated successfully! Welcome back.'),
+      );
+
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email != null && email.isNotEmpty) {
+        await AppCredentialManager.instance.saveCredential(
+          email: email,
+          password: newPassword,
+        );
+      }
+
+      ref.read(isPasswordRecoveryProvider.notifier).state = false;
+      ref.read(isSigningOutProvider.notifier).state = false;
+      ref.invalidate(sessionProvider);
+      ref.invalidate(authSessionProvider);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _authErrorDetails = AuthErrorDetails.fromError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _cancel() async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    ref.read(isPasswordRecoveryProvider.notifier).state = false;
+    ref.read(isSigningOutProvider.notifier).state = true;
+    try {
+      await ref.read(authServiceProvider).signOut();
+    } catch (_) {}
+    if (mounted) {
+      ref.invalidate(authSessionProvider);
+      ref.invalidate(sessionProvider);
+      setState(() => _submitting = false);
+    }
+  }
+
+  Widget _buildErrorBox(ThemeData theme) {
+    if (_authErrorDetails == null) return const SizedBox.shrink();
+    final err = _authErrorDetails!;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.error.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 22,
+                color: theme.colorScheme.error,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  err.title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            err.message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onErrorContainer.withValues(alpha: 0.9),
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_submitting) {
+          _cancel();
+        }
+      },
+      child: Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Image.asset(
+                          'assets/OneBillLogo.png',
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      _tr(context, 'Reset your password'),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _tr(context, 'Enter a new password for your OneBill account.'),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    _buildErrorBox(theme),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: _tr(context, 'New password'),
+                        prefixIcon: const Icon(Icons.lock_outline_rounded),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                      validator: _passwordValidator,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: _obscureConfirmPassword,
+                      decoration: InputDecoration(
+                        labelText: _tr(context, 'Confirm new password'),
+                        prefixIcon: const Icon(Icons.lock_reset_rounded),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () => setState(
+                              () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                        ),
+                      ),
+                      validator: _confirmPasswordValidator,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: _submitting ? null : _submit,
+                      child: _submitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(_tr(context, 'Update password')),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _submitting ? null : _cancel,
+                      child: Text(_tr(context, 'Back to sign in')),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      ),
+    );
   }
 }
 

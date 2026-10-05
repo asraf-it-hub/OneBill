@@ -72,9 +72,12 @@ class AuthErrorDetails {
       }
 
       // Account not found (if safely provided by Supabase Auth response)
-      if (code == 'user_not_found' ||
-          code == 'email_not_found' ||
-          msg.contains('User not found')) {
+      final lowerCode = code.toLowerCase();
+      final lowerMsg = msg.toLowerCase();
+      if (lowerCode == 'user_not_found' ||
+          lowerCode == 'email_not_found' ||
+          lowerMsg.contains('user not found') ||
+          lowerMsg.contains('no account found')) {
         return const AuthErrorDetails(
           type: AuthErrorType.accountNotFound,
           title: 'No account found',

@@ -42,8 +42,30 @@ class SupabaseAuthService {
   }
 
   Future<void> resetPassword({required String email}) async {
+    final cleanEmail = email.trim();
+
+    // 1. Verify user exists in database before dispatching email
+    try {
+      final result = await _client.rpc(
+        'check_user_exists',
+        params: {'p_email': cleanEmail},
+      );
+      if (result == false) {
+        throw const AuthException(
+          'User not found',
+          statusCode: '404',
+          code: 'user_not_found',
+        );
+      }
+    } catch (e) {
+      if (e is AuthException && e.code == 'user_not_found') {
+        rethrow;
+      }
+    }
+
+    // 2. User exists: send the password reset email
     await _client.auth.resetPasswordForEmail(
-      email.trim(),
+      cleanEmail,
       redirectTo: 'onebill://reset-password',
     );
   }
