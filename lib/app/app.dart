@@ -28,6 +28,7 @@ import 'theme/theme_provider.dart';
 import '../features/notifications/data/notification_constants.dart';
 import '../features/notifications/ui/notification_ui.dart';
 import '../features/business/ui/business_profile_screen.dart';
+import '../features/business/ui/confirm_delete_business_dialog.dart';
 import '../features/business/ui/post_creation_guidance_sheet.dart';
 import '../features/auth/domain/auth_error_details.dart';
 import '../features/auth/services/app_credential_manager.dart';
@@ -39,10 +40,12 @@ class OneBillApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sessionLang = ref.watch(sessionProvider).valueOrNull?.localeCode;
+    final session = ref.watch(sessionProvider).valueOrNull;
     final savedLang = ref.watch(appLanguageProvider);
-    final language = sessionLang ?? savedLang;
-    final locale = {'en', 'hi', 'te'}.contains(language) ? language : 'en';
+    final effectiveLang = (session != null && session.activeBusinessId != null)
+        ? (session.localeCode.isNotEmpty ? session.localeCode : savedLang)
+        : savedLang;
+    final locale = {'en', 'hi', 'te'}.contains(effectiveLang) ? effectiveLang : 'en';
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'OneBill',
@@ -1190,11 +1193,25 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
     super.dispose();
   }
 
+  void _changeLanguage(String lang) {
+    setState(() => _language = lang);
+    ref.read(appLanguageProvider.notifier).setLanguage(lang);
+    final session = ref.read(sessionProvider).valueOrNull;
+    if (session != null) {
+      ref.read(businessRepositoryProvider).updateSessionLanguage(
+        sessionId: session.id,
+        languageCode: lang,
+      );
+    }
+  }
+
   Future<void> _create() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await ref.read(appLanguageProvider.notifier).setLanguage(_language);
+      final activeLang = ref.read(appLanguageProvider);
+      final effectiveLang = {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : _language;
+      await ref.read(appLanguageProvider.notifier).setLanguage(effectiveLang);
       await ref
           .read(businessRepositoryProvider)
           .createLocalWorkspace(
@@ -1202,7 +1219,7 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
             ownerName: _owner.text,
             businessName: _business.text,
             phone: _phone.text,
-            languageCode: _language,
+            languageCode: effectiveLang,
           );
       final session = await ref.read(sessionProvider.future);
       if (session?.activeBusinessId != null) {
@@ -1333,54 +1350,53 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     ],
                     const SizedBox(height: 24),
                     // Prominent Preferred Language Choice
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _tr(context, 'Choose your preferred language'),
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
+                    Builder(
+                      builder: (context) {
+                        final activeLang = ref.watch(appLanguageProvider);
+                        final effectiveLang =
+                            {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : _language;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _LanguageChoiceCard(
-                              code: 'en',
-                              nativeTitle: 'English',
-                              subtitle: 'English',
-                              isSelected: _language == 'en',
-                              onTap: () {
-                                setState(() => _language = 'en');
-                                ref.read(appLanguageProvider.notifier).setLanguage('en');
-                              },
+                            Text(
+                              _tr(context, 'Choose your preferred language'),
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.primary,
+                              ),
                             ),
-                            const SizedBox(width: 8),
-                            _LanguageChoiceCard(
-                              code: 'te',
-                              nativeTitle: 'తెలుగు',
-                              subtitle: 'Telugu',
-                              isSelected: _language == 'te',
-                              onTap: () {
-                                setState(() => _language = 'te');
-                                ref.read(appLanguageProvider.notifier).setLanguage('te');
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            _LanguageChoiceCard(
-                              code: 'hi',
-                              nativeTitle: 'हिन्दी',
-                              subtitle: 'Hindi',
-                              isSelected: _language == 'hi',
-                              onTap: () {
-                                setState(() => _language = 'hi');
-                                ref.read(appLanguageProvider.notifier).setLanguage('hi');
-                              },
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                _LanguageChoiceCard(
+                                  code: 'en',
+                                  nativeTitle: 'English',
+                                  subtitle: 'English',
+                                  isSelected: effectiveLang == 'en',
+                                  onTap: () => _changeLanguage('en'),
+                                ),
+                                const SizedBox(width: 8),
+                                _LanguageChoiceCard(
+                                  code: 'te',
+                                  nativeTitle: 'తెలుగు',
+                                  subtitle: 'Telugu',
+                                  isSelected: effectiveLang == 'te',
+                                  onTap: () => _changeLanguage('te'),
+                                ),
+                                const SizedBox(width: 8),
+                                _LanguageChoiceCard(
+                                  code: 'hi',
+                                  nativeTitle: 'हिन्दी',
+                                  subtitle: 'Hindi',
+                                  isSelected: effectiveLang == 'hi',
+                                  onTap: () => _changeLanguage('hi'),
+                                ),
+                              ],
                             ),
                           ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 24),
                     TextFormField(
@@ -1390,7 +1406,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         labelText: _tr(context, 'Owner name'),
                         prefixIcon: const Icon(Icons.person_outline_rounded),
                       ),
-                      validator: _required,
+                      validator: (value) => value == null || value.trim().isEmpty
+                          ? _tr(context, 'This field is required.')
+                          : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -1400,7 +1418,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         labelText: _tr(context, 'Business or shop name'),
                         prefixIcon: const Icon(Icons.storefront_outlined),
                       ),
-                      validator: _required,
+                      validator: (value) => value == null || value.trim().isEmpty
+                          ? _tr(context, 'This field is required.')
+                          : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -1410,7 +1430,13 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         labelText: _tr(context, 'Business phone (optional)'),
                         prefixIcon: const Icon(Icons.phone_outlined),
                       ),
-                      validator: _phoneValidator,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) return null;
+                        final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+                        return RegExp(r'^[6-9][0-9]{9}$').hasMatch(digits)
+                            ? null
+                            : _tr(context, 'Enter a valid 10-digit Indian mobile number.');
+                      },
                     ),
                     const SizedBox(height: 28),
                     FilledButton(
@@ -1714,42 +1740,23 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     BuildContext context,
     BusinessesData business,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
-          Icons.warning_amber_rounded,
-          size: 40,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text('${_tr(context, "Delete business")} "${business.name}"?'),
-        content: Text(
-          _tr(
-            context,
-            'Warning: Are you sure you want to delete this business? All associated customers, invoices, inventory, and transaction history will be removed. This action cannot be undone.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(_tr(context, 'Cancel')),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(_tr(context, 'Delete Business')),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmDeleteBusinessDialog(
+      context,
+      businessName: business.name,
     );
     if (confirmed != true || !mounted) return;
     try {
       await ref
           .read(businessRepositoryProvider)
           .deleteBusiness(businessId: business.id);
+      ref.read(syncWorkerProvider).syncBusiness(business.id);
+
+      ref.invalidate(sessionProvider);
+      ref.invalidate(businessesProvider(business.accountId));
+      if (widget.session.accountId != null) {
+        ref.invalidate(businessesProvider(widget.session.accountId!));
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1758,6 +1765,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
             ),
           ),
         );
+        final nextSession = await ref.read(sessionProvider.future);
+        if (mounted && (nextSession == null || nextSession.activeBusinessId == null)) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -1851,7 +1862,16 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ),
       );
     }
-    final session = widget.session;
+    final currentSession = ref.watch(sessionProvider).valueOrNull;
+    if (currentSession != null && currentSession.activeBusinessId == null) {
+      return const _WorkspaceSetupScreen();
+    }
+    final session = (currentSession != null && currentSession.activeBusinessId != null)
+        ? currentSession
+        : widget.session;
+    if (session.activeBusinessId == null) {
+      return const _WorkspaceSetupScreen();
+    }
     final customers = ref.watch(customersProvider(session.activeBusinessId!));
     final syncStatus = ref.watch(
       syncQueueStatusProvider(session.activeBusinessId!),
@@ -1957,7 +1977,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                           color: Theme.of(context).colorScheme.error,
                         ),
                         title: Text(
-                          _tr(context, 'Delete current business'),
+                          _tr(context, 'Delete'),
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.error,
                             fontWeight: FontWeight.w600,

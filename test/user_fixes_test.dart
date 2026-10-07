@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onebill/core/database/app_database.dart';
@@ -176,5 +177,78 @@ void main() {
       paperReceiptImage: 'data:image/jpeg;base64,dGVzdA==',
     );
     expect(receiptPdf.isNotEmpty, isTrue);
+  });
+
+  test('deleteBusiness does not throw Too many elements when duplicate sessions exist and clears activeBusinessId if last business', () async {
+    final now = DateTime.now().toUtc();
+    final bizId = await bizRepo.createBusiness(
+      accountId: 'user-1',
+      ownerName: 'Owner',
+      businessName: 'Sole Business',
+      languageCode: 'en',
+    );
+
+    // Insert duplicate sessions in database
+    await db.into(db.localSessions).insert(
+      LocalSessionsCompanion.insert(
+        accountId: const drift.Value('user-1'),
+        activeBusinessId: drift.Value(bizId),
+        localeCode: const drift.Value('en'),
+        updatedAt: now.subtract(const Duration(minutes: 5)),
+      ),
+    );
+    await db.into(db.localSessions).insert(
+      LocalSessionsCompanion.insert(
+        accountId: const drift.Value('user-1'),
+        activeBusinessId: drift.Value(bizId),
+        localeCode: const drift.Value('en'),
+        updatedAt: now,
+      ),
+    );
+
+    final sessionsBefore = await db.select(db.localSessions).get();
+    expect(sessionsBefore.length, greaterThanOrEqualTo(2));
+
+    // Deleting business must NOT throw "Too many elements"
+    await bizRepo.deleteBusiness(businessId: bizId);
+
+    // Verify business is soft-deleted
+    final biz = await (db.select(db.businesses)..where((b) => b.id.equals(bizId))).getSingle();
+    expect(biz.deletedAt, isNotNull);
+
+    // Verify session updated and duplicates cleaned up
+    final sessionsAfter = await db.select(db.localSessions).get();
+    expect(sessionsAfter.length, 1);
+    expect(sessionsAfter.first.activeBusinessId, isNull);
+  });
+
+  test('deleteBusiness switches to remaining business when multiple businesses exist', () async {
+    final bizId1 = await bizRepo.createBusiness(
+      accountId: 'user-1',
+      ownerName: 'Owner',
+      businessName: 'Business A',
+      languageCode: 'en',
+    );
+    final bizId2 = await bizRepo.createBusiness(
+      accountId: 'user-1',
+      ownerName: 'Owner',
+      businessName: 'Business B',
+      languageCode: 'te',
+    );
+
+    await bizRepo.deleteBusiness(businessId: bizId1);
+
+    final sessionsAfter = await db.select(db.localSessions).get();
+    expect(sessionsAfter.first.activeBusinessId, bizId2);
+    expect(sessionsAfter.first.localeCode, 'te');
+
+    // Now delete the sole remaining business
+    await bizRepo.deleteBusiness(businessId: bizId2);
+    final sessionsAfterAllDeleted = await db.select(db.localSessions).get();
+    expect(sessionsAfterAllDeleted.first.activeBusinessId, isNull);
+
+    // Verify all businesses are soft-deleted
+    final activeBusinesses = await (db.select(db.businesses)..where((b) => b.deletedAt.isNull())).get();
+    expect(activeBusinesses, isEmpty);
   });
 }

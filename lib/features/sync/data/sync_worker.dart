@@ -234,6 +234,22 @@ class SyncWorker {
           final existing = await (_database.select(_database.businesses)
                 ..where((b) => b.id.equals(bId)))
               .getSingleOrNull();
+
+          final pendingDelete = await (_database.select(_database.syncOperations)
+                ..where(
+                  (op) =>
+                      op.entityType.equals('business') &
+                      op.entityId.equals(bId) &
+                      op.operationType.equals('BusinessDeleted'),
+                ))
+              .getSingleOrNull();
+
+          final cloudDeletedAt = getDateOpt(row, 'deleted_at', 'deletedAt');
+          final isLocallyDeleted = existing?.deletedAt != null || pendingDelete != null;
+          final effectiveDeletedAt = isLocallyDeleted
+              ? (existing?.deletedAt ?? now)
+              : cloudDeletedAt;
+
           final langToUse = existing?.preferredLanguage ??
               (getVal(row, 'preferred_language', 'preferredLanguage') ?? 'en');
           await _database
@@ -260,18 +276,47 @@ class SyncWorker {
                   preferredLanguage: Value(langToUse),
                   createdAt: getDate(row, 'created_at', 'createdAt'),
                   updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                  deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                  deletedAt: Value(effectiveDeletedAt),
                 ),
               );
         }
-        final activeBusinesses = businesses
-            .where((r) => getDateOpt(r, 'deleted_at', 'deletedAt') == null)
-            .toList();
-        final businessIds = (activeBusinesses.isNotEmpty ? activeBusinesses : businesses)
-            .map((r) => getVal(r, 'id', 'id'))
-            .whereType<String>()
-            .toList();
-        if (businessIds.isEmpty) return;
+        final localActiveBusinesses = await (_database.select(_database.businesses)
+              ..where((b) => b.accountId.equals(user.id) & b.deletedAt.isNull())
+              ..orderBy([(b) => OrderingTerm.asc(b.name)]))
+            .get();
+        final businessIds = localActiveBusinesses.map((b) => b.id).toList();
+
+        if (businessIds.isEmpty) {
+          final sessions = await _database.select(_database.localSessions).get();
+          if (sessions.isEmpty) {
+            await _database.into(_database.localSessions).insert(
+              LocalSessionsCompanion.insert(
+                accountId: Value(user.id),
+                activeBusinessId: const Value(null),
+                localeCode: const Value('en'),
+                updatedAt: now,
+              ),
+            );
+          } else {
+            final keep = sessions.first;
+            await (_database.update(_database.localSessions)
+                  ..where((row) => row.id.equals(keep.id)))
+                .write(
+              LocalSessionsCompanion(
+                accountId: Value(user.id),
+                activeBusinessId: const Value(null),
+                updatedAt: Value(now),
+              ),
+            );
+            if (sessions.length > 1) {
+              final duplicateIds = sessions.skip(1).map((s) => s.id).toList();
+              await (_database.delete(_database.localSessions)
+                    ..where((row) => row.id.isIn(duplicateIds)))
+                  .go();
+            }
+          }
+          return;
+        }
 
         for (final businessId in businessIds) {
           final customers = allCustomers.where(
@@ -426,12 +471,7 @@ class SyncWorker {
                 );
           }
         }
-        final preferredLanguage =
-            businesses.firstWhere(
-                  (business) => business['id'] == businessIds.first,
-                )['preferred_language']
-                as String? ??
-            'en';
+        final preferredLanguage = localActiveBusinesses.first.preferredLanguage;
         final sessions = await _database.select(_database.localSessions).get();
         final currentSession = sessions.firstOrNull;
         final existingActiveId = currentSession?.activeBusinessId;

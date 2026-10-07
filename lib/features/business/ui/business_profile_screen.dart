@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/localization/app_localizations.dart';
 import '../../../core/providers.dart';
+import 'confirm_delete_business_dialog.dart';
 
 class BusinessProfileScreen extends ConsumerStatefulWidget {
   const BusinessProfileScreen({super.key, required this.businessId});
@@ -830,7 +831,7 @@ class _BusinessProfileScreenState
               ),
               icon: const Icon(Icons.delete_forever, size: 20),
               label: Text(
-                tr(context, 'Delete Business (Local & Cloud)'),
+                tr(context, 'Delete'),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
@@ -844,135 +845,10 @@ class _BusinessProfileScreenState
     final businessName = _nameController.text.trim().isNotEmpty
         ? _nameController.text.trim()
         : 'this business';
-    final confirmController = TextEditingController();
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final isMatch = confirmController.text.trim().toLowerCase() ==
-                businessName.toLowerCase();
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: const BorderSide(color: Color(0xFFEF4444), width: 2),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 28),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Delete Business Permanently?',
-                      style: TextStyle(
-                        color: Color(0xFF991B1B),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 17,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF2F2),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFFCA5A5)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '⚠️ DANGER: PERMANENT DATA LOSS',
-                            style: TextStyle(
-                              color: Color(0xFF991B1B),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12.5,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'You are about to delete "$businessName" and all associated records on this device and in the cloud:',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              color: Color(0xFF7F1D1D),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            '• Invoices, Line Items & Payments\n'
-                            '• Customer Accounts\n'
-                            '• Income & Expense Reports\n'
-                            '• Cloud Backups & Sync Records',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF991B1B),
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'To confirm deletion, please type "$businessName" below:',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF334155),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: confirmController,
-                      onChanged: (_) => setDialogState(() {}),
-                      decoration: InputDecoration(
-                        hintText: businessName,
-                        prefixIcon: const Icon(Icons.edit_note, color: Color(0xFFDC2626)),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                OutlinedButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: isMatch ? () => Navigator.pop(context, true) : null,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFDC2626),
-                    disabledBackgroundColor: Colors.red.shade100,
-                  ),
-                  icon: const Icon(Icons.delete_forever, size: 18),
-                  label: const Text(
-                    'Delete Business',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    final confirmed = await showConfirmDeleteBusinessDialog(
+      context,
+      businessName: businessName,
     );
 
     if (confirmed == true && mounted) {
@@ -983,21 +859,32 @@ class _BusinessProfileScreenState
             .deleteBusiness(businessId: widget.businessId);
         ref.read(syncWorkerProvider).syncBusiness(widget.businessId);
 
+        ref.invalidate(sessionProvider);
+        ref.invalidate(businessesProvider);
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Business deleted successfully from local and cloud.'),
+            SnackBar(
+              content: Text('${tr(context, "Business deleted:")} $businessName'),
               backgroundColor: Colors.red,
             ),
           );
-          Navigator.pop(context);
+
+          final session = await ref.read(sessionProvider.future);
+          if (mounted) {
+            if (session == null || session.activeBusinessId == null) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            } else {
+              Navigator.of(context).pop();
+            }
+          }
         }
       } catch (e) {
         if (mounted) {
           setState(() => _isSaving = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error deleting business: $e'),
+              content: Text('${tr(context, "Could not delete business")}: $e'),
               backgroundColor: Colors.red,
             ),
           );

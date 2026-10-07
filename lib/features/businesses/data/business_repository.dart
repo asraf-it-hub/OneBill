@@ -72,16 +72,40 @@ class BusinessRepository {
               updatedAt: now,
             ),
           );
-      await _database
-          .into(_database.localSessions)
-          .insert(
-            LocalSessionsCompanion.insert(
-              accountId: Value(effectiveAccountId),
-              activeBusinessId: Value(businessId),
-              localeCode: Value(languageCode),
-              updatedAt: now,
-            ),
-          );
+      final existingSessions = await (_database.select(_database.localSessions)
+            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+          .get();
+
+      if (existingSessions.isNotEmpty) {
+        final mainSession = existingSessions.first;
+        await (_database.update(_database.localSessions)
+              ..where((s) => s.id.equals(mainSession.id)))
+            .write(
+          LocalSessionsCompanion(
+            accountId: Value(effectiveAccountId),
+            activeBusinessId: Value(businessId),
+            localeCode: Value(languageCode),
+            updatedAt: Value(now),
+          ),
+        );
+        if (existingSessions.length > 1) {
+          final duplicateIds = existingSessions.skip(1).map((s) => s.id).toList();
+          await (_database.delete(_database.localSessions)
+                ..where((s) => s.id.isIn(duplicateIds)))
+              .go();
+        }
+      } else {
+        await _database
+            .into(_database.localSessions)
+            .insert(
+              LocalSessionsCompanion.insert(
+                accountId: Value(effectiveAccountId),
+                activeBusinessId: Value(businessId),
+                localeCode: Value(languageCode),
+                updatedAt: now,
+              ),
+            );
+      }
       await _enqueue(
         businessId: businessId,
         entityType: 'business',
@@ -366,44 +390,82 @@ class BusinessRepository {
         now: now,
       );
 
-      final remainingBusinesses = await (_database.select(_database.businesses)
+      // Find all remaining non-deleted businesses
+      final activeUser = _currentUser;
+      final effectiveId = activeUser?.id ?? business.accountId;
+      var remainingBusinesses = await (_database.select(_database.businesses)
             ..where(
               (b) =>
-                  b.accountId.equals(business.accountId) &
+                  (b.accountId.equals(business.accountId) |
+                      b.accountId.equals(effectiveId)) &
+                  b.id.equals(businessId).not() &
                   b.deletedAt.isNull(),
             )
             ..orderBy([(b) => OrderingTerm.asc(b.name)]))
           .get();
 
-      final session = await (_database.select(_database.localSessions)
-            ..where((s) => s.accountId.equals(business.accountId)))
-          .getSingleOrNull();
+      if (remainingBusinesses.isEmpty) {
+        remainingBusinesses = await (_database.select(_database.businesses)
+              ..where((b) => b.id.equals(businessId).not() & b.deletedAt.isNull())
+              ..orderBy([(b) => OrderingTerm.asc(b.name)]))
+            .get();
+      }
 
-      if (session != null) {
-        if (remainingBusinesses.isNotEmpty) {
-          final nextId = remainingBusinesses.first.id;
-          final lang = remainingBusinesses.first.preferredLanguage;
-          await (_database.update(_database.localSessions)
-                ..where((s) => s.id.equals(session.id)))
-              .write(
-            LocalSessionsCompanion(
-              activeBusinessId: Value(nextId),
-              localeCode: Value(lang),
-              updatedAt: Value(now),
-            ),
-          );
-        } else {
-          await (_database.update(_database.localSessions)
-                ..where((s) => s.id.equals(session.id)))
-              .write(
-            LocalSessionsCompanion(
-              activeBusinessId: const Value(null),
-              updatedAt: Value(now),
-            ),
-          );
+      final allSessions = await (_database.select(_database.localSessions)
+            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+          .get();
+
+      final String? nextId =
+          remainingBusinesses.isNotEmpty ? remainingBusinesses.first.id : null;
+      final String? nextLang = remainingBusinesses.isNotEmpty
+          ? remainingBusinesses.first.preferredLanguage
+          : null;
+
+      if (allSessions.isNotEmpty) {
+        final mainSession = allSessions.first;
+        await (_database.update(_database.localSessions)
+              ..where((s) => s.id.equals(mainSession.id)))
+            .write(
+          LocalSessionsCompanion(
+            accountId: Value(business.accountId),
+            activeBusinessId: Value(nextId),
+            localeCode: nextLang != null ? Value(nextLang) : const Value.absent(),
+            updatedAt: Value(now),
+          ),
+        );
+
+        if (allSessions.length > 1) {
+          final duplicateIds = allSessions.skip(1).map((s) => s.id).toList();
+          await (_database.delete(_database.localSessions)
+                ..where((s) => s.id.isIn(duplicateIds)))
+              .go();
         }
+      } else {
+        await _database.into(_database.localSessions).insert(
+          LocalSessionsCompanion.insert(
+            accountId: Value(business.accountId),
+            activeBusinessId: Value(nextId),
+            localeCode: Value(nextLang ?? 'en'),
+            updatedAt: now,
+          ),
+        );
       }
     });
+  }
+
+  Future<void> updateSessionLanguage({
+    required int sessionId,
+    required String languageCode,
+  }) async {
+    final now = DateTime.now().toUtc();
+    await (_database.update(_database.localSessions)
+          ..where((s) => s.id.equals(sessionId)))
+        .write(
+      LocalSessionsCompanion(
+        localeCode: Value(languageCode),
+        updatedAt: Value(now),
+      ),
+    );
   }
 
   String? _blankToNull(String? value) =>
