@@ -17,6 +17,7 @@ import 'package:drift/drift.dart'
 import 'package:share_plus/share_plus.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/config/app_environment.dart';
 import '../core/database/app_database.dart';
@@ -5934,6 +5935,37 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
   );
 }
 
+Future<void> _launchCustomerCall(BuildContext context, String rawPhone) async {
+  final cleanNumber = rawPhone.trim().replaceAll(RegExp(r'[^\d+]'), '');
+  if (cleanNumber.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_tr(context, 'No phone number available for this customer')),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    return;
+  }
+
+  final uri = Uri(scheme: 'tel', path: cleanNumber);
+  try {
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      await launchUrl(uri);
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_tr(context, 'Could not open phone dialer')),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+}
+
 class _CustomerDetailsSheet extends ConsumerWidget {
   const _CustomerDetailsSheet({
     required this.businessId,
@@ -5941,6 +5973,60 @@ class _CustomerDetailsSheet extends ConsumerWidget {
   });
   final String businessId;
   final Customer customer;
+
+  Widget _buildCallButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final callBgColor = isDark
+        ? const Color(0xFF064E3B).withValues(alpha: 0.55)
+        : const Color(0xFFE8F5E9);
+    final callBorderColor = isDark
+        ? const Color(0xFF059669).withValues(alpha: 0.65)
+        : const Color(0xFFA5D6A7);
+    final callFgColor = isDark
+        ? const Color(0xFF6EE7B7)
+        : const Color(0xFF1B5E20);
+
+    return Tooltip(
+      message: _tr(context, 'Call customer'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _launchCustomerCall(context, customer.phone),
+          borderRadius: BorderRadius.circular(20),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: callBgColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: callBorderColor, width: 1.2),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.phone_rounded,
+                  size: 15,
+                  color: callFgColor,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _tr(context, 'Call'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: callFgColor,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -5979,10 +6065,12 @@ class _CustomerDetailsSheet extends ConsumerWidget {
                     child: Text(
                       customer.name,
                       style: Theme.of(context).textTheme.headlineSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Customer info',
+                    tooltip: _tr(context, 'Customer info'),
                     onPressed: () => showModalBottomSheet<void>(
                       context: context,
                       builder: (_) => _CustomerInfoSheet(
@@ -5993,8 +6081,10 @@ class _CustomerDetailsSheet extends ConsumerWidget {
                     ),
                     icon: const Icon(Icons.info_outline),
                   ),
+                  const SizedBox(width: 4),
+                  _buildCallButton(context),
                   IconButton(
-                    tooltip: 'Remove customer',
+                    tooltip: _tr(context, 'Remove customer'),
                     onPressed: () => _confirmArchive(context, ref),
                     icon: const Icon(Icons.delete_outline),
                   ),
@@ -6089,7 +6179,7 @@ class _CustomerInfoSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Customer information',
+            _tr(context, 'Customer information'),
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
@@ -6103,7 +6193,12 @@ class _CustomerInfoSheet extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Copy mobile number',
+                tooltip: _tr(context, 'Call customer'),
+                onPressed: () => _launchCustomerCall(context, customer.phone),
+                icon: const Icon(Icons.phone_outlined),
+              ),
+              IconButton(
+                tooltip: _tr(context, 'Copy mobile number'),
                 onPressed: () async {
                   await Clipboard.setData(ClipboardData(text: customer.phone));
                   if (context.mounted) {

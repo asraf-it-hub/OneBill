@@ -37,6 +37,7 @@ dependencies:
   app_links: ^6.4.1
   flutter_contacts: ^2.6.0
   google_sign_in: 6.2.2
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:

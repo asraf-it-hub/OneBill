@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:onebill/features/customers/services/contact_service.dart';
 import 'package:onebill/core/localization/app_localizations.dart';
 
@@ -41,6 +41,10 @@ void main() {
         'Contact permission is needed to import customer from phonebook.',
         'Contact permission is permanently denied. Please allow it from App Settings.',
         'Customer saved to phone contacts',
+        'Call',
+        'Call customer',
+        'No phone number available for this customer',
+        'Could not open phone dialer',
       ];
 
       for (final key in requiredKeys) {
@@ -55,6 +59,20 @@ void main() {
             reason: 'Missing Telugu translation for "$key"');
         expect(trans['te']!.isNotEmpty, isTrue,
             reason: 'Empty Telugu translation for "$key"');
+      }
+    });
+
+    test('Customer Call dial URI formats correctly', () {
+      final validPhones = {
+        '9876543210': 'tel:9876543210',
+        '+91 98765 43210': 'tel:+919876543210',
+        '(987) 654-3210': 'tel:9876543210',
+      };
+
+      for (final entry in validPhones.entries) {
+        final clean = entry.key.replaceAll(RegExp(r'[^\d+]'), '');
+        final uri = Uri(scheme: 'tel', path: clean);
+        expect(uri.toString(), entry.value);
       }
     });
   });
