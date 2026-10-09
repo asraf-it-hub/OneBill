@@ -109,6 +109,15 @@ class NotificationService {
   Future<NotificationAppLaunchDetails?> getLaunchDetails() =>
       _plugin.getNotificationAppLaunchDetails();
 
+  Future<void> cancelAll() async {
+    try {
+      await _plugin.cancelAll();
+      await _repository.updateSettings(
+        lastOverdueSignature: const Value(null),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _createNotificationChannels() async {
     final androidImpl = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -307,27 +316,14 @@ class NotificationService {
           title: '${bizPrefix}Invoice due today',
           body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
         ),
-        (
-          stepIndex: 3,
-          categoryKey: NotificationCategories.paymentOverdue,
-          scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + 1, 9, 0),
-          title: '${bizPrefix}Payment overdue (1 day)',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
-        ),
-        (
-          stepIndex: 4,
-          categoryKey: NotificationCategories.paymentOverdue,
-          scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + 3, 9, 0),
-          title: '${bizPrefix}Payment overdue (3 days)',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
-        ),
-        (
-          stepIndex: 5,
-          categoryKey: NotificationCategories.paymentOverdue,
-          scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + 7, 9, 0),
-          title: '${bizPrefix}Payment overdue (7 days)',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
-        ),
+        for (var day = 1; day <= 7; day++)
+          (
+            stepIndex: 2 + day,
+            categoryKey: NotificationCategories.invoiceOverdue,
+            scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + day, 9, 0),
+            title: '${bizPrefix}Payment overdue ($day ${day == 1 ? 'day' : 'days'})',
+            body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+          ),
       ];
 
       final now = DateTime.now();
@@ -335,7 +331,10 @@ class NotificationService {
       for (final step in steps) {
         final notifId = _generateDeterministicId('${invoiceId}_step_${step.stepIndex}');
 
-        if (prefs[step.categoryKey] != true) {
+        final isOverdue = step.categoryKey == NotificationCategories.invoiceOverdue;
+        final isEnabled = prefs[step.categoryKey] == true ||
+            (isOverdue && prefs[NotificationCategories.paymentOverdue] == true);
+        if (!isEnabled) {
           await _plugin.cancel(notifId);
           continue;
         }
@@ -633,9 +632,15 @@ class NotificationService {
 
         // 1. Daily summary
         if (prefs[NotificationCategories.dailySummary] == true) {
-          final todayPayments = bizPayments.where((p) => p.createdAt.isAfter(todayStart)).toList();
+          final todayPayments = bizPayments.where((p) {
+            final dt = p.createdAt.toLocal();
+            return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+          }).toList();
           final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-          final todayInvoices = bizInvoices.where((i) => i.createdAt.isAfter(todayStart)).toList();
+          final todayInvoices = bizInvoices.where((i) {
+            final dt = i.createdAt.toLocal();
+            return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+          }).toList();
 
           final title = '${bizPrefix}${trLang('Daily Summary', lang)}';
           final body = lang == 'te'
@@ -808,6 +813,7 @@ class NotificationService {
   }) async {
     try {
       await reconcileInvoice(invoice.id);
+      await reconcileSummaries();
 
       final prefs = await _repository.getPreferences();
       final category = isFullyPaid
@@ -877,6 +883,7 @@ class NotificationService {
   Future<void> notifyInvoiceCreated(Invoice invoice, Customer? customer, [String? langCode]) async {
     try {
       await reconcileInvoice(invoice.id);
+      await reconcileSummaries();
 
       final prefs = await _repository.getPreferences();
       if (prefs[NotificationCategories.invoiceCreated] != true) return;
@@ -1136,35 +1143,46 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> showTestDailySummary({String? langCode}) async {
+  Future<void> showTestDailySummary({String? langCode, String? businessId}) async {
     try {
-      final active = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull())
-            ..limit(1))
-          .getSingleOrNull();
+      String? bizId = businessId;
+      if (bizId == null) {
+        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        bizId = session?.activeBusinessId;
+      }
+      final active = bizId != null
+          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
-      final bizId = active?.id;
+      final effectiveBizId = active?.id;
 
       final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
 
-      final bizInvoices = bizId != null
+      final bizInvoices = effectiveBizId != null
           ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
               .get()
           : <Invoice>[];
 
-      final bizPayments = bizId != null
+      final bizPayments = effectiveBizId != null
           ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(bizId)))
+                ..where((p) => p.businessId.equals(effectiveBizId)))
               .get()
           : <Payment>[];
 
-      final todayPayments = bizPayments.where((p) => p.createdAt.isAfter(todayStart)).toList();
+      final todayPayments = bizPayments.where((p) {
+        final dt = p.createdAt.toLocal();
+        return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+      }).toList();
       final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-      final todayInvoices = bizInvoices.where((i) => i.createdAt.isAfter(todayStart)).toList();
+      final todayInvoices = bizInvoices.where((i) {
+        final dt = i.createdAt.toLocal();
+        return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+      }).toList();
 
-      final title = trLang('Daily Summary', lang);
+      final allBusinesses = await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())).get();
+      final bizPrefix = allBusinesses.length > 1 && active != null ? '${active.name} · ' : '';
+      final title = '$bizPrefix${trLang('Daily Summary', lang)}';
       final body = lang == 'te'
           ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
           : lang == 'hi'

@@ -321,6 +321,9 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     ref.read(isPasswordRecoveryProvider.notifier).state = false;
     ref.read(isSigningOutProvider.notifier).state = true;
     try {
+      await ref.read(notificationServiceProvider).cancelAll();
+    } catch (_) {}
+    try {
       await ref.read(authServiceProvider).signOut();
     } catch (_) {}
     if (mounted) {
@@ -2253,7 +2256,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (confirmed == true) {
       final auth = ref.read(authServiceProvider);
       final db = ref.read(databaseProvider);
+      final notifService = ref.read(notificationServiceProvider);
       ref.read(isSigningOutProvider.notifier).state = true;
+      try {
+        await notifService.cancelAll();
+      } catch (_) {}
       try {
         await auth.signOut();
       } catch (_) {}

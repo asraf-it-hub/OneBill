@@ -875,23 +875,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
             repo,
             prefs,
             masterEnabled,
-            NotificationCategories.partialPayment,
-          ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
             NotificationCategories.paymentReminder,
-          ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.paymentOverdue,
           ),
           const Divider(),
           Padding(
@@ -927,22 +911,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
             prefs,
             masterEnabled,
             NotificationCategories.monthlySummary,
-          ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.syncCompleted,
-          ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.syncFailed,
           ),
           ..._buildCategorySwitch(
             context,
@@ -1121,7 +1089,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    await service.showTestDailySummary();
+                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
+                    await service.showTestDailySummary(businessId: activeBizId);
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,
