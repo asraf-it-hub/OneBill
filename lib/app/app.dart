@@ -18,6 +18,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../core/config/app_environment.dart';
 import '../core/database/app_database.dart';
@@ -180,6 +181,7 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
         if (data.event == AuthChangeEvent.passwordRecovery) {
           if (mounted) {
+            ref.read(passwordRecoveryErrorProvider.notifier).state = null;
             ref.read(isPasswordRecoveryProvider.notifier).state = true;
           }
         }
@@ -188,11 +190,34 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
   }
 
   void _handleUri(Uri uri) {
+    final fragment = uri.fragment;
+    final query = uri.queryParameters;
+    final fragmentParams = fragment.isNotEmpty
+        ? Uri.splitQueryString(fragment)
+        : <String, String>{};
+
+    final error = query['error'] ?? fragmentParams['error'];
+    final errorDesc = query['error_description'] ??
+        fragmentParams['error_description'] ??
+        query['error_code'] ??
+        fragmentParams['error_code'];
+
     final isRecovery = uri.host == 'reset-password' ||
         uri.path.contains('reset-password') ||
         uri.fragment.contains('type=recovery') ||
-        uri.queryParameters['type'] == 'recovery';
+        uri.queryParameters['type'] == 'recovery' ||
+        (error != null && (uri.path.contains('reset-password') || uri.host == 'reset-password'));
+
+    final email = query['email'] ?? fragmentParams['email'];
+    if (email != null && email.isNotEmpty) {
+      ref.read(lastAuthEmailProvider.notifier).state = email;
+    }
+
     if (isRecovery && mounted) {
+      if (error != null || errorDesc != null) {
+        ref.read(passwordRecoveryErrorProvider.notifier).state =
+            errorDesc ?? error ?? 'Auth session missing';
+      }
       ref.read(isPasswordRecoveryProvider.notifier).state = true;
     }
   }
@@ -244,15 +269,99 @@ class _ResetPasswordScreen extends ConsumerStatefulWidget {
 
 class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _submitting = false;
+  bool _validatingSession = true;
+  bool _resetEmailSent = false;
+  String? _sentEmailAddress;
   AuthErrorDetails? _authErrorDetails;
 
   @override
+  void initState() {
+    super.initState();
+    _emailController.text = ref.read(lastAuthEmailProvider) ??
+        Supabase.instance.client.auth.currentUser?.email ??
+        '';
+    _checkRecoverySession();
+  }
+
+  Future<void> _checkRecoverySession() async {
+    final passedError = ref.read(passwordRecoveryErrorProvider);
+    if (passedError != null && passedError.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _validatingSession = false;
+          _authErrorDetails = AuthErrorDetails.fromError(passedError);
+        });
+      }
+      return;
+    }
+
+    // Allow 600ms for Supabase deep link token hydration on cold start
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      setState(() {
+        _validatingSession = false;
+        _authErrorDetails = AuthErrorDetails.fromError(
+          'AuthException(message: Auth session missing!, statusCode: 400)',
+        );
+      });
+    } else {
+      setState(() {
+        _validatingSession = false;
+      });
+    }
+  }
+
+  Future<void> _sendNewResetEmail() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() {
+        _authErrorDetails = AuthErrorDetails(
+          type: AuthErrorType.somethingWentWrong,
+          title: _tr(context, 'Email required'),
+          message: _tr(context, 'Please enter a valid email address to request a new link.'),
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _authErrorDetails = null;
+    });
+
+    try {
+      await ref.read(authServiceProvider).resetPassword(email: email);
+      ref.read(lastAuthEmailProvider.notifier).state = email;
+      ref.read(passwordResetSentEmailProvider.notifier).state = email;
+
+      if (mounted) {
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Password reset instructions have been sent to your email address.'),
+        );
+      }
+      await _cancel();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _authErrorDetails = AuthErrorDetails.fromError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
   void dispose() {
+    _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -260,10 +369,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
   String? _passwordValidator(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Password is required';
+      return _tr(context, 'This field is required.');
     }
-    if (value.length < 6) {
-      return 'Password must be at least 6 characters';
+    if (value.length < 8) {
+      return _tr(context, 'Use at least 8 characters.');
     }
     return null;
   }
@@ -304,6 +413,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
       }
 
       ref.read(isPasswordRecoveryProvider.notifier).state = false;
+      ref.read(passwordRecoveryErrorProvider.notifier).state = null;
       ref.read(isSigningOutProvider.notifier).state = false;
       ref.invalidate(sessionProvider);
       ref.invalidate(authSessionProvider);
@@ -320,7 +430,8 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     if (_submitting) return;
     setState(() => _submitting = true);
     ref.read(isPasswordRecoveryProvider.notifier).state = false;
-    ref.read(isSigningOutProvider.notifier).state = true;
+    ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+    ref.read(isSigningOutProvider.notifier).state = false;
     try {
       await ref.read(notificationServiceProvider).cancelAll();
     } catch (_) {}
@@ -384,9 +495,102 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     );
   }
 
+  Widget _buildSuccessBox(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final boxBg = isDark
+        ? const Color(0xFF064E3B).withValues(alpha: 0.45)
+        : const Color(0xFFE8F5E9);
+    final boxBorder = isDark
+        ? const Color(0xFF25D366).withValues(alpha: 0.5)
+        : const Color(0xFF86EFAC);
+    final titleColor = isDark
+        ? const Color(0xFF25D366)
+        : const Color(0xFF1B5E20);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: boxBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: boxBorder, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.mark_email_read_rounded,
+                size: 24,
+                color: titleColor,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _tr(context, 'Password reset email sent!'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: titleColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _tr(context, 'Password reset instructions have been sent to your email address.'),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          if (_sentEmailAddress != null && _sentEmailAddress!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF047857).withValues(alpha: 0.3)
+                    : const Color(0xFFC8E6C9),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                _sentEmailAddress!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: titleColor,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (_validatingSession) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(_tr(context, 'Checking reset link...')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final isExpired = _authErrorDetails != null &&
+        (_authErrorDetails!.title == 'Reset link expired' ||
+         Supabase.instance.client.auth.currentSession == null);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -432,70 +636,119 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _tr(context, 'Enter a new password for your OneBill account.'),
+                      isExpired
+                          ? (_resetEmailSent
+                              ? _tr(context, 'Check your email inbox to reset your password.')
+                              : _tr(context, 'This password reset link has expired or has already been used.'))
+                          : _tr(context, 'Enter a new password for your OneBill account.'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 32),
-                    _buildErrorBox(theme),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      decoration: InputDecoration(
-                        labelText: _tr(context, 'New password'),
-                        prefixIcon: const Icon(Icons.lock_outline_rounded),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                          onPressed: () =>
-                              setState(() => _obscurePassword = !_obscurePassword),
+                    if (isExpired) ...[
+                      if (_resetEmailSent) ...[
+                        _buildSuccessBox(theme),
+                        FilledButton(
+                          onPressed: _submitting ? null : _cancel,
+                          child: Text(_tr(context, 'Back to sign in')),
                         ),
-                      ),
-                      validator: _passwordValidator,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _confirmPasswordController,
-                      obscureText: _obscureConfirmPassword,
-                      decoration: InputDecoration(
-                        labelText: _tr(context, 'Confirm new password'),
-                        prefixIcon: const Icon(Icons.lock_reset_rounded),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscureConfirmPassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                          onPressed: () => setState(
-                              () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _submitting ? null : _sendNewResetEmail,
+                          child: Text(_tr(context, 'Resend email')),
                         ),
+                      ] else ...[
+                        _buildErrorBox(theme),
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: _tr(context, 'Email address'),
+                            prefixIcon: const Icon(Icons.email_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          onPressed: _submitting ? null : _sendNewResetEmail,
+                          icon: _submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                          label: Text(_tr(context, 'Request new link')),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _submitting ? null : _cancel,
+                          child: Text(_tr(context, 'Back to sign in')),
+                        ),
+                      ],
+                    ] else ...[
+                      _buildErrorBox(theme),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: _tr(context, 'New password'),
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscurePassword = !_obscurePassword),
+                          ),
+                        ),
+                        validator: _passwordValidator,
                       ),
-                      validator: _confirmPasswordValidator,
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      child: _submitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(_tr(context, 'Update password')),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: _submitting ? null : _cancel,
-                      child: Text(_tr(context, 'Back to sign in')),
-                    ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _confirmPasswordController,
+                        obscureText: _obscureConfirmPassword,
+                        decoration: InputDecoration(
+                          labelText: _tr(context, 'Confirm new password'),
+                          prefixIcon: const Icon(Icons.lock_reset_rounded),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirmPassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () => setState(
+                                () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                          ),
+                        ),
+                        validator: _confirmPasswordValidator,
+                      ),
+                      const SizedBox(height: 24),
+                      FilledButton(
+                        onPressed: _submitting ? null : _submit,
+                        child: _submitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(_tr(context, 'Update password')),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _submitting ? null : _cancel,
+                        child: Text(_tr(context, 'Back to sign in')),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -531,6 +784,11 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(isSigningOutProvider.notifier).state = false;
+        final savedEmail = ref.read(passwordResetSentEmailProvider) ??
+            ref.read(lastAuthEmailProvider);
+        if (savedEmail != null && savedEmail.isNotEmpty && _email.text.isEmpty) {
+          _email.text = savedEmail;
+        }
       }
     });
   }
@@ -580,6 +838,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
       _submitting = true;
       _authErrorDetails = null;
     });
+    ref.read(lastAuthEmailProvider.notifier).state = email;
     try {
       await ref.read(authServiceProvider).resetPassword(email: email);
       if (mounted) {
@@ -605,6 +864,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     });
     ref.read(isSigningOutProvider.notifier).state = false;
     final email = _email.text.trim();
+    ref.read(lastAuthEmailProvider.notifier).state = email;
     final password = _password.text;
 
     try {
@@ -785,6 +1045,87 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     );
   }
 
+  Widget _buildEmailSentBox(ThemeData theme) {
+    final sentEmail = ref.watch(passwordResetSentEmailProvider);
+    if (sentEmail == null || sentEmail.isEmpty) return const SizedBox.shrink();
+
+    final isDark = theme.brightness == Brightness.dark;
+    final boxBg = isDark
+        ? const Color(0xFF064E3B).withValues(alpha: 0.45)
+        : const Color(0xFFE8F5E9);
+    final boxBorder = isDark
+        ? const Color(0xFF25D366).withValues(alpha: 0.5)
+        : const Color(0xFF86EFAC);
+    final titleColor = isDark
+        ? const Color(0xFF25D366)
+        : const Color(0xFF1B5E20);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: boxBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: boxBorder, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.mark_email_read_rounded,
+                size: 24,
+                color: titleColor,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _tr(context, 'Password reset email sent!'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: titleColor,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: () => ref.read(passwordResetSentEmailProvider.notifier).state = null,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _tr(context, 'A new password reset link has been sent to your email. Please check your inbox and tap the link to set your new password.'),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF047857).withValues(alpha: 0.3)
+                  : const Color(0xFFC8E6C9),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              sentEmail,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: titleColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -836,6 +1177,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                         ),
                       ),
                       const SizedBox(height: 32),
+                      _buildEmailSentBox(theme),
                       _buildErrorBox(theme),
                       TextFormField(
                         controller: _email,
@@ -1606,14 +1948,71 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     );
   }
 
+  void _openInvoiceDetails(String invoiceId, [String? businessId]) {
+    if (!mounted) return;
+    final bId = businessId ?? widget.session.activeBusinessId;
+    if (bId == null) return;
+    final db = ref.read(databaseProvider);
+    (db.select(db.invoices)..where((i) => i.id.equals(invoiceId))).getSingleOrNull().then((inv) {
+      if (inv != null && mounted) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => _InvoiceDetailsSheet(businessId: bId, invoice: inv),
+        );
+      }
+    });
+  }
+
+  void _openCustomerDetails(String customerId, [String? businessId]) {
+    if (!mounted) return;
+    final bId = businessId ?? widget.session.activeBusinessId;
+    if (bId == null) return;
+    final db = ref.read(databaseProvider);
+    (db.select(db.customers)..where((c) => c.id.equals(customerId))).getSingleOrNull().then((cust) {
+      if (cust != null && mounted) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => _CustomerDetailsSheet(businessId: bId, customer: cust),
+        );
+      }
+    });
+  }
+
+  void _openSyncSheet() {
+    if (!mounted) return;
+    final bId = widget.session.activeBusinessId;
+    if (bId == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _SyncQueueSheet(businessId: bId),
+    );
+  }
+
   void _handleNotificationPayload(String payloadStr, [String? actionId]) {
     try {
       final data = jsonDecode(payloadStr) as Map<String, dynamic>;
       final action = actionId ?? (data['action'] as String?);
+      final invoiceId = data['invoiceId'] as String?;
+      final customerId = data['customerId'] as String?;
+      final businessId = data['businessId'] as String?;
+
       if (action == 'view_overdue' ||
-          (action == NotificationActionKeys.viewInvoice &&
-              data['invoiceId'] == null)) {
+          (action == NotificationActionKeys.viewInvoice && invoiceId == null)) {
         _openOverdueSheet();
+      } else if (invoiceId != null &&
+          (action == NotificationActionKeys.viewInvoice ||
+              action == NotificationActionKeys.viewPayment)) {
+        _openInvoiceDetails(invoiceId, businessId);
+      } else if (customerId != null &&
+          (action == NotificationActionKeys.viewCustomer ||
+              action == 'view_customers')) {
+        _openCustomerDetails(customerId, businessId);
+      } else if (action == NotificationActionKeys.viewSync ||
+          action == 'view_sync') {
+        _openSyncSheet();
       } else if (action == NotificationActionKeys.viewSummary ||
           action == 'view_summary' ||
           action == 'view_reports') {
@@ -1998,6 +2397,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               businessId: session.activeBusinessId,
               onOpenOverdue: _openOverdueSheet,
               onOpenReports: _openReportsTab,
+              onOpenInvoice: _openInvoiceDetails,
+              onOpenCustomer: _openCustomerDetails,
+              onOpenSync: _openSyncSheet,
             ),
             PopupMenuButton<String>(
               tooltip: 'Profile and tools',
@@ -2263,10 +2665,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         await notifService.cancelAll();
       } catch (_) {}
       try {
-        await auth.signOut();
+        await db.clearAllTables();
       } catch (_) {}
       try {
-        await db.clearAllTables();
+        await auth.signOut();
       } catch (_) {}
       if (mounted) {
         ref.invalidate(sessionProvider);
@@ -5548,6 +5950,9 @@ class _BusinessSettingsSheetState
           );
       await ref.read(appLanguageProvider.notifier).setLanguage(newLanguage);
       await ref.read(notificationServiceProvider).reconcileSummaries();
+      try {
+        ref.read(syncWorkerProvider).syncBusiness(widget.business.id);
+      } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_tr(context, 'Language preference updated.'))),
@@ -6028,6 +6433,211 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     );
   }
 
+  Widget _buildWhatsAppButton(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final waBgColor = isDark
+        ? const Color(0xFF064E3B).withValues(alpha: 0.55)
+        : const Color(0xFFE8F5E9);
+    final waBorderColor = isDark
+        ? const Color(0xFF25D366).withValues(alpha: 0.6)
+        : const Color(0xFF86EFAC);
+    final waFgColor = isDark
+        ? const Color(0xFF25D366)
+        : const Color(0xFF25D366);
+
+    return Tooltip(
+      message: _tr(context, 'WhatsApp reminder'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _sendWhatsAppReminder(context, ref),
+          borderRadius: BorderRadius.circular(20),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: waBgColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: waBorderColor, width: 1.2),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FaIcon(
+                  FontAwesomeIcons.whatsapp,
+                  size: 16,
+                  color: waFgColor,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendWhatsAppReminder(BuildContext context, WidgetRef ref) async {
+    final rawPhone = customer.phone.trim();
+    var cleanPhone = rawPhone.replaceAll(RegExp(r'[^\d]'), '');
+    if (cleanPhone.isEmpty || cleanPhone.length < 10) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_tr(context, 'Please enter a valid phone number for this customer.')),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (cleanPhone.length == 10) {
+      cleanPhone = '91$cleanPhone';
+    }
+
+    final invoiceRepo = ref.read(invoiceRepositoryProvider);
+    final db = ref.read(databaseProvider);
+
+    final invoices = await (db.select(db.invoices)
+          ..where((i) =>
+              i.businessId.equals(businessId) &
+              i.customerId.equals(customer.id) &
+              i.deletedAt.isNull())
+          ..orderBy([(i) => OrderingTerm.asc(i.issuedAt)]))
+        .get();
+
+    final eligibleInvoices = <Invoice>[];
+    var totalOutstandingPaise = 0;
+    var overdueCount = 0;
+    var unpaidCount = 0;
+    var partiallyPaidCount = 0;
+
+    for (final inv in invoices) {
+      final bal = invoiceRepo.balance(inv);
+      if (bal > 0) {
+        eligibleInvoices.add(inv);
+        totalOutstandingPaise += bal;
+        final st = invoiceRepo.status(inv);
+        if (st == InvoicePaymentStatus.overdue) {
+          overdueCount++;
+        } else if (st == InvoicePaymentStatus.partiallyPaid) {
+          partiallyPaidCount++;
+        } else {
+          unpaidCount++;
+        }
+      }
+    }
+
+    if (eligibleInvoices.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_tr(context, 'This customer has no outstanding payments.')),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    final business = await (db.select(db.businesses)..where((b) => b.id.equals(businessId))).getSingleOrNull();
+    final businessName = business?.name.trim().isNotEmpty == true ? business!.name.trim() : 'OneBill';
+    final customerName = customer.name.trim();
+
+    final buffer = StringBuffer();
+    buffer.writeln('${_tr(context, 'Hello')} $customerName! 👋\n');
+
+    final lang = Localizations.localeOf(context).languageCode;
+    if (lang == 'hi') {
+      buffer.writeln('$businessName की ओर से सादर अभिवादन!\n');
+    } else if (lang == 'te') {
+      buffer.writeln('$businessName నుండి నమస్కారాలు!\n');
+    } else {
+      buffer.writeln('Greetings from $businessName!\n');
+    }
+
+    buffer.writeln('📋 *${_tr(context, 'YOUR PAYMENT SUMMARY')}*\n');
+    buffer.writeln('🧾 ${_tr(context, 'Outstanding Invoices')}: ${eligibleInvoices.length}');
+    buffer.writeln('💰 ${_tr(context, 'Total Outstanding')}: ${_rupees(totalOutstandingPaise)}\n');
+    buffer.writeln('━━━━━━━━━━━━━━━━\n');
+
+    if (eligibleInvoices.length <= 5) {
+      for (var idx = 0; idx < eligibleInvoices.length; idx++) {
+        final inv = eligibleInvoices[idx];
+        final num = idx + 1;
+        final invTotal = invoiceRepo.total(inv);
+        final invBal = invoiceRepo.balance(inv);
+        final invStatus = invoiceRepo.status(inv);
+
+        String statusLabel;
+        String statusEmoji;
+        if (invStatus == InvoicePaymentStatus.overdue) {
+          statusLabel = _tr(context, 'Overdue');
+          statusEmoji = '🔴';
+        } else if (invStatus == InvoicePaymentStatus.partiallyPaid) {
+          statusLabel = _tr(context, 'Partially Paid');
+          statusEmoji = '🟡';
+        } else {
+          statusLabel = _tr(context, 'Unpaid');
+          statusEmoji = '🟠';
+        }
+
+        buffer.writeln('*$num. ${_tr(context, 'Invoice')} ${inv.invoiceNumber}*\n');
+        buffer.writeln('📅 ${_tr(context, 'Date')}: ${_date(inv.issuedAt)}');
+        if (inv.dueAt != null) {
+          buffer.writeln('📅 ${_tr(context, 'Due Date')}: ${_date(inv.dueAt!)}');
+        }
+        buffer.writeln('💵 ${_tr(context, 'Invoice Amount')}: ${_rupees(invTotal)}');
+        if (inv.paidPaise > 0) {
+          buffer.writeln('✅ ${_tr(context, 'Paid')}: ${_rupees(inv.paidPaise)}');
+        }
+        buffer.writeln('⏳ ${_tr(context, 'Balance Due')}: ${_rupees(invBal)}');
+        buffer.writeln('$statusEmoji ${_tr(context, 'Status')}: $statusLabel\n');
+      }
+      buffer.writeln('━━━━━━━━━━━━━━━━\n');
+      buffer.writeln('💰 *${_tr(context, 'TOTAL OUTSTANDING')}: ${_rupees(totalOutstandingPaise)}*\n');
+    } else {
+      buffer.writeln('🔴 ${_tr(context, 'Overdue')}: $overdueCount');
+      buffer.writeln('🟠 ${_tr(context, 'Unpaid')}: $unpaidCount');
+      buffer.writeln('🟡 ${_tr(context, 'Partially Paid')}: $partiallyPaidCount\n');
+      buffer.writeln('━━━━━━━━━━━━━━━━\n');
+      buffer.writeln('💰 *${_tr(context, 'TOTAL OUTSTANDING')}: ${_rupees(totalOutstandingPaise)}*\n');
+    }
+
+    buffer.writeln('${_tr(context, 'Kindly settle your outstanding payments at your convenience.')}\n');
+    buffer.writeln('${_tr(context, 'If you have already made any payments, please let us know.')}\n');
+    buffer.writeln('${_tr(context, 'Thank you for your continued support! 🙏')}\n');
+    buffer.writeln('*$businessName*\n');
+    buffer.writeln('━━━━━━━━━━━━━━━━\n');
+    buffer.writeln('_Generated by OneBill_');
+
+    final messageText = buffer.toString();
+    final whatsappUrl = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}';
+    final uri = Uri.parse(whatsappUrl);
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launched) {
+          await Share.share(messageText);
+        }
+      }
+    } catch (_) {
+      try {
+        await Share.share(messageText);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_tr(context, 'Could not open WhatsApp'))),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final invoices = ref.watch(
@@ -6083,6 +6693,8 @@ class _CustomerDetailsSheet extends ConsumerWidget {
                   ),
                   const SizedBox(width: 4),
                   _buildCallButton(context),
+                  const SizedBox(width: 4),
+                  _buildWhatsAppButton(context, ref),
                   IconButton(
                     tooltip: _tr(context, 'Remove customer'),
                     onPressed: () => _confirmArchive(context, ref),

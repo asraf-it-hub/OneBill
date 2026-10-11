@@ -37,12 +37,42 @@ class SupabaseAuthService {
   }
 
   Future<void> signIn({required String email, required String password}) async {
-    final result = await _client.auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
-    );
-    if (result.session == null) {
-      throw StateError('Sign-in could not be completed.');
+    final cleanEmail = email.trim();
+    try {
+      final result = await _client.auth.signInWithPassword(
+        email: cleanEmail,
+        password: password,
+      );
+      if (result.session == null) {
+        throw StateError('Sign-in could not be completed.');
+      }
+    } catch (e) {
+      if (e is AuthException) {
+        final code = e.code?.toLowerCase() ?? '';
+        final msg = e.message.toLowerCase();
+        if (code == 'invalid_credentials' ||
+            code == 'invalid_grant' ||
+            msg.contains('invalid login credentials')) {
+          try {
+            final exists = await _client.rpc(
+              'check_user_exists',
+              params: {'p_email': cleanEmail},
+            );
+            if (exists == false) {
+              throw const AuthException(
+                'User not found',
+                statusCode: '404',
+                code: 'user_not_found',
+              );
+            }
+          } catch (rpcErr) {
+            if (rpcErr is AuthException && rpcErr.code == 'user_not_found') {
+              rethrow;
+            }
+          }
+        }
+      }
+      rethrow;
     }
   }
 

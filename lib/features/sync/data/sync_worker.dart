@@ -39,7 +39,18 @@ class SyncWorker {
     final now = DateTime.now().toUtc();
     await _requeueTransientFailures(force: true);
 
-    // 0. Align local sessions and businesses to the current user ID
+    // 0. Ensure strict account data isolation.
+    // If the local database contains data belonging to a different user account,
+    // clear local tables to prevent data mixing between accounts.
+    final existingSessions = await _database.select(_database.localSessions).get();
+    final existingBusinesses = await _database.select(_database.businesses).get();
+    final hasForeignAccountData = existingBusinesses.any((b) => b.accountId != user.id) ||
+        existingSessions.any((s) => s.accountId != user.id);
+
+    if (hasForeignAccountData) {
+      await _database.clearAllTables();
+    }
+
     await _database
         .into(_database.userAccounts)
         .insertOnConflictUpdate(
@@ -51,22 +62,6 @@ class SyncWorker {
             updatedAt: now,
           ),
         );
-    final existingSessions = await _database.select(_database.localSessions).get();
-    final existingBusinesses = await _database.select(_database.businesses).get();
-    for (final b in existingBusinesses) {
-      if (b.accountId != user.id) {
-        await (_database.update(_database.businesses)
-              ..where((row) => row.id.equals(b.id)))
-            .write(BusinessesCompanion(accountId: Value(user.id)));
-      }
-    }
-    for (final s in existingSessions) {
-      if (s.accountId != user.id) {
-        await (_database.update(_database.localSessions)
-              ..where((row) => row.id.equals(s.id)))
-            .write(LocalSessionsCompanion(accountId: Value(user.id)));
-      }
-    }
 
     // 1. Inspect local database for businesses belonging to THIS user account.
     final localBusinesses = await (_database.select(_database.businesses)

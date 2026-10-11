@@ -22,18 +22,39 @@ class AuthErrorDetails {
   factory AuthErrorDetails.fromError(Object error) {
     final str = error.toString();
 
-    // 1. Connection/Network errors
+    // 1. Connection/Network errors (including Google Sign-In offline network errors)
     if (str.contains('SocketException') ||
         str.contains('Failed host lookup') ||
         str.contains('ClientException') ||
         str.contains('HandshakeException') ||
         str.contains('TimeoutException') ||
-        str.contains('No address associated with hostname')) {
+        str.contains('No address associated with hostname') ||
+        str.contains('network_error') ||
+        str.contains('ApiException: 7') ||
+        str.contains('ApiException: 8') ||
+        str.contains('NETWORK_ERROR')) {
       return const AuthErrorDetails(
         type: AuthErrorType.connectionProblem,
         title: 'Connection problem',
+        message: 'No internet connection. Please check your network and try again.',
+      );
+    }
+
+    // 1b. Expired or missing password reset link session
+    if (str.contains('Auth session missing') ||
+        str.contains('session_not_found') ||
+        str.contains('session missing') ||
+        str.contains('invalid_token') ||
+        str.contains('token has expired') ||
+        str.contains('Token has expired') ||
+        str.contains('otp_expired') ||
+        str.contains('Email link is invalid or has expired') ||
+        str.contains('access_denied')) {
+      return const AuthErrorDetails(
+        type: AuthErrorType.somethingWentWrong,
+        title: 'Reset link expired',
         message:
-            "We couldn't connect to OneBill. Please check your internet connection and try again.",
+            'This password reset link has expired or has already been used. Please request a new link from the sign-in screen.',
       );
     }
 

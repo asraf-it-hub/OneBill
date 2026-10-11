@@ -4,6 +4,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:drift/drift.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/config/app_environment.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/localization/app_localizations.dart';
 import 'notification_constants.dart';
@@ -19,6 +21,15 @@ class NotificationService {
   void Function(String payloadJson, String? actionId)? onNotificationSelect;
 
   NotificationService(this._db, this._repository);
+
+  bool _isAuthenticated() {
+    if (!AppEnvironment.cloudConfigured) return true;
+    try {
+      return Supabase.instance.client.auth.currentSession != null;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<String> _getLanguageCode([String? businessId]) async {
     try {
@@ -112,9 +123,6 @@ class NotificationService {
   Future<void> cancelAll() async {
     try {
       await _plugin.cancelAll();
-      await _repository.updateSettings(
-        lastOverdueSignature: const Value(null),
-      );
     } catch (_) {}
   }
 
@@ -253,6 +261,7 @@ class NotificationService {
   }
 
   Future<void> reconcileInvoice(String invoiceId) async {
+    if (!_isAuthenticated()) return;
     try {
       final invoice = await (_db.select(_db.invoices)
             ..where((i) => i.id.equals(invoiceId)))
@@ -499,6 +508,7 @@ class NotificationService {
   }
 
   Future<void> reconcileAllReminders() async {
+    if (!_isAuthenticated()) return;
     try {
       final activeBusinesses = await (_db.select(_db.businesses)
             ..where((b) => b.deletedAt.isNull()))
