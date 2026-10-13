@@ -189,7 +189,7 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     }
   }
 
-  void _handleUri(Uri uri) {
+  Future<void> _handleUri(Uri uri) async {
     final fragment = uri.fragment;
     final query = uri.queryParameters;
     final fragmentParams = fragment.isNotEmpty
@@ -214,11 +214,20 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     }
 
     if (isRecovery && mounted) {
+      ref.read(passwordRecoveryUriProvider.notifier).state = uri;
       if (error != null || errorDesc != null) {
         ref.read(passwordRecoveryErrorProvider.notifier).state =
             errorDesc ?? error ?? 'Auth session missing';
+      } else {
+        ref.read(passwordRecoveryErrorProvider.notifier).state = null;
       }
       ref.read(isPasswordRecoveryProvider.notifier).state = true;
+
+      if (error == null && AppEnvironment.cloudConfigured) {
+        try {
+          await Supabase.instance.client.auth.getSessionFromUrl(uri);
+        } catch (_) {}
+      }
     }
   }
 
@@ -279,6 +288,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
   bool _resetEmailSent = false;
   String? _sentEmailAddress;
   AuthErrorDetails? _authErrorDetails;
+  StreamSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
@@ -286,10 +296,49 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     _emailController.text = ref.read(lastAuthEmailProvider) ??
         Supabase.instance.client.auth.currentUser?.email ??
         '';
+    if (AppEnvironment.cloudConfigured) {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        if (data.session != null && mounted) {
+          setState(() {
+            _validatingSession = false;
+            _authErrorDetails = null;
+          });
+        }
+      });
+    }
     _checkRecoverySession();
   }
 
   Future<void> _checkRecoverySession() async {
+    // 1. If Supabase already has an active session
+    if (Supabase.instance.client.auth.currentSession != null) {
+      if (mounted) {
+        setState(() {
+          _validatingSession = false;
+          _authErrorDetails = null;
+        });
+      }
+      return;
+    }
+
+    // 2. If we have a recovery URI, attempt to hydrate session from URL
+    final uri = ref.read(passwordRecoveryUriProvider);
+    if (uri != null && AppEnvironment.cloudConfigured) {
+      try {
+        await Supabase.instance.client.auth.getSessionFromUrl(uri);
+      } catch (_) {}
+      if (Supabase.instance.client.auth.currentSession != null) {
+        if (mounted) {
+          setState(() {
+            _validatingSession = false;
+            _authErrorDetails = null;
+          });
+        }
+        return;
+      }
+    }
+
+    // 3. Check if there was an explicit error parameter from deep link
     final passedError = ref.read(passwordRecoveryErrorProvider);
     if (passedError != null && passedError.isNotEmpty) {
       if (mounted) {
@@ -301,21 +350,26 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
       return;
     }
 
-    // Allow 600ms for Supabase deep link token hydration on cold start
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
+    // 4. Poll for up to 3 seconds for background hydration
+    for (int i = 0; i < 15; i++) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      if (Supabase.instance.client.auth.currentSession != null) {
+        setState(() {
+          _validatingSession = false;
+          _authErrorDetails = null;
+        });
+        return;
+      }
+    }
 
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) {
+    // 5. If still no session after polling, only then declare missing/expired session
+    if (mounted) {
       setState(() {
         _validatingSession = false;
         _authErrorDetails = AuthErrorDetails.fromError(
           'AuthException(message: Auth session missing!, statusCode: 400)',
         );
-      });
-    } else {
-      setState(() {
-        _validatingSession = false;
       });
     }
   }
@@ -349,7 +403,21 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           _tr(context, 'Password reset instructions have been sent to your email address.'),
         );
       }
-      await _cancel();
+
+      ref.read(isPasswordRecoveryProvider.notifier).state = false;
+      ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+      ref.read(passwordRecoveryUriProvider.notifier).state = null;
+      ref.read(isSigningOutProvider.notifier).state = false;
+      try {
+        await ref.read(notificationServiceProvider).cancelAll();
+      } catch (_) {}
+      try {
+        await ref.read(authServiceProvider).signOut();
+      } catch (_) {}
+      if (mounted) {
+        ref.invalidate(authSessionProvider);
+        ref.invalidate(sessionProvider);
+      }
     } catch (error) {
       if (mounted) {
         setState(() => _authErrorDetails = AuthErrorDetails.fromError(error));
@@ -361,6 +429,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -414,6 +483,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
       ref.read(isPasswordRecoveryProvider.notifier).state = false;
       ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+      ref.read(passwordRecoveryUriProvider.notifier).state = null;
       ref.read(isSigningOutProvider.notifier).state = false;
       ref.invalidate(sessionProvider);
       ref.invalidate(authSessionProvider);
@@ -431,6 +501,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     setState(() => _submitting = true);
     ref.read(isPasswordRecoveryProvider.notifier).state = false;
     ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+    ref.read(passwordRecoveryUriProvider.notifier).state = null;
     ref.read(isSigningOutProvider.notifier).state = false;
     try {
       await ref.read(notificationServiceProvider).cancelAll();
@@ -571,6 +642,16 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<Uri?>(passwordRecoveryUriProvider, (prev, next) {
+      if (next != null && next != prev) {
+        setState(() {
+          _validatingSession = true;
+          _authErrorDetails = null;
+        });
+        _checkRecoverySession();
+      }
+    });
+
     final theme = Theme.of(context);
     if (_validatingSession) {
       return Scaffold(
@@ -7866,6 +7947,43 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
   }
 }
 
+Widget _buildCircularFieldIcon(
+  BuildContext context, {
+  IconData? icon,
+  String? text,
+}) {
+  final theme = Theme.of(context);
+  final primary = theme.colorScheme.primary;
+  return Container(
+    width: 32,
+    height: 32,
+    margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    decoration: BoxDecoration(
+      color: primary.withValues(alpha: 0.12),
+      shape: BoxShape.circle,
+      border: Border.all(
+        color: primary.withValues(alpha: 0.35),
+        width: 1,
+      ),
+    ),
+    alignment: Alignment.center,
+    child: text != null
+        ? Text(
+            text,
+            style: TextStyle(
+              color: primary,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          )
+        : Icon(
+            icon,
+            size: 16,
+            color: primary,
+          ),
+  );
+}
+
 class _EditInvoiceDetailsSheet extends ConsumerStatefulWidget {
   const _EditInvoiceDetailsSheet({
     required this.businessId,
@@ -7880,6 +7998,7 @@ class _EditInvoiceDetailsSheet extends ConsumerStatefulWidget {
 
 class _EditInvoiceDetailsSheetState
     extends ConsumerState<_EditInvoiceDetailsSheet> {
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController discount;
   late final TextEditingController interest;
   late final TextEditingController notes;
@@ -8059,7 +8178,18 @@ class _EditInvoiceDetailsSheetState
     super.dispose();
   }
 
+  Future<void> _selectDueDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: dueAt ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (selected != null && mounted) setState(() => dueAt = selected);
+  }
+
   Future<void> save() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => saving = true);
     try {
       await ref
@@ -8105,164 +8235,333 @@ class _EditInvoiceDetailsSheetState
           Navigator.pop(context);
         }
       },
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: ListView(
-          shrinkWrap: true,
-          children: <Widget>[
-            Text(_tr(context, 'Edit invoice'), style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            ...List.generate(
-              items.length,
-              (index) => _InvoiceItemEditor(
-                key: ObjectKey(items[index]),
-                draft: items[index],
-                itemNumber: index + 1,
-                canRemove: items.length > 1,
-                onChanged: () => setState(() {}),
-                onRemove: () => setState(() {
-                  final removed = items.removeAt(index);
-                  removed.dispose();
-                }),
-              ),
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.95,
+        minChildSize: 0.6,
+        maxChildSize: 0.96,
+        builder: (context, scrollController) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              12,
+              24,
+              16 + MediaQuery.viewInsetsOf(context).bottom,
             ),
-            TextButton.icon(
-              onPressed: saving
-                  ? null
-                  : () => setState(() => items.add(_InvoiceItemDraft())),
-              icon: const Icon(Icons.add),
-              label: Text(_tr(context, 'Add item')),
-            ),
-            TextField(
-              controller: discount,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: _tr(context, 'Discount (₹)')),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: interest,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: _tr(context, 'Interest / extra charge (₹)'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: notes,
-              minLines: 2,
-              maxLines: 4,
-              decoration: InputDecoration(labelText: _tr(context, 'Notes')),
-            ),
-            const SizedBox(height: 16),
-            _DatePickerField(
-              label: _tr(context, 'Payment Due Date'),
-              selectedDate: dueAt,
-              onTap: saving
-                  ? () {}
-                  : () async {
-                      final d = await showDatePicker(
-                        context: context,
-                        initialDate: dueAt ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (d != null && mounted) setState(() => dueAt = d);
-                    },
-              onClear: () => setState(() => dueAt = null),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _tr(context, 'Paper Receipt (Optional)'),
-              style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.colorScheme.outlineVariant),
-                ),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
-                            ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
-                            : _buildReceiptThumbnail(_paperReceiptImage!),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _tr(context, 'Receipt Attached'),
-                            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            _tr(context, 'Tap to change or remove'),
-                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      tooltip: _tr(context, 'Change Photo'),
-                      onPressed: saving ? null : () => _showPickOptionsSheet(context),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-                      tooltip: _tr(context, 'Remove Receipt'),
-                      onPressed: saving
-                          ? null
-                          : () {
-                              setState(() {
-                                _paperReceiptImage = null;
-                                _paperReceiptFile = null;
-                              });
-                            },
-                    ),
-                  ],
-                ),
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      label: Text(_tr(context, 'Take Photo')),
-                      onPressed: saving ? null : () => _pickReceipt(ImageSource.camera),
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                controller: scrollController,
+                children: <Widget>[
+                  Text(
+                    _tr(context, 'Edit invoice'),
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: Text(_tr(context, 'Choose from Gallery')),
-                      onPressed: saving ? null : () => _pickReceipt(ImageSource.gallery),
+                  const SizedBox(height: 14),
+
+                  ...List.generate(
+                    items.length,
+                    (index) => _InvoiceItemEditor(
+                      key: ObjectKey(items[index]),
+                      draft: items[index],
+                      itemNumber: index + 1,
+                      canRemove: items.length > 1,
+                      onChanged: () => setState(() {}),
+                      onRemove: () => setState(() {
+                        final removed = items.removeAt(index);
+                        removed.dispose();
+                      }),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: theme.colorScheme.primary,
+                          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                          side: BorderSide(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                            width: 1,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        onPressed: saving
+                            ? null
+                            : () => setState(() => items.add(_InvoiceItemDraft())),
+                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                        label: Text(
+                          _tr(context, 'Add Another Item'),
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  TextFormField(
+                    controller: discount,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Discount (₹)'),
+                      hintText: '0.00',
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.discount_outlined),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                      ),
+                    ),
+                    validator: _optionalAmountValidator,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: interest,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Interest / extra charge (₹)'),
+                      hintText: '0.00',
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                      ),
+                    ),
+                    validator: _optionalAmountValidator,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: notes,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Notes'),
+                      hintText: _tr(context, 'Add any additional notes...'),
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.description_outlined),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  _DatePickerField(
+                    label: _tr(context, 'Payment Due Date'),
+                    selectedDate: dueAt,
+                    onTap: saving ? () {} : _selectDueDate,
+                    onClear: () => setState(() => dueAt = null),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tr(context, 'Paper Receipt (Optional)'),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
+                                      ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
+                                      : _buildReceiptThumbnail(_paperReceiptImage!),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _tr(context, 'Receipt Attached'),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _tr(context, 'Tap to change or remove'),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                tooltip: _tr(context, 'Change Photo'),
+                                onPressed: saving ? null : () => _showPickOptionsSheet(context),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error, size: 20),
+                                tooltip: _tr(context, 'Remove Receipt'),
+                                onPressed: saving
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _paperReceiptImage = null;
+                                          _paperReceiptFile = null;
+                                        });
+                                      },
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.primary,
+                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                                label: Text(
+                                  _tr(context, 'Take Photo'),
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: saving ? null : () => _pickReceipt(ImageSource.camera),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.primary,
+                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                                label: Text(
+                                  _tr(context, 'Choose from Gallery'),
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: saving ? null : () => _pickReceipt(ImageSource.gallery),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  SizedBox(
+                    height: 50,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: saving ? null : save,
+                      icon: saving
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: theme.colorScheme.onPrimary,
+                              ),
+                            )
+                          : const Icon(Icons.check_circle_rounded, size: 20),
+                      label: Text(
+                        saving ? _tr(context, 'Saving...') : _tr(context, 'Save changes'),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                 ],
               ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: saving ? null : save,
-              child: Text(saving ? _tr(context, 'Saving...') : _tr(context, 'Save changes')),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -8422,25 +8721,23 @@ class _DatePickerField extends StatelessWidget {
     final hasDate = selectedDate != null;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: hasDate ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
-            width: hasDate ? 1.5 : 1.0,
+            color: hasDate
+                ? theme.colorScheme.primary.withValues(alpha: 0.8)
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            width: 1.0,
           ),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.calendar_month_rounded,
-              color: hasDate ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-              size: 22,
-            ),
-            const SizedBox(width: 12),
+            _buildCircularFieldIcon(context, icon: Icons.calendar_today_rounded),
+            const SizedBox(width: 4),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -8449,16 +8746,17 @@ class _DatePickerField extends StatelessWidget {
                   Text(
                     label,
                     style: theme.textTheme.labelMedium?.copyWith(
-                      color: hasDate ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 12,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     hasDate ? _date(selectedDate!) : _tr(context, 'Select Date (Tap to open calendar)'),
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: hasDate ? FontWeight.bold : FontWeight.normal,
-                      color: hasDate ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: hasDate ? FontWeight.w600 : FontWeight.normal,
+                      color: hasDate ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      fontSize: 13.5,
                     ),
                   ),
                 ],
@@ -8466,14 +8764,18 @@ class _DatePickerField extends StatelessWidget {
             ),
             if (hasDate && onClear != null)
               IconButton(
-                icon: const Icon(Icons.clear, size: 20),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 18),
                 onPressed: onClear,
                 tooltip: _tr(context, 'Clear date'),
               )
             else
-              Icon(
-                Icons.arrow_drop_down,
-                color: theme.colorScheme.onSurfaceVariant,
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Icon(
+                  Icons.arrow_drop_down,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
@@ -8487,24 +8789,18 @@ class _AmountLine extends StatelessWidget {
     required this.label,
     required this.amount,
     this.bold = false,
-    this.isLarge = false,
-    this.color,
   });
   final String label;
   final int amount;
   final bool bold;
-  final bool isLarge;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
       fontWeight: bold ? FontWeight.w700 : null,
-      fontSize: isLarge ? 17 : null,
-      color: color,
     );
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: isLarge ? 4 : 3),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -8955,13 +9251,6 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
     if (selected != null && mounted) setState(() => _dueAt = selected);
   }
 
-  int get _subtotal =>
-      _items.fold<int>(0, (sum, item) => sum + item.lineTotalPaise);
-  int get _total =>
-      _subtotal -
-      _parseOptionalRupees(_discount.text) +
-      _parseOptionalRupees(_interest.text);
-
   bool get _isDirty =>
       _items.any((i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty) ||
       _discount.text.isNotEmpty ||
@@ -8983,8 +9272,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
       },
       child: DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.92,
+        initialChildSize: 0.95,
         minChildSize: 0.6,
+        maxChildSize: 0.96,
         builder: (context, scrollController) => SafeArea(
           top: false,
           child: Padding(
@@ -9000,42 +9290,12 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                 controller: scrollController,
                 children: <Widget>[
                   Text(
-                    _tr(context, 'Create Invoice'),
+                    _tr(context, 'Create invoice'),
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _tr(context, 'Fill in line items, payment terms, and adjustments below.'),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Section 1: Line Items
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.shopping_bag_outlined, size: 16, color: theme.colorScheme.primary),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _tr(context, 'Items & Services'),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
 
                   ...List.generate(
                     _items.length,
@@ -9051,445 +9311,291 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       }),
                     ),
                   ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: theme.colorScheme.primary,
-                        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
-                        side: BorderSide(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.35),
-                          width: 1,
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: theme.colorScheme.primary,
+                          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                          side: BorderSide(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                            width: 1,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                        onPressed: _saving
+                            ? null
+                            : () => setState(() => _items.add(_InvoiceItemDraft())),
+                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                        label: Text(
+                          _tr(context, 'Add Another Item'),
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      ),
-                      onPressed: _saving
-                          ? null
-                          : () => setState(() => _items.add(_InvoiceItemDraft())),
-                      icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-                      label: Text(
-                        _tr(context, 'Add Another Item'),
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
 
-                  // Paper Receipt (Optional)
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-                        width: 1,
+                  TextFormField(
+                    controller: _discount,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Discount (₹)'),
+                      hintText: '0.00',
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.discount_outlined),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
+                    validator: _optionalAmountValidator,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: _interest,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Interest / extra charge (₹)'),
+                      hintText: '0.00',
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    validator: _optionalAmountValidator,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: _notes,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Notes'),
+                      hintText: _tr(context, 'Add any additional notes...'),
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.description_outlined),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  _DatePickerField(
+                    label: _tr(context, 'Payment Due Date'),
+                    selectedDate: _dueAt,
+                    onTap: _saving ? () {} : _selectDueDate,
+                    onClear: () => setState(() => _dueAt = null),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tr(context, 'Paper Receipt (Optional)'),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
+                                      ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
+                                      : _buildReceiptThumbnail(_paperReceiptImage!),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _tr(context, 'Receipt Attached'),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _tr(context, 'Tap to change or remove'),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                tooltip: _tr(context, 'Change Photo'),
+                                onPressed: _saving ? null : () => _showPickOptionsSheet(context),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error, size: 20),
+                                tooltip: _tr(context, 'Remove Receipt'),
+                                onPressed: _saving
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _paperReceiptImage = null;
+                                          _paperReceiptFile = null;
+                                        });
+                                      },
+                              ),
+                            ],
+                          ),
+                        )
+                      else
                         Row(
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.primary,
+                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                                label: Text(
+                                  _tr(context, 'Take Photo'),
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: _saving ? null : () => _pickReceipt(ImageSource.camera),
                               ),
-                              child: Icon(Icons.receipt_long_rounded, size: 18, color: theme.colorScheme.primary),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        _tr(context, 'Paper Receipt'),
-                                        style: theme.textTheme.titleSmall?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: theme.colorScheme.surfaceContainerHighest,
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          _tr(context, 'Optional'),
-                                          style: theme.textTheme.labelSmall?.copyWith(
-                                            color: theme.colorScheme.onSurfaceVariant,
-                                            fontSize: 10,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.primary,
+                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _tr(context, 'Attach photo of handwritten bill'),
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                ],
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                                label: Text(
+                                  _tr(context, 'Choose from Gallery'),
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: _saving ? null : () => _pickReceipt(ImageSource.gallery),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surface.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: SizedBox(
-                                    width: 52,
-                                    height: 52,
-                                    child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
-                                        ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
-                                        : _buildReceiptThumbnail(_paperReceiptImage!),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _tr(context, 'Receipt Attached'),
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _tr(context, 'Tap to change or remove'),
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: theme.colorScheme.onSurfaceVariant,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.edit_outlined, size: 20),
-                                  tooltip: _tr(context, 'Change Photo'),
-                                  onPressed: _saving ? null : () => _showPickOptionsSheet(context),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error, size: 20),
-                                  tooltip: _tr(context, 'Remove Receipt'),
-                                  onPressed: _saving
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _paperReceiptImage = null;
-                                            _paperReceiptFile = null;
-                                          });
-                                        },
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                                    side: BorderSide(
-                                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(vertical: 10),
-                                  ),
-                                  icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                                  label: Text(
-                                    _tr(context, 'Take Photo'),
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                  ),
-                                  onPressed: _saving ? null : () => _pickReceipt(ImageSource.camera),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                                    side: BorderSide(
-                                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(vertical: 10),
-                                  ),
-                                  icon: const Icon(Icons.photo_library_outlined, size: 18),
-                                  label: Text(
-                                    _tr(context, 'Choose from Gallery'),
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                  ),
-                                  onPressed: _saving ? null : () => _pickReceipt(ImageSource.gallery),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Section 2: Terms & Notes
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.event_note_outlined, size: 16, color: theme.colorScheme.primary),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _tr(context, 'Due Date & Notes'),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        _DatePickerField(
-                          label: _tr(context, 'Payment Due Date'),
-                          selectedDate: _dueAt,
-                          onTap: _saving ? () {} : _selectDueDate,
-                          onClear: () => setState(() => _dueAt = null),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _notes,
-                          minLines: 2,
-                          maxLines: 4,
-                          decoration: InputDecoration(
-                            labelText: _tr(context, 'Invoice Notes (Optional)'),
-                            hintText: _tr(context, 'e.g. Thank you for your business!'),
-                            prefixIcon: const Icon(Icons.note_alt_outlined, size: 20),
-                            filled: true,
-                            fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary,
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Section 3: Summary
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.calculate_outlined, size: 16, color: theme.colorScheme.primary),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _tr(context, 'Bill Summary & Adjustments'),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _discount,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: _tr(context, 'Discount (₹, optional)'),
-                            prefixIcon: const Icon(Icons.discount_outlined, size: 18),
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary,
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                          validator: _optionalAmountValidator,
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _interest,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: _tr(context, 'Extra Charge / Interest (₹, optional)'),
-                            prefixIcon: const Icon(Icons.add_card_outlined, size: 18),
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary,
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                          validator: _optionalAmountValidator,
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        _AmountLine(label: 'Subtotal', amount: _subtotal),
-                        if (_parseOptionalRupees(_discount.text) > 0)
-                          _AmountLine(
-                            label: 'Discount',
-                            amount: -_parseOptionalRupees(_discount.text),
-                            color: const Color(0xFF10B981),
-                          ),
-                        if (_parseOptionalRupees(_interest.text) > 0)
-                          _AmountLine(
-                            label: 'Extra Charge',
-                            amount: _parseOptionalRupees(_interest.text),
-                            color: const Color(0xFFF59E0B),
-                          ),
-                        Divider(
-                          height: 20,
-                          thickness: 1,
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                        ),
-                        _AmountLine(
-                          label: 'Grand Total',
-                          amount: _total,
-                          bold: true,
-                          isLarge: true,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
                   SizedBox(
-                    height: 52,
+                    height: 50,
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -9511,7 +9617,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -9561,7 +9667,7 @@ class _InvoiceItemEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(16),
@@ -9571,7 +9677,7 @@ class _InvoiceItemEditor extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -9621,14 +9727,15 @@ class _InvoiceItemEditor extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             TextFormField(
               controller: draft.description,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
                 labelText: _tr(context, 'Item / Service Description *'),
-                hintText: _tr(context, 'e.g. Rice Bag 25kg or Plumbing Service'),
-                prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
+                hintText: _tr(context, 'Enter item or service description'),
+                prefixIcon: _buildCircularFieldIcon(context, icon: Icons.edit_note_rounded),
+                prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
                 filled: true,
                 fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -9665,7 +9772,9 @@ class _InvoiceItemEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Qty *'),
-                      prefixIcon: const Icon(Icons.format_list_numbered_rounded, size: 18),
+                      hintText: '1',
+                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.tag_rounded),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
                       filled: true,
                       fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -9701,7 +9810,9 @@ class _InvoiceItemEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Unit Price (₹) *'),
-                      prefixIcon: const Icon(Icons.currency_rupee_rounded, size: 18),
+                      hintText: '0.00',
+                      prefixIcon: _buildCircularFieldIcon(context, text: '₹'),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
                       filled: true,
                       fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -9731,26 +9842,22 @@ class _InvoiceItemEditor extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(10),
-              ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     _tr(context, 'Line Total'),
-                    style: theme.textTheme.bodySmall?.copyWith(
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   Text(
                     _rupees(draft.lineTotalPaise),
-                    style: theme.textTheme.titleSmall?.copyWith(
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: theme.colorScheme.primary,
                     ),

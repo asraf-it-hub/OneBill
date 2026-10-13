@@ -130,6 +130,7 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
 
 final isPasswordRecoveryProvider = StateProvider<bool>((ref) => false);
 final passwordRecoveryErrorProvider = StateProvider<String?>((ref) => null);
+final passwordRecoveryUriProvider = StateProvider<Uri?>((ref) => null);
 final lastAuthEmailProvider = StateProvider<String?>((ref) => null);
 final passwordResetSentEmailProvider = StateProvider<String?>((ref) => null);
 
