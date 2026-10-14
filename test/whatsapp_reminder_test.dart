@@ -143,5 +143,56 @@ void main() {
       expect(appTranslations['Paper receipt shared']!['te'], 'పేపర్ రసీదు షేర్ చేయబడింది');
       expect(appTranslations['Paper receipt']!['te'], 'పేపర్ రసీదు');
     });
+
+    test('Auth and Password Reset screen keys are translated into hi and te', () {
+      final keys = [
+        'Sign in to OneBill',
+        'Create your OneBill account',
+        'Your business data stays available offline after setup.',
+        'Choose your preferred language',
+        'Email address',
+        'Password',
+        'Forgot password?',
+        'Sign in',
+        'Create account',
+        'New to OneBill? Create an account',
+        'Already have an account? Sign in',
+        'OR',
+        'Sign in with Google',
+        'Connecting to Google...',
+        'Reset your password',
+        'Enter a new password for your OneBill account.',
+        'This password reset link has expired or has already been used.',
+        'Check your email inbox to reset your password.',
+        'Password reset email sent!',
+        'New password',
+        'Confirm new password',
+        'Update password',
+        'Back to sign in',
+        'Resend email',
+        'Request new link',
+        'Please confirm your password',
+        'Passwords do not match',
+      ];
+      for (final key in keys) {
+        expect(appTranslations.containsKey(key), isTrue,
+            reason: 'Missing key "$key" in appTranslations');
+        final trans = appTranslations[key]!;
+        expect(trans.containsKey('hi'), isTrue,
+            reason: 'Missing Hindi translation for "$key"');
+        expect(trans['hi']!.isNotEmpty, isTrue);
+        expect(trans.containsKey('te'), isTrue,
+            reason: 'Missing Telugu translation for "$key"');
+        expect(trans['te']!.isNotEmpty, isTrue);
+      }
+      expect(
+        appTranslations['Your business data stays available offline after setup.']!['te'],
+        'సెటప్ తర్వాత మీ వ్యాపార డేటా ఆఫ్‌లైన్‌లో అందుబాటులో ఉంటుంది.',
+      );
+      expect(
+        appTranslations['New to OneBill? Create an account']!['te'],
+        'వన్ బిల్‌కి కొత్తవారా? ఖాతాను సృష్టించండి',
+      );
+    });
   });
 }

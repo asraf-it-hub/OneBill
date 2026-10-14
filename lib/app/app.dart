@@ -19,6 +19,7 @@ import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/config/app_environment.dart';
 import '../core/database/app_database.dart';
@@ -160,7 +161,35 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
   @override
   void initState() {
     super.initState();
+    _checkDanglingRecoverySession();
     _setupDeepLinks();
+  }
+
+  Future<void> _checkDanglingRecoverySession() async {
+    try {
+      final storage = FlutterSecureStorage();
+      final inRecovery = await storage.read(key: 'onebill.auth.in_password_recovery');
+      if (inRecovery == 'true') {
+        // App was closed or killed while in password recovery.
+        // Force full sign out and database wipe for safety so recovery session never bypasses login!
+        await storage.delete(key: 'onebill.auth.in_password_recovery');
+        try {
+          await ref.read(notificationServiceProvider).cancelAll();
+        } catch (_) {}
+        try {
+          await ref.read(databaseProvider).clearAllTables();
+        } catch (_) {}
+        try {
+          await ref.read(authServiceProvider).signOut();
+        } catch (_) {}
+        ref.read(isSigningOutProvider.notifier).state = true;
+        ref.read(isPasswordRecoveryProvider.notifier).state = false;
+        ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+        ref.read(passwordRecoveryUriProvider.notifier).state = null;
+        ref.invalidate(authSessionProvider);
+        ref.invalidate(sessionProvider);
+      }
+    } catch (_) {}
   }
 
   void _setupDeepLinks() {
@@ -183,6 +212,12 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
           if (mounted) {
             ref.read(passwordRecoveryErrorProvider.notifier).state = null;
             ref.read(isPasswordRecoveryProvider.notifier).state = true;
+            try {
+              FlutterSecureStorage().write(
+                key: 'onebill.auth.in_password_recovery',
+                value: 'true',
+              );
+            } catch (_) {}
           }
         }
       });
@@ -214,20 +249,21 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     }
 
     if (isRecovery && mounted) {
-      ref.read(passwordRecoveryUriProvider.notifier).state = uri;
       if (error != null || errorDesc != null) {
         ref.read(passwordRecoveryErrorProvider.notifier).state =
             errorDesc ?? error ?? 'Auth session missing';
       } else {
         ref.read(passwordRecoveryErrorProvider.notifier).state = null;
       }
+      ref.read(passwordRecoveryUriProvider.notifier).state = null;
+      ref.read(passwordRecoveryUriProvider.notifier).state = uri;
       ref.read(isPasswordRecoveryProvider.notifier).state = true;
-
-      if (error == null && AppEnvironment.cloudConfigured) {
-        try {
-          await Supabase.instance.client.auth.getSessionFromUrl(uri);
-        } catch (_) {}
-      }
+      try {
+        FlutterSecureStorage().write(
+          key: 'onebill.auth.in_password_recovery',
+          value: 'true',
+        );
+      } catch (_) {}
     }
   }
 
@@ -302,6 +338,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           setState(() {
             _validatingSession = false;
             _authErrorDetails = null;
+            _resetEmailSent = false;
           });
         }
       });
@@ -316,38 +353,57 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         setState(() {
           _validatingSession = false;
           _authErrorDetails = null;
+          _resetEmailSent = false;
         });
       }
       return;
     }
 
-    // 2. If we have a recovery URI, attempt to hydrate session from URL
-    final uri = ref.read(passwordRecoveryUriProvider);
-    if (uri != null && AppEnvironment.cloudConfigured) {
-      try {
-        await Supabase.instance.client.auth.getSessionFromUrl(uri);
-      } catch (_) {}
-      if (Supabase.instance.client.auth.currentSession != null) {
-        if (mounted) {
-          setState(() {
-            _validatingSession = false;
-            _authErrorDetails = null;
-          });
-        }
-        return;
-      }
-    }
-
-    // 3. Check if there was an explicit error parameter from deep link
+    // 2. Check if deep link brought an explicit error parameter (e.g. otp_expired, access_denied)
     final passedError = ref.read(passwordRecoveryErrorProvider);
     if (passedError != null && passedError.isNotEmpty) {
       if (mounted) {
         setState(() {
           _validatingSession = false;
+          _resetEmailSent = false;
           _authErrorDetails = AuthErrorDetails.fromError(passedError);
         });
       }
       return;
+    }
+
+    // 3. Hydrate session from recovery URI
+    final uri = ref.read(passwordRecoveryUriProvider);
+    if (uri != null && AppEnvironment.cloudConfigured) {
+      try {
+        await Supabase.instance.client.auth.getSessionFromUrl(uri);
+      } catch (_) {}
+
+      // Fallback: If session not yet established, parse refreshToken from fragment or query
+      if (Supabase.instance.client.auth.currentSession == null) {
+        try {
+          final fragment = uri.fragment;
+          final fragmentParams = fragment.isNotEmpty
+              ? Uri.splitQueryString(fragment)
+              : <String, String>{};
+          final refreshToken = fragmentParams['refresh_token'] ??
+              uri.queryParameters['refresh_token'];
+          if (refreshToken != null && refreshToken.isNotEmpty) {
+            await Supabase.instance.client.auth.setSession(refreshToken);
+          }
+        } catch (_) {}
+      }
+
+      if (Supabase.instance.client.auth.currentSession != null) {
+        if (mounted) {
+          setState(() {
+            _validatingSession = false;
+            _authErrorDetails = null;
+            _resetEmailSent = false;
+          });
+        }
+        return;
+      }
     }
 
     // 4. Poll for up to 3 seconds for background hydration
@@ -358,6 +414,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         setState(() {
           _validatingSession = false;
           _authErrorDetails = null;
+          _resetEmailSent = false;
         });
         return;
       }
@@ -367,6 +424,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
     if (mounted) {
       setState(() {
         _validatingSession = false;
+        _resetEmailSent = false;
         _authErrorDetails = AuthErrorDetails.fromError(
           'AuthException(message: Auth session missing!, statusCode: 400)',
         );
@@ -396,27 +454,20 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
       await ref.read(authServiceProvider).resetPassword(email: email);
       ref.read(lastAuthEmailProvider.notifier).state = email;
       ref.read(passwordResetSentEmailProvider.notifier).state = email;
+      // Clear previous error and previous URI so incoming new link cleanly triggers hydration
+      ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+      ref.read(passwordRecoveryUriProvider.notifier).state = null;
 
       if (mounted) {
+        setState(() {
+          _resetEmailSent = true;
+          _sentEmailAddress = email;
+          _authErrorDetails = null;
+        });
         AppToast.showSuccess(
           context,
           _tr(context, 'Password reset instructions have been sent to your email address.'),
         );
-      }
-
-      ref.read(isPasswordRecoveryProvider.notifier).state = false;
-      ref.read(passwordRecoveryErrorProvider.notifier).state = null;
-      ref.read(passwordRecoveryUriProvider.notifier).state = null;
-      ref.read(isSigningOutProvider.notifier).state = false;
-      try {
-        await ref.read(notificationServiceProvider).cancelAll();
-      } catch (_) {}
-      try {
-        await ref.read(authServiceProvider).signOut();
-      } catch (_) {}
-      if (mounted) {
-        ref.invalidate(authSessionProvider);
-        ref.invalidate(sessionProvider);
       }
     } catch (error) {
       if (mounted) {
@@ -448,10 +499,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
   String? _confirmPasswordValidator(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Please confirm your password';
+      return _tr(context, 'Please confirm your password');
     }
     if (value != _passwordController.text) {
-      return 'Passwords do not match';
+      return _tr(context, 'Passwords do not match');
     }
     return null;
   }
@@ -481,6 +532,12 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         );
       }
 
+      try {
+        await FlutterSecureStorage().delete(
+          key: 'onebill.auth.in_password_recovery',
+        );
+      } catch (_) {}
+
       ref.read(isPasswordRecoveryProvider.notifier).state = false;
       ref.read(passwordRecoveryErrorProvider.notifier).state = null;
       ref.read(passwordRecoveryUriProvider.notifier).state = null;
@@ -499,19 +556,49 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
   Future<void> _cancel() async {
     if (_submitting) return;
     setState(() => _submitting = true);
-    ref.read(isPasswordRecoveryProvider.notifier).state = false;
-    ref.read(passwordRecoveryErrorProvider.notifier).state = null;
-    ref.read(passwordRecoveryUriProvider.notifier).state = null;
-    ref.read(isSigningOutProvider.notifier).state = false;
+
+    // 1. Immediately guard root router by setting isSigningOutProvider to true
+    // so it renders _AuthScreen and blocks any auto-entry into HomeScreen or WorkspaceSetupScreen
+    ref.read(isSigningOutProvider.notifier).state = true;
+
+    // 2. Clear recovery marker from secure storage
+    try {
+      await FlutterSecureStorage().delete(
+        key: 'onebill.auth.in_password_recovery',
+      );
+    } catch (_) {}
+
+    // 3. Clear local notifications
     try {
       await ref.read(notificationServiceProvider).cancelAll();
     } catch (_) {}
+
+    // 4. Wipe all local database tables so no session or business remains cached
+    try {
+      await ref.read(databaseProvider).clearAllTables();
+    } catch (_) {}
+
+    // 5. Force full sign out from Supabase (clearing token storage on device)
     try {
       await ref.read(authServiceProvider).signOut();
     } catch (_) {}
+
+    // 6. Reset security lock authenticated state
+    try {
+      await ref.read(securityServiceProvider).markAuthenticated();
+    } catch (_) {}
+
+    // 7. Reset password recovery state
+    ref.read(isPasswordRecoveryProvider.notifier).state = false;
+    ref.read(passwordRecoveryErrorProvider.notifier).state = null;
+    ref.read(passwordRecoveryUriProvider.notifier).state = null;
+    ref.read(passwordResetSentEmailProvider.notifier).state = null;
+
+    // 8. Invalidate auth and session providers
+    ref.invalidate(authSessionProvider);
+    ref.invalidate(sessionProvider);
+
     if (mounted) {
-      ref.invalidate(authSessionProvider);
-      ref.invalidate(sessionProvider);
       setState(() => _submitting = false);
     }
   }
@@ -543,7 +630,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  err.title,
+                  _tr(context, err.title),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.onErrorContainer,
@@ -554,7 +641,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            err.message,
+            _tr(context, err.message),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onErrorContainer.withValues(alpha: 0.9),
               fontSize: 13,
@@ -643,10 +730,11 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     ref.listen<Uri?>(passwordRecoveryUriProvider, (prev, next) {
-      if (next != null && next != prev) {
+      if (next != null) {
         setState(() {
           _validatingSession = true;
           _authErrorDetails = null;
+          _resetEmailSent = false;
         });
         _checkRecoverySession();
       }
@@ -727,7 +815,60 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 20),
+                    // Prominent Preferred Language Choice (Design identical to Sign-in & Create Business pages)
+                    Builder(
+                      builder: (context) {
+                        final activeLang = ref.watch(appLanguageProvider);
+                        final effectiveLang =
+                            {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : 'en';
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _tr(context, 'Choose your preferred language'),
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                _LanguageChoiceCard(
+                                  code: 'en',
+                                  nativeTitle: 'English',
+                                  subtitle: 'English',
+                                  isSelected: effectiveLang == 'en',
+                                  onTap: () =>
+                                      ref.read(appLanguageProvider.notifier).setLanguage('en'),
+                                ),
+                                const SizedBox(width: 8),
+                                _LanguageChoiceCard(
+                                  code: 'te',
+                                  nativeTitle: 'తెలుగు',
+                                  subtitle: 'Telugu',
+                                  isSelected: effectiveLang == 'te',
+                                  onTap: () =>
+                                      ref.read(appLanguageProvider.notifier).setLanguage('te'),
+                                ),
+                                const SizedBox(width: 8),
+                                _LanguageChoiceCard(
+                                  code: 'hi',
+                                  nativeTitle: 'हिन्दी',
+                                  subtitle: 'Hindi',
+                                  isSelected: effectiveLang == 'hi',
+                                  onTap: () =>
+                                      ref.read(appLanguageProvider.notifier).setLanguage('hi'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
                     if (isExpired) ...[
                       if (_resetEmailSent) ...[
                         _buildSuccessBox(theme),
@@ -848,7 +989,7 @@ class _AuthScreen extends ConsumerStatefulWidget {
   ConsumerState<_AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObserver {
+class _AuthScreenState extends ConsumerState<_AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
@@ -861,10 +1002,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ref.read(isSigningOutProvider.notifier).state = false;
         final savedEmail = ref.read(passwordResetSentEmailProvider) ??
             ref.read(lastAuthEmailProvider);
         if (savedEmail != null && savedEmail.isNotEmpty && _email.text.isEmpty) {
@@ -876,31 +1015,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _email.dispose();
     _password.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isGoogleAuthPending) {
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!mounted) return;
-        final session = ref.read(authServiceProvider).currentSession;
-        if (_isGoogleAuthPending && session == null) {
-          setState(() {
-            _isGoogleAuthPending = false;
-            _submitting = false;
-            _authErrorDetails = const AuthErrorDetails(
-              type: AuthErrorType.somethingWentWrong,
-              title: 'Sign-in cancelled',
-              message: 'Google Sign-In was interrupted or cancelled. Please try again.',
-            );
-          });
-        }
-      });
-    }
   }
 
   Future<void> _resetPassword() async {
@@ -922,6 +1039,30 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     ref.read(lastAuthEmailProvider.notifier).state = email;
     try {
       await ref.read(authServiceProvider).resetPassword(email: email);
+      ref.read(passwordResetSentEmailProvider.notifier).state = email;
+      if (mounted) {
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Password reset instructions have been sent to your email address.'),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _authErrorDetails = AuthErrorDetails.fromError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _resendResetEmail(String email) async {
+    setState(() {
+      _submitting = true;
+      _authErrorDetails = null;
+    });
+    try {
+      await ref.read(authServiceProvider).resetPassword(email: email);
+      ref.read(passwordResetSentEmailProvider.notifier).state = email;
       if (mounted) {
         AppToast.showSuccess(
           context,
@@ -1058,7 +1199,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  err.title,
+                  _tr(context, err.title),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.onErrorContainer,
@@ -1069,7 +1210,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
           ),
           const SizedBox(height: 6),
           Text(
-            err.message,
+            _tr(context, err.message),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onErrorContainer.withOpacity(0.9),
               fontSize: 13,
@@ -1092,7 +1233,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: const Text('Create account'),
+                  child: Text(_tr(context, 'Create account')),
                 ),
                 const SizedBox(width: 8),
                 TextButton(
@@ -1102,7 +1243,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: const Text('Try again'),
+                  child: Text(_tr(context, 'Try again')),
                 ),
               ],
             ),
@@ -1117,7 +1258,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text('Forgot password?'),
+                child: Text(_tr(context, 'Forgot password?')),
               ),
             ),
           ],
@@ -1126,13 +1267,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
     );
   }
 
-  Widget _buildEmailSentBox(ThemeData theme) {
-    final sentEmail = ref.watch(passwordResetSentEmailProvider);
-    if (sentEmail == null || sentEmail.isEmpty) return const SizedBox.shrink();
-
+  Widget _buildEmailSentBox(ThemeData theme, String sentEmail) {
     final isDark = theme.brightness == Brightness.dark;
     final boxBg = isDark
-        ? const Color(0xFF064E3B).withValues(alpha: 0.45)
+        ? const Color(0xFF064E3B).withValues(alpha: 0.35)
         : const Color(0xFFE8F5E9);
     final boxBorder = isDark
         ? const Color(0xFF25D366).withValues(alpha: 0.5)
@@ -1143,63 +1281,90 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: boxBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: boxBorder, width: 1.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: boxBorder, width: 1.5),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.mark_email_read_rounded,
-                size: 24,
-                color: titleColor,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _tr(context, 'Password reset email sent!'),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: titleColor,
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close_rounded, size: 18),
-                onPressed: () => ref.read(passwordResetSentEmailProvider.notifier).state = null,
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: titleColor.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.mark_email_read_rounded,
+              size: 48,
+              color: titleColor,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+          Text(
+            _tr(context, 'Password reset email sent!'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: titleColor,
+            ),
+          ),
+          const SizedBox(height: 12),
           Text(
             _tr(context, 'A new password reset link has been sent to your email. Please check your inbox and tap the link to set your new password.'),
+            textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
-              fontSize: 13,
-              height: 1.4,
+              fontSize: 14,
+              height: 1.45,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: isDark
-                  ? const Color(0xFF047857).withValues(alpha: 0.3)
+                  ? const Color(0xFF047857).withValues(alpha: 0.35)
                   : const Color(0xFFC8E6C9),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Text(
-              sentEmail,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: titleColor,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.email_outlined, size: 16, color: titleColor),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    sentEmail,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: titleColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _submitting ? null : () => _resendResetEmail(sentEmail),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: Text(_tr(context, 'Resend email')),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () {
+                ref.read(passwordResetSentEmailProvider.notifier).state = null;
+                setState(() {
+                  _authErrorDetails = null;
+                });
+              },
+              child: Text(_tr(context, 'Back to sign in')),
             ),
           ),
         ],
@@ -1210,29 +1375,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final sentEmail = ref.watch(passwordResetSentEmailProvider);
+
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: PopupMenuButton<String>(
-              icon: const Icon(Icons.language_rounded),
-              tooltip: _tr(context, 'Language'),
-              onSelected: (code) {
-                ref.read(appLanguageProvider.notifier).setLanguage(code);
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: 'en', child: Text('English')),
-                PopupMenuItem(value: 'hi', child: Text('हिन्दी (Hindi)')),
-                PopupMenuItem(value: 'te', child: Text('తెలుగు (Telugu)')),
-              ],
-            ),
-          ),
-        ],
-      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -1249,7 +1394,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primaryContainer.withOpacity(0.25),
+                            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
                             shape: BoxShape.circle,
                           ),
                           child: Image.asset(
@@ -1279,148 +1424,204 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 32),
-                      _buildEmailSentBox(theme),
-                      _buildErrorBox(theme),
-                      TextFormField(
-                        controller: _email,
-                        keyboardType: TextInputType.emailAddress,
-                        autofillHints: const [
-                          AutofillHints.email,
-                          AutofillHints.username,
-                        ],
-                        decoration: InputDecoration(
-                          labelText: _tr(context, 'Email address'),
-                          prefixIcon: const Icon(Icons.email_outlined),
-                        ),
-                        validator: _emailValidator,
+                      const SizedBox(height: 20),
+                      // Prominent Preferred Language Choice (Design identical to Create Business page)
+                      Builder(
+                        builder: (context) {
+                          final activeLang = ref.watch(appLanguageProvider);
+                          final effectiveLang =
+                              {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : 'en';
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _tr(context, 'Choose your preferred language'),
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _LanguageChoiceCard(
+                                    code: 'en',
+                                    nativeTitle: 'English',
+                                    subtitle: 'English',
+                                    isSelected: effectiveLang == 'en',
+                                    onTap: () =>
+                                        ref.read(appLanguageProvider.notifier).setLanguage('en'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _LanguageChoiceCard(
+                                    code: 'te',
+                                    nativeTitle: 'తెలుగు',
+                                    subtitle: 'Telugu',
+                                    isSelected: effectiveLang == 'te',
+                                    onTap: () =>
+                                        ref.read(appLanguageProvider.notifier).setLanguage('te'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _LanguageChoiceCard(
+                                    code: 'hi',
+                                    nativeTitle: 'हिन्दी',
+                                    subtitle: 'Hindi',
+                                    isSelected: effectiveLang == 'hi',
+                                    onTap: () =>
+                                        ref.read(appLanguageProvider.notifier).setLanguage('hi'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _password,
-                        obscureText: _obscurePassword,
-                        autofillHints: const [
-                          AutofillHints.password,
-                        ],
-                        decoration: InputDecoration(
-                          labelText: _tr(context, 'Password'),
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
+                      const SizedBox(height: 24),
+                      if (sentEmail != null && sentEmail.isNotEmpty)
+                        _buildEmailSentBox(theme, sentEmail)
+                      else ...[
+                        _buildErrorBox(theme),
+                        TextFormField(
+                          controller: _email,
+                          keyboardType: TextInputType.emailAddress,
+                          autofillHints: const [
+                            AutofillHints.email,
+                            AutofillHints.username,
+                          ],
+                          decoration: InputDecoration(
+                            labelText: _tr(context, 'Email address'),
+                            prefixIcon: const Icon(Icons.email_outlined),
+                          ),
+                          validator: _emailValidator,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _password,
+                          obscureText: _obscurePassword,
+                          autofillHints: const [
+                            AutofillHints.password,
+                          ],
+                          decoration: InputDecoration(
+                            labelText: _tr(context, 'Password'),
+                            prefixIcon: const Icon(Icons.lock_outline_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscurePassword = !_obscurePassword),
                             ),
-                            onPressed: () =>
-                                setState(() => _obscurePassword = !_obscurePassword),
+                          ),
+                          validator: _passwordValidator,
+                        ),
+                        if (!_registering &&
+                            _authErrorDetails?.type != AuthErrorType.incorrectPassword) ...[
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _submitting ? null : _resetPassword,
+                              child: Text(_tr(context, 'Forgot password?')),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        FilledButton(
+                          onPressed: _submitting ? null : _submit,
+                          child: _submitting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(_registering ? _tr(context, 'Create account') : _tr(context, 'Sign in')),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _submitting
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _registering = !_registering;
+                                    _authErrorDetails = null;
+                                  });
+                                },
+                          child: Text(
+                            _registering
+                                ? _tr(context, 'Already have an account? Sign in')
+                                : _tr(context, 'New to OneBill? Create an account'),
                           ),
                         ),
-                        validator: _passwordValidator,
-                      ),
-                      if (!_registering &&
-                          _authErrorDetails?.type != AuthErrorType.incorrectPassword) ...[
-                        const SizedBox(height: 4),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: _submitting ? null : _resetPassword,
-                            child: Text(_tr(context, 'Forgot password?')),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                _tr(context, 'OR'),
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        OutlinedButton(
+                          onPressed: _submitting ? null : _signInWithGoogle,
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            side: BorderSide(
+                              color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                            ),
                           ),
+                          child: _isGoogleAuthPending
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      _tr(context, 'Connecting to Google...'),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const _GoogleIcon(size: 22),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      _tr(context, 'Sign in with Google'),
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
                         ),
                       ],
-                      const SizedBox(height: 24),
-                      FilledButton(
-                        onPressed: _submitting ? null : _submit,
-                        child: _submitting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(_registering ? _tr(context, 'Create account') : _tr(context, 'Sign in')),
-                      ),
-                      const SizedBox(height: 12),
-                      TextButton(
-                        onPressed: _submitting
-                            ? null
-                            : () {
-                                setState(() {
-                                  _registering = !_registering;
-                                  _authErrorDetails = null;
-                                });
-                              },
-                        child: Text(
-                          _registering
-                              ? _tr(context, 'Already have an account? Sign in')
-                              : _tr(context, 'New to OneBill? Create an account'),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'OR',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      OutlinedButton(
-                        onPressed: _submitting ? null : _signInWithGoogle,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          side: BorderSide(
-                            color: theme.colorScheme.outline.withOpacity(0.5),
-                          ),
-                        ),
-                        child: _isGoogleAuthPending
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    _tr(context, 'Connecting to Google...'),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const _GoogleIcon(size: 22),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    _tr(context, 'Sign in with Google'),
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
-                      ),
                     ],
                   ),
                 ),
@@ -1950,6 +2151,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   String? _unlockError;
   final _lockPin = TextEditingController();
   bool _checkingPin = false;
+  bool _isSigningOut = false;
   Timer? _syncTimer;
   ProviderSubscription<AsyncValue<SyncQueueStatus>>? _syncQueueSubscription;
 
@@ -2126,6 +2328,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
   @override
   void dispose() {
+    _isSigningOut = true;
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _syncQueueSubscription?.close();
@@ -2136,7 +2339,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (ref.read(isSigningOutProvider)) return;
+    if (_isSigningOut || ref.read(isSigningOutProvider)) return;
     final security = ref.read(securityServiceProvider);
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
@@ -2147,7 +2350,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (state == AppLifecycleState.resumed) {
       _syncNow();
       security.shouldLockOnResume().then((shouldLock) {
-        if (shouldLock && mounted && !ref.read(isSigningOutProvider)) {
+        if (shouldLock && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
           _checkAppLock(lockIfEnabled: true);
         }
       });
@@ -2155,7 +2358,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   }
 
   Future<void> _checkAppLock({bool lockIfEnabled = false}) async {
-    if (ref.read(isSigningOutProvider)) return;
+    if (_isSigningOut || ref.read(isSigningOutProvider)) return;
     final service = ref.read(securityServiceProvider);
     bool enabled = false;
     bool biometric = false;
@@ -2181,7 +2384,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       _biometricEnabled = biometric;
       if (enabled && (lockIfEnabled || !_locked)) _locked = true;
     });
-    if (enabled && biometric && mounted && !ref.read(isSigningOutProvider)) {
+    if (enabled && biometric && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _tryBiometricUnlock(),
       );
@@ -2189,9 +2392,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   }
 
   Future<void> _tryBiometricUnlock() async {
-    if (!_locked || _checkingPin || ref.read(isSigningOutProvider)) return;
+    if (_isSigningOut || !_locked || _checkingPin || ref.read(isSigningOutProvider)) return;
     final ok = await ref.read(securityServiceProvider).authenticateBiometrics();
-    if (ok && mounted && !ref.read(isSigningOutProvider)) {
+    if (ok && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
       setState(() => _locked = false);
     }
@@ -2784,39 +2987,52 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ],
       ),
     );
-    if (confirmed == true && context.mounted) {
-      final security = ref.read(securityServiceProvider);
-      final isLockEnabled = await security.isPinEnabled();
-      if (isLockEnabled) {
-        final authenticated = await _authenticateForSecurity(context, ref);
-        if (!authenticated || !context.mounted) {
+    if (confirmed != true || !context.mounted) return;
+
+    setState(() => _isSigningOut = true);
+
+    final security = ref.read(securityServiceProvider);
+    final isLockEnabled = await security.isPinEnabled();
+    if (isLockEnabled) {
+      final authenticated = await _authenticateForSecurity(context, ref);
+      if (!authenticated) {
+        if (mounted) setState(() => _isSigningOut = false);
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(_tr(context, 'Sign out cancelled')),
             ),
           );
-          return;
         }
-      }
-
-      final auth = ref.read(authServiceProvider);
-      final db = ref.read(databaseProvider);
-      final notifService = ref.read(notificationServiceProvider);
-      ref.read(isSigningOutProvider.notifier).state = true;
-      try {
-        await notifService.cancelAll();
-      } catch (_) {}
-      try {
-        await db.clearAllTables();
-      } catch (_) {}
-      try {
-        await auth.signOut();
-      } catch (_) {}
-      if (mounted) {
-        ref.invalidate(sessionProvider);
-        ref.invalidate(authSessionProvider);
+        return;
       }
     }
+
+    final auth = ref.read(authServiceProvider);
+    final db = ref.read(databaseProvider);
+    final notifService = ref.read(notificationServiceProvider);
+
+    try {
+      await const FlutterSecureStorage().delete(
+        key: 'onebill.auth.in_password_recovery',
+      );
+    } catch (_) {}
+    try {
+      await notifService.cancelAll();
+    } catch (_) {}
+    try {
+      await db.clearAllTables();
+    } catch (_) {}
+    try {
+      await auth.signOut();
+    } catch (_) {}
+    try {
+      await security.markAuthenticated();
+    } catch (_) {}
+
+    ref.read(isSigningOutProvider.notifier).state = true;
+    ref.invalidate(sessionProvider);
+    ref.invalidate(authSessionProvider);
   }
 }
 
@@ -2866,7 +3082,10 @@ Future<bool> _authenticateForSecurity(
 ) async {
   final service = ref.read(securityServiceProvider);
   if (await service.isBiometricEnabled() &&
-      await service.authenticateBiometrics()) {
+      await service.authenticateBiometrics(
+        reason: _tr(context, 'Confirm identity to sign out of OneBill'),
+      )) {
+    await service.markAuthenticated();
     return true;
   }
   if (!context.mounted) return false;
@@ -2874,7 +3093,11 @@ Future<bool> _authenticateForSecurity(
     context: context,
     builder: (_) => const _ConfirmPinDialog(),
   );
-  return result == true;
+  if (result == true) {
+    await service.markAuthenticated();
+    return true;
+  }
+  return false;
 }
 
 class _PinSetupDialog extends ConsumerStatefulWidget {

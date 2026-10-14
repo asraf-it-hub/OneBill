@@ -76,11 +76,11 @@ class SecurityService {
     }
   }
 
-  Future<bool> authenticateBiometrics() async {
+  Future<bool> authenticateBiometrics({String? reason}) async {
     try {
       if (!await biometricAvailable()) return false;
       return await _auth.authenticate(
-        localizedReason: 'Authenticate to unlock OneBill',
+        localizedReason: reason ?? 'Authenticate to unlock OneBill',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: false,
