@@ -1211,10 +1211,32 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.language_rounded),
+              tooltip: _tr(context, 'Language'),
+              onSelected: (code) {
+                ref.read(appLanguageProvider.notifier).setLanguage(code);
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'en', child: Text('English')),
+                PopupMenuItem(value: 'hi', child: Text('हिन्दी (Hindi)')),
+                PopupMenuItem(value: 'te', child: Text('తెలుగు (Telugu)')),
+              ],
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: AutofillGroup(
@@ -1241,8 +1263,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                       const SizedBox(height: 24),
                       Text(
                         _registering
-                            ? 'Create your OneBill account'
-                            : 'Sign in to OneBill',
+                            ? _tr(context, 'Create your OneBill account')
+                            : _tr(context, 'Sign in to OneBill'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
@@ -1251,7 +1273,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Your business data stays available offline after setup.',
+                        _tr(context, 'Your business data stays available offline after setup.'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
@@ -1267,9 +1289,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                           AutofillHints.email,
                           AutofillHints.username,
                         ],
-                        decoration: const InputDecoration(
-                          labelText: 'Email address',
-                          prefixIcon: Icon(Icons.email_outlined),
+                        decoration: InputDecoration(
+                          labelText: _tr(context, 'Email address'),
+                          prefixIcon: const Icon(Icons.email_outlined),
                         ),
                         validator: _emailValidator,
                       ),
@@ -1281,7 +1303,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                           AutofillHints.password,
                         ],
                         decoration: InputDecoration(
-                          labelText: 'Password',
+                          labelText: _tr(context, 'Password'),
                           prefixIcon: const Icon(Icons.lock_outline_rounded),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -1302,7 +1324,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                           alignment: Alignment.centerRight,
                           child: TextButton(
                             onPressed: _submitting ? null : _resetPassword,
-                            child: const Text('Forgot password?'),
+                            child: Text(_tr(context, 'Forgot password?')),
                           ),
                         ),
                       ],
@@ -1318,7 +1340,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(_registering ? 'Create account' : 'Sign in'),
+                            : Text(_registering ? _tr(context, 'Create account') : _tr(context, 'Sign in')),
                       ),
                       const SizedBox(height: 12),
                       TextButton(
@@ -1332,8 +1354,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                               },
                         child: Text(
                           _registering
-                              ? 'Already have an account? Sign in'
-                              : 'New to OneBill? Create an account',
+                              ? _tr(context, 'Already have an account? Sign in')
+                              : _tr(context, 'New to OneBill? Create an account'),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1379,11 +1401,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                                   ),
                                   const SizedBox(width: 12),
                                   Text(
-                                    'Connecting to Google...',
+                                    _tr(context, 'Connecting to Google...'),
                                     style: TextStyle(
-                                      fontSize: 14.5,
                                       fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.onSurface,
+                                      color: theme.colorScheme.primary,
                                     ),
                                   ),
                                 ],
@@ -1394,12 +1415,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> with WidgetsBindingObs
                                   const _GoogleIcon(size: 22),
                                   const SizedBox(width: 12),
                                   Text(
-                                    'Continue with Google',
-                                    style: TextStyle(
-                                      fontSize: 14.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
+                                    _tr(context, 'Sign in with Google'),
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
                                   ),
                                 ],
                               ),
@@ -2119,6 +2136,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (ref.read(isSigningOutProvider)) return;
     final security = ref.read(securityServiceProvider);
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
@@ -2129,12 +2147,15 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (state == AppLifecycleState.resumed) {
       _syncNow();
       security.shouldLockOnResume().then((shouldLock) {
-        if (shouldLock && mounted) _checkAppLock(lockIfEnabled: true);
+        if (shouldLock && mounted && !ref.read(isSigningOutProvider)) {
+          _checkAppLock(lockIfEnabled: true);
+        }
       });
     }
   }
 
   Future<void> _checkAppLock({bool lockIfEnabled = false}) async {
+    if (ref.read(isSigningOutProvider)) return;
     final service = ref.read(securityServiceProvider);
     bool enabled = false;
     bool biometric = false;
@@ -2145,9 +2166,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       if (mounted) {
         setState(() => _lockChecking = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'App lock storage is unavailable. Please disable and enable App Lock again.',
+              _tr(context, 'App lock storage is unavailable. Please disable and enable App Lock again.'),
             ),
           ),
         );
@@ -2160,7 +2181,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       _biometricEnabled = biometric;
       if (enabled && (lockIfEnabled || !_locked)) _locked = true;
     });
-    if (enabled && biometric && mounted) {
+    if (enabled && biometric && mounted && !ref.read(isSigningOutProvider)) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _tryBiometricUnlock(),
       );
@@ -2168,9 +2189,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   }
 
   Future<void> _tryBiometricUnlock() async {
-    if (!_locked || _checkingPin) return;
+    if (!_locked || _checkingPin || ref.read(isSigningOutProvider)) return;
     final ok = await ref.read(securityServiceProvider).authenticateBiometrics();
-    if (ok && mounted) {
+    if (ok && mounted && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
       setState(() => _locked = false);
     }
@@ -2191,18 +2212,19 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         return;
       }
       if (mounted) {
-        setState(() => _unlockError = 'Incorrect PIN. Please try again.');
+        final err = _tr(context, 'Incorrect PIN. Please try again.');
+        setState(() => _unlockError = err);
         _lockPin.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Incorrect PIN. Please try again.')),
+          SnackBar(content: Text(err)),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Could not read the app PIN. Disable and enable App Lock again.',
+              _tr(context, 'Could not read the app PIN. Disable and enable App Lock again.'),
             ),
           ),
         );
@@ -2274,13 +2296,38 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     }
     if (_locked) {
       return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.language_rounded),
+                tooltip: _tr(context, 'Language'),
+                onSelected: (code) {
+                  ref.read(appLanguageProvider.notifier).setLanguage(code);
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'en', child: Text('English')),
+                  PopupMenuItem(value: 'hi', child: Text('हिन्दी (Hindi)')),
+                  PopupMenuItem(value: 'te', child: Text('తెలుగు (Telugu)')),
+                ],
+              ),
+            ),
+          ],
+        ),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.lock_outline, size: 52),
               const SizedBox(height: 12),
-              const Text('Unlock OneBill'),
+              Text(
+                _tr(context, 'Unlock OneBill'),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 16),
               SizedBox(
                 width: 260,
@@ -2291,7 +2338,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   keyboardType: TextInputType.number,
                   maxLength: 6,
                   textAlign: TextAlign.center,
-                  decoration: const InputDecoration(labelText: 'Enter PIN'),
+                  decoration: InputDecoration(labelText: _tr(context, 'Enter PIN')),
                   onChanged: _onLockPinChanged,
                   onSubmitted: (_) => _unlock(),
                 ),
@@ -2299,7 +2346,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               FilledButton.icon(
                 onPressed: _checkingPin ? null : _unlock,
                 icon: const Icon(Icons.lock_open),
-                label: Text(_checkingPin ? 'Checking...' : 'Unlock with PIN'),
+                label: Text(_checkingPin ? _tr(context, 'Checking...') : _tr(context, 'Unlock with PIN')),
               ),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),
@@ -2330,16 +2377,16 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                       setState(() => _locked = false);
                     } else if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
+                        SnackBar(
                           content: Text(
-                            'Biometric authentication was cancelled or unavailable.',
+                            _tr(context, 'Biometric authentication was cancelled or unavailable.'),
                           ),
                         ),
                       );
                     }
                   },
                   icon: const Icon(Icons.fingerprint),
-                  label: const Text('Use Biometric'),
+                  label: Text(_tr(context, 'Use Biometric')),
                 ),
             ],
           ),
@@ -2737,7 +2784,21 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ],
       ),
     );
-    if (confirmed == true) {
+    if (confirmed == true && context.mounted) {
+      final security = ref.read(securityServiceProvider);
+      final isLockEnabled = await security.isPinEnabled();
+      if (isLockEnabled) {
+        final authenticated = await _authenticateForSecurity(context, ref);
+        if (!authenticated || !context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_tr(context, 'Sign out cancelled')),
+            ),
+          );
+          return;
+        }
+      }
+
       final auth = ref.read(authServiceProvider);
       final db = ref.read(databaseProvider);
       final notifService = ref.read(notificationServiceProvider);
@@ -2842,11 +2903,11 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
     final value = _pin.text.trim();
     final confirmation = _confirm.text.trim();
     if (!RegExp(r'^\d{4,6}$').hasMatch(value)) {
-      setState(() => _error = 'PIN must contain 4 to 6 digits.');
+      setState(() => _error = _tr(context, 'PIN must contain 4 to 6 digits.'));
       return;
     }
     if (value != confirmation) {
-      setState(() => _error = "PINs don't match. Please try again.");
+      setState(() => _error = _tr(context, "PINs don't match. Please try again."));
       return;
     }
     setState(() {
@@ -2870,7 +2931,7 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = 'Could not save PIN: $e';
+          _error = '${_tr(context, "Could not save PIN")}: $e';
         });
       }
     }
@@ -2911,43 +2972,43 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
   Widget build(BuildContext context) {
     if (_stepBiometric) {
       return AlertDialog(
-        title: const Text('Use Biometric?'),
-        content: const Text(
-          'Biometric will be the primary unlock method. Your PIN remains available as a fallback.',
+        title: Text(_tr(context, 'Use Biometric?')),
+        content: Text(
+          _tr(context, 'Biometric will be the primary unlock method. Your PIN remains available as a fallback.'),
         ),
         actions: [
           TextButton(
             onPressed: _saving ? null : () => _setBiometric(false),
-            child: const Text('Not now'),
+            child: Text(_tr(context, 'Not now')),
           ),
           FilledButton(
             onPressed: _saving ? null : () => _setBiometric(true),
-            child: Text(_saving ? 'Saving...' : 'Enable'),
+            child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Enable')),
           ),
         ],
       );
     }
     return AlertDialog(
-      title: Text(widget.enabled ? 'Change PIN' : 'Secure OneBill'),
+      title: Text(widget.enabled ? _tr(context, 'Change PIN') : _tr(context, 'Secure OneBill')),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Choose a secure 4–6 digit PIN for offline unlock.'),
+          Text(_tr(context, 'Choose a secure 4–6 digit PIN for offline unlock.')),
           const SizedBox(height: 12),
           TextField(
             controller: _pin,
             keyboardType: TextInputType.number,
             obscureText: true,
             maxLength: 6,
-            decoration: const InputDecoration(labelText: 'Create PIN'),
+            decoration: InputDecoration(labelText: _tr(context, 'Create PIN')),
           ),
           TextField(
             controller: _confirm,
             keyboardType: TextInputType.number,
             obscureText: true,
             maxLength: 6,
-            decoration: const InputDecoration(labelText: 'Confirm PIN'),
+            decoration: InputDecoration(labelText: _tr(context, 'Confirm PIN')),
           ),
           if (_error != null)
             Padding(
@@ -2965,16 +3026,16 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(_tr(context, 'Cancel')),
         ),
         if (widget.enabled)
           TextButton(
             onPressed: _saving ? null : _disableAppLock,
-            child: const Text('Disable'),
+            child: Text(_tr(context, 'Disable')),
           ),
         FilledButton(
           onPressed: _saving ? null : _savePin,
-          child: Text(_saving ? 'Saving...' : 'Save'),
+          child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Save')),
         ),
       ],
     );
@@ -3013,7 +3074,7 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
       } else {
         setState(() {
           _checking = false;
-          _error = 'Incorrect PIN. Please try again.';
+          _error = _tr(context, 'Incorrect PIN. Please try again.');
           _pin.clear();
         });
       }
@@ -3021,7 +3082,7 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
       if (mounted) {
         setState(() {
           _checking = false;
-          _error = 'Could not verify PIN.';
+          _error = _tr(context, 'Could not verify PIN.');
         });
       }
     }
@@ -3029,7 +3090,7 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Confirm your PIN'),
+        title: Text(_tr(context, 'Confirm your PIN')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3040,7 +3101,7 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
               keyboardType: TextInputType.number,
               maxLength: 6,
               autofocus: true,
-              decoration: const InputDecoration(labelText: 'Enter PIN'),
+              decoration: InputDecoration(labelText: _tr(context, 'Enter PIN')),
               onSubmitted: (_) => _submit(),
             ),
             if (_error != null)
@@ -3059,11 +3120,11 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
         actions: [
           TextButton(
             onPressed: _checking ? null : () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(_tr(context, 'Cancel')),
           ),
           FilledButton(
             onPressed: _checking ? null : _submit,
-            child: Text(_checking ? 'Checking...' : 'Continue'),
+            child: Text(_checking ? _tr(context, 'Checking...') : _tr(context, 'Continue')),
           ),
         ],
       );
@@ -7606,23 +7667,23 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                 child: Column(
                   children: [
                     _AmountLine(
-                      label: 'Subtotal',
+                      label: _tr(context, 'Subtotal'),
                       amount: invoice.subtotalPaise,
                     ),
                     if (invoice.discountPaise > 0)
                       _AmountLine(
-                        label: 'Discount',
+                        label: _tr(context, 'Discount'),
                         amount: -invoice.discountPaise,
                       ),
                     if (invoice.interestPaise > 0)
                       _AmountLine(
-                        label: 'Interest',
+                        label: _tr(context, 'Extra charge'),
                         amount: invoice.interestPaise,
                       ),
                     const Divider(height: 12),
-                    _AmountLine(label: 'Total', amount: total, bold: true),
-                    _AmountLine(label: 'Paid', amount: invoice.paidPaise),
-                    _AmountLine(label: 'Balance', amount: balance, bold: true),
+                    _AmountLine(label: _tr(context, 'Grand Total'), amount: total, bold: true),
+                    _AmountLine(label: _tr(context, 'Paid'), amount: invoice.paidPaise),
+                    _AmountLine(label: _tr(context, 'Balance'), amount: balance, bold: true),
                   ],
                 ),
               ),
@@ -8338,7 +8399,7 @@ class _EditInvoiceDetailsSheetState
                     controller: interest,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
-                      labelText: _tr(context, 'Interest / extra charge (₹)'),
+                      labelText: _tr(context, 'Extra charge (₹)'),
                       hintText: '0.00',
                       prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
                       prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
@@ -9384,7 +9445,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       decimal: true,
                     ),
                     decoration: InputDecoration(
-                      labelText: _tr(context, 'Interest / extra charge (₹)'),
+                      labelText: _tr(context, 'Extra charge (₹)'),
                       hintText: '0.00',
                       prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
                       prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),

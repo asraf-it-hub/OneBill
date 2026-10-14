@@ -405,7 +405,7 @@ class PdfInvoiceService {
                   if (invoice.discountPaise > 0)
                     _summaryRow('Discount', -invoice.discountPaise),
                   if (invoice.interestPaise > 0)
-                    _summaryRow('Interest', invoice.interestPaise),
+                    _summaryRow('Extra charge', invoice.interestPaise),
                   pw.Divider(color: borderGrey, thickness: 1),
                   _summaryRow('Total', total, bold: true, fontSize: 11),
                   if (invoice.paidPaise > 0)

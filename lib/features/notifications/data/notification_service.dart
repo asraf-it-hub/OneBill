@@ -1069,7 +1069,8 @@ class NotificationService {
       final prefs = await _repository.getPreferences();
       if (prefs[NotificationCategories.syncFailed] != true) return;
 
-      const title = 'Sync failed';
+      final lang = await _getLanguageCode();
+      final title = trLang('Sync failed', lang);
       final body = userFriendlyMessage;
 
       final payload = jsonEncode({'action': NotificationActionKeys.viewSync});
@@ -1084,15 +1085,15 @@ class NotificationService {
             channelId: NotificationChannels.sync,
             channelName: 'Sync & Backup',
             importance: Importance.high,
-            actions: const [
+            actions: [
               AndroidNotificationAction(
                 NotificationActionKeys.retrySync,
-                'Retry Sync',
+                trLang('Retry Sync', lang),
                 showsUserInterface: true,
               ),
               AndroidNotificationAction(
                 NotificationActionKeys.viewSync,
-                'View Status',
+                trLang('View Status', lang),
                 showsUserInterface: true,
               ),
             ],

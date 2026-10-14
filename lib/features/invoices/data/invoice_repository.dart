@@ -112,7 +112,7 @@ class InvoiceRepository {
       throw ArgumentError('Add at least one invoice item.');
     }
     if (discountPaise < 0 || interestPaise < 0) {
-      throw ArgumentError('Discount and interest cannot be negative.');
+      throw ArgumentError('Discount and extra charge cannot be negative.');
     }
     final now = DateTime.now().toUtc();
     final customer =
@@ -399,7 +399,7 @@ class InvoiceRepository {
     Value<String?> paperReceiptImage = const Value.absent(),
   }) async {
     if (discountPaise < 0 || interestPaise < 0) {
-      throw ArgumentError('Discount and interest cannot be negative.');
+      throw ArgumentError('Discount and extra charge cannot be negative.');
     }
     final now = DateTime.now().toUtc();
     await _database.transaction(() async {
