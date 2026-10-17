@@ -45,9 +45,11 @@ class OneBillApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider).valueOrNull;
     final savedLang = ref.watch(appLanguageProvider);
-    final effectiveLang = (session != null && session.activeBusinessId != null)
-        ? (session.localeCode.isNotEmpty ? session.localeCode : savedLang)
-        : savedLang;
+    final effectiveLang = savedLang.isNotEmpty
+        ? savedLang
+        : ((session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
+            ? session.localeCode
+            : 'en');
     final locale = {'en', 'hi', 'te'}.contains(effectiveLang) ? effectiveLang : 'en';
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
@@ -6609,9 +6611,12 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
     }
   }
 
+  String _t(String key) => trLang(key, _language);
+  String? _req(String? value) =>
+      value == null || value.trim().isEmpty ? _t('This field is required.') : null;
+
   @override
   Widget build(BuildContext context) {
-    final effectiveLang = ref.watch(appLanguageProvider) ?? _language;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -6626,12 +6631,12 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              _tr(context, 'Add new business'),
+              _t('Add new business'),
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
             Text(
-              _tr(context, 'This business starts with empty customers, invoices, and payments.'),
+              _t('This business starts with empty customers, invoices, and payments.'),
             ),
             const SizedBox(height: 16),
             Row(
@@ -6640,7 +6645,7 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   code: 'en',
                   nativeTitle: 'English',
                   subtitle: 'English',
-                  isSelected: effectiveLang == 'en',
+                  isSelected: _language == 'en',
                   onTap: () {
                     setState(() => _language = 'en');
                     ref.read(appLanguageProvider.notifier).setLanguage('en');
@@ -6651,7 +6656,7 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   code: 'te',
                   nativeTitle: 'తెలుగు',
                   subtitle: 'Telugu',
-                  isSelected: effectiveLang == 'te',
+                  isSelected: _language == 'te',
                   onTap: () {
                     setState(() => _language = 'te');
                     ref.read(appLanguageProvider.notifier).setLanguage('te');
@@ -6662,7 +6667,7 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   code: 'hi',
                   nativeTitle: 'हिन्दी',
                   subtitle: 'Hindi',
-                  isSelected: effectiveLang == 'hi',
+                  isSelected: _language == 'hi',
                   onTap: () {
                     setState(() => _language = 'hi');
                     ref.read(appLanguageProvider.notifier).setLanguage('hi');
@@ -6673,30 +6678,30 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
             const SizedBox(height: 20),
             TextFormField(
               controller: _owner,
-              decoration: InputDecoration(labelText: _tr(context, 'Owner name')),
-              validator: _required,
+              decoration: InputDecoration(labelText: _t('Owner name')),
+              validator: _req,
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _name,
               decoration: InputDecoration(
-                labelText: _tr(context, 'Business or shop name'),
+                labelText: _t('Business or shop name'),
               ),
-              validator: _required,
+              validator: _req,
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: _tr(context, 'Business phone (optional)'),
+                labelText: _t('Business phone (optional)'),
               ),
               validator: _phoneValidator,
             ),
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : _save,
-              child: Text(_saving ? _tr(context, 'Creating...') : _tr(context, 'Create empty business')),
+              child: Text(_saving ? _t('Creating...') : _t('Create empty business')),
             ),
           ],
         ),
@@ -8128,66 +8133,347 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
               data: (entries) => entries.isEmpty
                   ? Text(_tr(context, 'No payments recorded yet.'))
                   : Column(
-                      children: entries
-                          .map(
-                            (payment) => ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.check_circle_outline),
-                              title: Text(_rupees(payment.amountPaise)),
-                              subtitle: Text(
-                                '${payment.method} • ${_date(payment.receivedAt)}${payment.note == null ? '' : '\n${payment.note}'}',
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
-                              trailing: IconButton(
-                                tooltip: 'Reverse payment',
-                                icon: const Icon(Icons.undo_outlined),
-                                onPressed: () async {
-                                  final ok = await showDialog<bool>(
-                                    context: context,
-                                    builder: (dialog) => AlertDialog(
-                                      title: const Text('Reverse payment?'),
-                                      content: Text(
-                                        'This restores ${_rupees(payment.amountPaise)} to the invoice balance. The original payment remains in the audit history.',
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _tr(
+                                    context,
+                                    'Mistake in payment? Tap "Reverse" to cancel it and restore the balance.',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
                                       ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(dialog, false),
-                                          child: const Text('Cancel'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ...entries.map(
+                          (payment) => Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest
+                                  .withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outlineVariant
+                                    .withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primaryContainer,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            Icons.check_rounded,
+                                            size: 16,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onPrimaryContainer,
+                                          ),
                                         ),
-                                        FilledButton(
-                                          onPressed: () =>
-                                              Navigator.pop(dialog, true),
-                                          child: const Text('Reverse'),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          _rupees(payment.amountPaise),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                         ),
                                       ],
                                     ),
-                                  );
-                                  if (ok != true) return;
-                                  try {
-                                    await ref
-                                        .read(invoiceRepositoryProvider)
-                                        .reversePayment(
-                                          businessId: businessId,
-                                          paymentId: payment.id,
-                                        );
-                                  } catch (error) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'Could not reverse payment: $error',
-                                          ),
+                                    OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
                                         ),
-                                      );
-                                    }
-                                  }
-                                },
-                              ),
+                                        minimumSize: const Size(0, 32),
+                                        visualDensity: VisualDensity.compact,
+                                        foregroundColor:
+                                            Theme.of(context).colorScheme.error,
+                                        side: BorderSide(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                      ),
+                                      icon: const Icon(
+                                        Icons.history_rounded,
+                                        size: 16,
+                                      ),
+                                      label: Text(
+                                        _tr(context, 'Reverse'),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      onPressed: () async {
+                                        final ok = await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialog) => AlertDialog(
+                                            title: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Theme.of(dialog)
+                                                      .colorScheme
+                                                      .error,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _tr(
+                                                    dialog,
+                                                    'Reverse Payment?',
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            content: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  _tr(
+                                                    dialog,
+                                                    'Are you sure you want to reverse this payment?',
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 12),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(10),
+                                                  decoration: BoxDecoration(
+                                                    color: Theme.of(dialog)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Text(
+                                                        _tr(
+                                                          dialog,
+                                                          'Amount to restore:',
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        _rupees(
+                                                          payment.amountPaise,
+                                                        ),
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: Theme.of(
+                                                            dialog,
+                                                          ).colorScheme.error,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  _tr(
+                                                    dialog,
+                                                    'This amount will be added back to the invoice balance due.',
+                                                  ),
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Theme.of(dialog)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  dialog,
+                                                  false,
+                                                ),
+                                                child: Text(
+                                                  _tr(dialog, 'Cancel'),
+                                                ),
+                                              ),
+                                              FilledButton(
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor:
+                                                      Theme.of(dialog)
+                                                          .colorScheme
+                                                          .error,
+                                                  foregroundColor:
+                                                      Theme.of(dialog)
+                                                          .colorScheme
+                                                          .onError,
+                                                ),
+                                                onPressed: () => Navigator.pop(
+                                                  dialog,
+                                                  true,
+                                                ),
+                                                child: Text(
+                                                  _tr(
+                                                    dialog,
+                                                    'Confirm Reverse',
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (ok != true) return;
+                                        try {
+                                          await ref
+                                              .read(invoiceRepositoryProvider)
+                                              .reversePayment(
+                                                businessId: businessId,
+                                                paymentId: payment.id,
+                                              );
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  _tr(
+                                                    context,
+                                                    'Payment reversed successfully. Balance updated.',
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        } catch (error) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Could not reverse payment: $error',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '${payment.method} • ${_date(payment.receivedAt)}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                    if (payment.note != null &&
+                                        payment.note!.trim().isNotEmpty) ...[
+                                      Text(
+                                        ' • ',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          payment.note!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                fontStyle: FontStyle.italic,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
                             ),
-                          )
-                          .toList(),
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ],
