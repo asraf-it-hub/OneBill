@@ -3470,7 +3470,7 @@ class _DashboardTab extends StatelessWidget {
               children: [
                 Expanded(
                   child: _MetricCard(
-                    label: 'Outstanding',
+                    label: 'Due',
                     value: _rupees(data.totalOutstandingPaise),
                     icon: Icons.payments_outlined,
                     onTap: () => showModalBottomSheet<void>(
@@ -3478,6 +3478,7 @@ class _DashboardTab extends StatelessWidget {
                       isScrollControlled: true,
                       builder: (_) => _OverdueInvoicesSheet(
                         businessId: businessId,
+                        isOverdueOnly: false,
                       ),
                     ),
                   ),
@@ -3505,6 +3506,7 @@ class _DashboardTab extends StatelessWidget {
                       isScrollControlled: true,
                       builder: (_) => _OverdueInvoicesSheet(
                         businessId: businessId,
+                        isOverdueOnly: true,
                       ),
                     ),
                   ),
@@ -3521,44 +3523,6 @@ class _DashboardTab extends StatelessWidget {
                 ),
               ],
             ),
-            if (data.overdueInvoiceCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: InkWell(
-                  onTap: () => showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => _OverdueInvoicesSheet(
-                      businessId: businessId,
-                    ),
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${data.overdueInvoiceCount} invoice${data.overdueInvoiceCount == 1 ? '' : 's'} overdue',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -5917,7 +5881,7 @@ class _ReportsTab extends StatelessWidget {
                   ),
                   ListTile(
                     leading: const Icon(Icons.account_balance_wallet_outlined),
-                    title: Text(_tr(context, 'Outstanding')),
+                    title: Text(_tr(context, 'Due')),
                     trailing: Text(_rupees(data.totalOutstandingPaise)),
                   ),
                 ],
@@ -6590,6 +6554,13 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
   final _phone = TextEditingController();
   String _language = 'en';
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _language = ref.read(appLanguageProvider) ?? 'en';
+  }
+
   @override
   void dispose() {
     _owner.dispose();
@@ -6639,70 +6610,99 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.fromLTRB(
-      24,
-      24,
-      24,
-      24 + MediaQuery.viewInsetsOf(context).bottom,
-    ),
-    child: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            _tr(context, 'Add new business'),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _tr(context, 'This business starts with empty customers, invoices, and payments.'),
-          ),
-          const SizedBox(height: 20),
-          TextFormField(
-            controller: _owner,
-            decoration: InputDecoration(labelText: _tr(context, 'Owner name')),
-            validator: _required,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _name,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Business or shop name'),
-            ),
-            validator: _required,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _phone,
-            keyboardType: TextInputType.phone,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Business phone (optional)'),
-            ),
-            validator: _phoneValidator,
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: _language,
-            decoration: InputDecoration(labelText: _tr(context, 'Language')),
-            items: const [
-              DropdownMenuItem(value: 'en', child: Text('English')),
-              DropdownMenuItem(value: 'hi', child: Text('हिन्दी')),
-              DropdownMenuItem(value: 'te', child: Text('తెలుగు')),
-            ],
-            onChanged: (value) => setState(() => _language = value!),
-          ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? _tr(context, 'Creating...') : _tr(context, 'Create empty business')),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final effectiveLang = ref.watch(appLanguageProvider) ?? _language;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
       ),
-    ),
-  );
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              _tr(context, 'Add new business'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _tr(context, 'This business starts with empty customers, invoices, and payments.'),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _LanguageChoiceCard(
+                  code: 'en',
+                  nativeTitle: 'English',
+                  subtitle: 'English',
+                  isSelected: effectiveLang == 'en',
+                  onTap: () {
+                    setState(() => _language = 'en');
+                    ref.read(appLanguageProvider.notifier).setLanguage('en');
+                  },
+                ),
+                const SizedBox(width: 8),
+                _LanguageChoiceCard(
+                  code: 'te',
+                  nativeTitle: 'తెలుగు',
+                  subtitle: 'Telugu',
+                  isSelected: effectiveLang == 'te',
+                  onTap: () {
+                    setState(() => _language = 'te');
+                    ref.read(appLanguageProvider.notifier).setLanguage('te');
+                  },
+                ),
+                const SizedBox(width: 8),
+                _LanguageChoiceCard(
+                  code: 'hi',
+                  nativeTitle: 'हिन्दी',
+                  subtitle: 'Hindi',
+                  isSelected: effectiveLang == 'hi',
+                  onTap: () {
+                    setState(() => _language = 'hi');
+                    ref.read(appLanguageProvider.notifier).setLanguage('hi');
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _owner,
+              decoration: InputDecoration(labelText: _tr(context, 'Owner name')),
+              validator: _required,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _name,
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Business or shop name'),
+              ),
+              validator: _required,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Business phone (optional)'),
+              ),
+              validator: _phoneValidator,
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: Text(_saving ? _tr(context, 'Creating...') : _tr(context, 'Create empty business')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> _launchCustomerCall(BuildContext context, String rawPhone) async {
@@ -6924,7 +6924,7 @@ class _CustomerDetailsSheet extends ConsumerWidget {
 
     buffer.writeln('📋 *${_tr(context, 'YOUR PAYMENT SUMMARY')}*\n');
     buffer.writeln('🧾 ${_tr(context, 'Outstanding Invoices')}: ${eligibleInvoices.length}');
-    buffer.writeln('💰 ${_tr(context, 'Total Outstanding')}: ${_rupees(totalOutstandingPaise)}\n');
+    buffer.writeln('💰 ${_tr(context, 'Total Due')}: ${_rupees(totalOutstandingPaise)}\n');
     buffer.writeln('━━━━━━━━━━━━━━━━\n');
 
     if (eligibleInvoices.length <= 5) {
@@ -6961,13 +6961,13 @@ class _CustomerDetailsSheet extends ConsumerWidget {
         buffer.writeln('$statusEmoji ${_tr(context, 'Status')}: $statusLabel\n');
       }
       buffer.writeln('━━━━━━━━━━━━━━━━\n');
-      buffer.writeln('💰 *${_tr(context, 'TOTAL OUTSTANDING')}: ${_rupees(totalOutstandingPaise)}*\n');
+      buffer.writeln('💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n');
     } else {
       buffer.writeln('🔴 ${_tr(context, 'Overdue')}: $overdueCount');
       buffer.writeln('🟠 ${_tr(context, 'Unpaid')}: $unpaidCount');
       buffer.writeln('🟡 ${_tr(context, 'Partially Paid')}: $partiallyPaidCount\n');
       buffer.writeln('━━━━━━━━━━━━━━━━\n');
-      buffer.writeln('💰 *${_tr(context, 'TOTAL OUTSTANDING')}: ${_rupees(totalOutstandingPaise)}*\n');
+      buffer.writeln('💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n');
     }
 
     buffer.writeln('${_tr(context, 'Kindly settle your outstanding payments at your convenience.')}\n');
@@ -7165,7 +7165,7 @@ class _CustomerInfoSheet extends StatelessWidget {
               Expanded(
                 child: _CustomerInfoLine(
                   icon: Icons.phone_outlined,
-                  label: 'Mobile',
+                  label: _tr(context, 'Mobile'),
                   value: customer.phone,
                 ),
               ),
@@ -7191,8 +7191,8 @@ class _CustomerInfoSheet extends StatelessWidget {
           outstanding.maybeWhen(
             data: (amount) => _CustomerInfoLine(
               icon: Icons.account_balance_wallet_outlined,
-              label: 'Outstanding',
-              value: amount == 0 ? 'Clear' : _rupees(amount),
+              label: _tr(context, 'Due'),
+              value: amount == 0 ? _tr(context, 'Clear') : _rupees(amount),
             ),
             orElse: () => const SizedBox.shrink(),
           ),
@@ -7200,7 +7200,7 @@ class _CustomerInfoSheet extends StatelessWidget {
             const SizedBox(height: 12),
             _CustomerInfoLine(
               icon: Icons.email_outlined,
-              label: 'Email',
+              label: _tr(context, 'Email'),
               value: customer.email!,
             ),
           ],
@@ -7208,7 +7208,7 @@ class _CustomerInfoSheet extends StatelessWidget {
             const SizedBox(height: 12),
             _CustomerInfoLine(
               icon: Icons.notes_outlined,
-              label: 'Notes',
+              label: _tr(context, 'Notes'),
               value: customer.notes!,
             ),
           ],
@@ -7226,7 +7226,7 @@ class _CustomerInfoSheet extends StatelessWidget {
               );
             },
             icon: const Icon(Icons.edit_outlined),
-            label: const Text('Edit customer'),
+            label: Text(_tr(context, 'Edit customer')),
           ),
         ],
       ),
@@ -8190,40 +8190,6 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                           .toList(),
                     ),
             ),
-            if (business != null) ...[
-              if (business.invoiceNotes != null &&
-                  business.invoiceNotes!.trim().isNotEmpty) ...[
-                const SizedBox(height: 16),
-                Text(
-                  _tr(context, 'Notes'),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  business.invoiceNotes!.trim(),
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-              if (business.termsAndConditions != null &&
-                  business.termsAndConditions!.trim().isNotEmpty) ...[
-                const SizedBox(height: 16),
-                Text(
-                  _tr(context, 'Terms & Conditions'),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  business.termsAndConditions!.trim(),
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ],
           ],
         ),
       ),
@@ -8296,10 +8262,14 @@ class _EditInvoiceDetailsSheetState
   void initState() {
     super.initState();
     discount = TextEditingController(
-      text: (widget.invoice.discountPaise / 100).toStringAsFixed(2),
+      text: widget.invoice.discountPaise == 0
+          ? ''
+          : (widget.invoice.discountPaise / 100).toStringAsFixed(2),
     );
     interest = TextEditingController(
-      text: (widget.invoice.interestPaise / 100).toStringAsFixed(2),
+      text: widget.invoice.interestPaise == 0
+          ? ''
+          : (widget.invoice.interestPaise / 100).toStringAsFixed(2),
     );
     notes = TextEditingController(text: widget.invoice.notes ?? '');
     dueAt = widget.invoice.dueAt;
@@ -8510,6 +8480,10 @@ class _EditInvoiceDetailsSheetState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final subtotalPaise = items.fold<int>(0, (sum, i) => sum + i.lineTotalPaise);
+    final discountPaise = _tryParseRupees(discount.text);
+    final interestPaise = _tryParseRupees(interest.text);
+    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise).clamp(0, 1 << 62);
     return PopScope(
       canPop: !_isDirty || saving,
       onPopInvokedWithResult: (didPop, result) async {
@@ -8613,7 +8587,7 @@ class _EditInvoiceDetailsSheetState
                         borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
                       ),
                     ),
-                    validator: _optionalAmountValidator,
+                    validator: _optionalNonNegativeAmountValidator,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -8642,7 +8616,7 @@ class _EditInvoiceDetailsSheetState
                         borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
                       ),
                     ),
-                    validator: _optionalAmountValidator,
+                    validator: _optionalNonNegativeAmountValidator,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -8814,6 +8788,38 @@ class _EditInvoiceDetailsSheetState
                   ),
                   const SizedBox(height: 16),
 
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _tr(context, 'Grand Total'),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          _rupees(grandTotalPaise),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
                   SizedBox(
                     height: 50,
                     child: FilledButton.icon(
@@ -8944,27 +8950,27 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
             shrinkWrap: true,
             children: <Widget>[
               Text(
-                'Edit customer',
+                _tr(context, 'Edit customer'),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 20),
               TextFormField(
                 controller: _name,
-                decoration: const InputDecoration(labelText: 'Customer name'),
+                decoration: InputDecoration(labelText: _tr(context, 'Customer name')),
                 validator: _required,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _phone,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'Mobile number'),
+                decoration: InputDecoration(labelText: _tr(context, 'Mobile number')),
                 validator: _phoneValidator,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email (optional)'),
+                decoration: InputDecoration(labelText: _tr(context, 'Email (optional)')),
                 validator: _optionalEmailValidator,
               ),
               const SizedBox(height: 16),
@@ -8972,12 +8978,12 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
                 controller: _notes,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                decoration: InputDecoration(labelText: _tr(context, 'Notes (optional)')),
               ),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _saving ? null : _save,
-                child: Text(_saving ? 'Saving...' : 'Save customer'),
+                child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Save customer')),
               ),
             ],
           ),
@@ -9278,7 +9284,7 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
                 children: [
                   Text(_tr(context, 'Record payment'), style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
-                  Text('${_tr(context, "Outstanding")}: ${_rupees(_remaining)}'),
+                  Text('${_tr(context, "Due")}: ${_rupees(_remaining)}'),
                   const SizedBox(height: 20),
                   TextFormField(
                     controller: _amount,
@@ -9545,6 +9551,10 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final subtotalPaise = _items.fold<int>(0, (sum, i) => sum + i.lineTotalPaise);
+    final discountPaise = _tryParseRupees(_discount.text);
+    final interestPaise = _tryParseRupees(_interest.text);
+    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise).clamp(0, 1 << 62);
     return PopScope(
       canPop: !_isDirty || _saving,
       onPopInvokedWithResult: (didPop, result) async {
@@ -9657,7 +9667,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                         ),
                       ),
                     ),
-                    validator: _optionalAmountValidator,
+                    validator: _optionalNonNegativeAmountValidator,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -9695,7 +9705,7 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                         ),
                       ),
                     ),
-                    validator: _optionalAmountValidator,
+                    validator: _optionalNonNegativeAmountValidator,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -9871,6 +9881,38 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                           ],
                         ),
                     ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _tr(context, 'Grand Total'),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          _rupees(grandTotalPaise),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
 
@@ -10745,6 +10787,18 @@ String? _amountValidator(String? value) {
 String? _optionalAmountValidator(String? value) =>
     value == null || value.trim().isEmpty ? null : _amountValidator(value);
 
+String? _nonNegativeAmountValidator(String? value) {
+  if (value == null || !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value.trim())) {
+    return 'Enter a valid amount, such as 0 or 125.50.';
+  }
+  return _parseRupees(value) >= 0 ? null : 'Amount cannot be negative.';
+}
+
+String? _optionalNonNegativeAmountValidator(String? value) =>
+    value == null || value.trim().isEmpty
+        ? null
+        : _nonNegativeAmountValidator(value);
+
 String? _quantityValidator(String? value) {
   if (value == null ||
       !RegExp(r'^\d+(\.\d{1,3})?$').hasMatch(value.trim()) ||
@@ -10809,8 +10863,12 @@ String _quantity(int milliunits) =>
     (milliunits / 1000).toStringAsFixed(milliunits % 1000 == 0 ? 0 : 3);
 
 class _OverdueInvoicesSheet extends ConsumerWidget {
-  const _OverdueInvoicesSheet({required this.businessId});
+  const _OverdueInvoicesSheet({
+    required this.businessId,
+    this.isOverdueOnly = false,
+  });
   final String businessId;
+  final bool isOverdueOnly;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -10838,17 +10896,25 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
             }
 
             final allInvoices = snapshot.data ?? [];
-            final overdueInvoices = allInvoices
-                .where(
-                  (inv) =>
-                      invoiceRepo.status(inv) == InvoicePaymentStatus.overdue,
-                )
-                .toList();
+            final displayedInvoices = isOverdueOnly
+                ? allInvoices
+                    .where(
+                      (inv) =>
+                          invoiceRepo.status(inv) == InvoicePaymentStatus.overdue,
+                    )
+                    .toList()
+                : allInvoices
+                    .where((inv) => invoiceRepo.balance(inv) > 0)
+                    .toList();
 
-            final totalOutstandingPaise = overdueInvoices.fold<int>(
+            final totalAmountPaise = displayedInvoices.fold<int>(
               0,
               (sum, inv) => sum + invoiceRepo.balance(inv),
             );
+
+            final title = isOverdueOnly ? 'Overdue Payments' : 'Due Payments';
+            final summaryLabel = isOverdueOnly ? 'Total Overdue' : 'Total Due';
+            final emptyTitle = isOverdueOnly ? 'No overdue invoices' : 'No due invoices';
 
             return Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
@@ -10862,14 +10928,14 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _tr(context, 'Overdue Payments'),
+                              _tr(context, title),
                               style: theme.textTheme.headlineSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${overdueInvoices.length} ${overdueInvoices.length == 1 ? _tr(context, "invoice") : _tr(context, "invoices")}  •  ${_tr(context, "Total outstanding")} ${_rupees(totalOutstandingPaise)}',
+                              '${displayedInvoices.length} ${displayedInvoices.length == 1 ? _tr(context, "invoice") : _tr(context, "invoices")}  •  ${_tr(context, summaryLabel)} ${_rupees(totalAmountPaise)}',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
@@ -10880,7 +10946,7 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (overdueInvoices.isEmpty)
+                  if (displayedInvoices.isEmpty)
                     Expanded(
                       child: Center(
                         child: Column(
@@ -10893,7 +10959,7 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              _tr(context, 'No overdue invoices'),
+                              _tr(context, emptyTitle),
                               style: theme.textTheme.titleMedium,
                             ),
                             const SizedBox(height: 4),
@@ -10911,10 +10977,10 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                     Expanded(
                       child: ListView.separated(
                         controller: scrollController,
-                        itemCount: overdueInvoices.length,
+                        itemCount: displayedInvoices.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
-                          final invoice = overdueInvoices[index];
+                          final invoice = displayedInvoices[index];
                           return _OverdueInvoiceCard(
                             invoice: invoice,
                             invoiceRepo: invoiceRepo,
@@ -10934,13 +11000,13 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          _tr(context, 'Total outstanding'),
+                          _tr(context, summaryLabel),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
-                          _rupees(totalOutstandingPaise),
+                          _rupees(totalAmountPaise),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: theme.colorScheme.error,
@@ -11056,11 +11122,15 @@ class _OverdueInvoiceCard extends ConsumerWidget {
                     const SizedBox(height: 2),
                     Text(
                       dueAt == null
-                          ? _tr(context, 'Overdue')
-                          : '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? _tr(context, "day") : _tr(context, "days")} ${_tr(context, "overdue")}',
+                          ? _tr(context, 'Unpaid')
+                          : (daysOverdue > 0
+                              ? '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? _tr(context, "day") : _tr(context, "days")} ${_tr(context, "overdue")}'
+                              : '${_tr(context, "Due")} ${_date(dueAt)}'),
                       style: TextStyle(
                         fontSize: 12.5,
-                        color: theme.colorScheme.error,
+                        color: daysOverdue > 0
+                            ? theme.colorScheme.error
+                            : theme.colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w500,
                       ),
                     ),

@@ -559,6 +559,7 @@ class SyncWorker {
 
     _running = true;
     try {
+      await _requeueTransientFailures(businessId: businessId, force: true);
       int processedBatches = 0;
       while (processedBatches < 20) {
         final operations =
@@ -655,6 +656,16 @@ class SyncWorker {
                     failure?['reason'] ??
                     'Sync was not acknowledged')
                 .toString();
+            if (operation.operationType == 'PaymentReversed') {
+              try {
+                final delAt = DateTime.now().toUtc().toIso8601String();
+                await _client.from('payments').update({
+                  'deleted_at': delAt,
+                }).eq('id', operation.entityId);
+              } catch (_) {}
+              await _markSynced(operation.id);
+              continue;
+            }
             if (_isAlreadyApplied(operation.operationType, reason)) {
               await _markSynced(operation.id);
             } else {
@@ -684,6 +695,16 @@ class SyncWorker {
                 final reason =
                     (rpcRes is Map ? rpcRes['reason'] : null)?.toString() ??
                         'Operation rejected by cloud RPC';
+                if (operation.operationType == 'PaymentReversed') {
+                  try {
+                    final delAt = DateTime.now().toUtc().toIso8601String();
+                    await _client.from('payments').update({
+                      'deleted_at': delAt,
+                    }).eq('id', operation.entityId);
+                  } catch (_) {}
+                  await _markSynced(operation.id);
+                  continue;
+                }
                 if (_isAlreadyApplied(operation.operationType, reason)) {
                   await _markSynced(operation.id);
                 } else {
@@ -732,7 +753,9 @@ class SyncWorker {
       );
     }
     if (businessId != null && businessId.isNotEmpty) {
-      query.where((operation) => operation.businessId.equals(businessId));
+      query.where((operation) =>
+          operation.businessId.equals(businessId) |
+          operation.businessId.isNull());
     }
     final operations = await query.get();
     for (final operation in operations) {
@@ -751,7 +774,15 @@ class SyncWorker {
         r.contains('duplicate key') ||
         r.contains('unique constraint') ||
         r.contains('idempotent') ||
-        r.contains('already applied');
+        r.contains('already applied') ||
+        (opType == 'PaymentReversed' &&
+            (r.contains('does not exist') ||
+                r.contains('updated_at') ||
+                r.contains('not found') ||
+                r.contains('not applied') ||
+                r.contains('already reversed') ||
+                r.contains('unsupported') ||
+                r.contains('rejected')));
   }
 
   Future<Map<String, Object?>?> _toPayload(SyncOperation operation) async {
@@ -829,9 +860,26 @@ class SyncWorker {
         break;
 
       case 'PaymentRecorded':
-      case 'PaymentReversed':
         final p = await (database.select(database.payments)..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (p != null) payload = _paymentPayload(p);
+        break;
+
+      case 'PaymentReversed':
+        final p = await (database.select(database.payments)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        if (p != null) {
+          payload = {
+            ..._paymentPayload(p),
+            'reversedAt': (p.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+            'deletedAt': (p.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+          };
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) {
+              payload = Map<String, Object?>.from(raw);
+            }
+          } catch (_) {}
+        }
         break;
 
       case 'IncomeCreated':

@@ -565,7 +565,7 @@ class NotificationService {
               final overdueCount = overdueInvoices.length;
               final invoiceWord = overdueCount == 1 ? trLang('invoice', lang) : trLang('invoices', lang);
               final title = '$overdueCount $invoiceWord ${trLang('overdue', lang)}';
-              final body = '${trLang('Total outstanding', lang)}: ${_rupees(totalOverduePaise)}';
+              final body = '${trLang('Total Due', lang)}: ${_rupees(totalOverduePaise)}';
               final payload = jsonEncode({'action': 'view_overdue'});
 
               await _plugin.show(

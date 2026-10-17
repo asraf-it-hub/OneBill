@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/localization/app_localizations.dart';
 import '../../../core/providers.dart';
 import 'business_profile_screen.dart';
 
@@ -76,14 +77,14 @@ class PostCreationGuidanceSheet extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Make your invoices look professional',
+                          tr(context, 'Make your invoices look professional'),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Business Profile Setup',
+                          tr(context, 'Business Profile Setup'),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.primary,
                             fontWeight: FontWeight.w600,
@@ -96,7 +97,7 @@ class PostCreationGuidanceSheet extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'Add a few business details so OneBill can automatically include them on your invoices, receipts, and UPI payment requests.',
+                tr(context, 'Add a few business details so OneBill can automatically include them on your invoices, receipts, and UPI payment requests.'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -119,7 +120,7 @@ class PostCreationGuidanceSheet extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Business Profile Status',
+                            tr(context, 'Business Profile Status'),
                             style: theme.textTheme.labelMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -135,7 +136,7 @@ class PostCreationGuidanceSheet extends ConsumerWidget {
                     ),
                     const SizedBox(width: 16),
                     Text(
-                      '$completedCount of $totalCount added',
+                      '$completedCount ${tr(context, 'of')} $totalCount ${tr(context, 'added')}',
                       style: theme.textTheme.labelMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.colorScheme.primary,
@@ -157,12 +158,12 @@ class PostCreationGuidanceSheet extends ConsumerWidget {
                   );
                 },
                 icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Complete Profile'),
+                label: Text(tr(context, 'Complete Profile')),
               ),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Skip for now'),
+                child: Text(tr(context, 'Skip for now')),
               ),
             ],
           ),

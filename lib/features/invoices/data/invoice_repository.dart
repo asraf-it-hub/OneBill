@@ -336,11 +336,27 @@ class InvoiceRepository {
               entityId: paymentId,
               operationType: 'PaymentReversed',
               payloadJson: jsonEncode({
+                'id': paymentId,
                 'paymentId': paymentId,
+                'businessId': businessId,
                 'invoiceId': payment.invoiceId,
                 'amountPaise': payment.amountPaise,
                 'reversedAt': now.toIso8601String(),
+                'deletedAt': now.toIso8601String(),
               }),
+              createdAt: now,
+            ),
+          );
+      await _database
+          .into(_database.syncOperations)
+          .insert(
+            SyncOperationsCompanion.insert(
+              id: _uuid.v4(),
+              businessId: Value(businessId),
+              entityType: 'invoice',
+              entityId: invoice.id,
+              operationType: 'InvoiceUpdated',
+              payloadJson: jsonEncode({'id': invoice.id, 'businessId': businessId}),
               createdAt: now,
             ),
           );
