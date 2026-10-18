@@ -1106,7 +1106,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    await service.showTestWeeklySummary();
+                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
+                    await service.showTestWeeklySummary(businessId: activeBizId);
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,
@@ -1122,7 +1123,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    await service.showTestMonthlySummary();
+                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
+                    await service.showTestMonthlySummary(businessId: activeBizId);
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,

@@ -297,41 +297,44 @@ class NotificationService {
       final business = await (_db.select(_db.businesses)
             ..where((b) => b.id.equals(invoice.businessId)))
           .getSingleOrNull();
-      final allBusinesses = await _db.select(_db.businesses).get();
-      final isMultiBusiness = allBusinesses.length > 1;
 
       final customerName = customer?.name ?? 'Customer';
-      final bizPrefix = isMultiBusiness && business != null ? '${business.name} · ' : '';
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+      final lang = await _getLanguageCode(invoice.businessId);
 
       final steps = <({int stepIndex, String categoryKey, DateTime scheduleDate, String title, String body})>[
         (
           stepIndex: 0,
           categoryKey: NotificationCategories.invoiceDueSoon,
           scheduleDate: dueAt.subtract(const Duration(days: 7)),
-          title: '${bizPrefix}Invoice due in 7 days',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+          title: '$bizPrefix${trLang('Invoice due in 7 days', lang)}',
+          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
         ),
         (
           stepIndex: 1,
           categoryKey: NotificationCategories.invoiceDueSoon,
           scheduleDate: dueAt.subtract(const Duration(days: 1)),
-          title: '${bizPrefix}Invoice due tomorrow',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+          title: '$bizPrefix${trLang('Invoice due tomorrow', lang)}',
+          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
         ),
         (
           stepIndex: 2,
           categoryKey: NotificationCategories.invoiceDueToday,
           scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day, 9, 0),
-          title: '${bizPrefix}Invoice due today',
-          body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+          title: '$bizPrefix${trLang('Invoice due today', lang)}',
+          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
         ),
         for (var day = 1; day <= 7; day++)
           (
             stepIndex: 2 + day,
             categoryKey: NotificationCategories.invoiceOverdue,
             scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + day, 9, 0),
-            title: '${bizPrefix}Payment overdue ($day ${day == 1 ? 'day' : 'days'})',
-            body: '$customerName · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+            title: day == 1
+                ? '$bizPrefix${trLang('Payment overdue (1 day)', lang)}'
+                : '$bizPrefix${trLang('Payment overdue', lang)} ($day days)',
+            body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
           ),
       ];
 
@@ -379,15 +382,15 @@ class NotificationService {
             android: _buildAndroidDetails(
               channelId: NotificationChannels.reminders,
               channelName: 'Payment & Invoice Reminders',
-              actions: const [
+              actions: [
                 AndroidNotificationAction(
                   NotificationActionKeys.viewInvoice,
-                  'View Invoice',
+                  trLang('View Invoice', lang),
                   showsUserInterface: true,
                 ),
                 AndroidNotificationAction(
                   NotificationActionKeys.remindLater,
-                  'Remind Tomorrow',
+                  trLang('Remind Tomorrow', lang),
                   showsUserInterface: false,
                 ),
               ],
@@ -455,6 +458,14 @@ class NotificationService {
           DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
       final notifId = _generateDeterministicId('${invoiceId}_snooze');
 
+      final business = await (_db.select(_db.businesses)
+            ..where((b) => b.id.equals(invoice.businessId)))
+          .getSingleOrNull();
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+      final lang = await _getLanguageCode(invoice.businessId);
+
       final payload = jsonEncode({
         'action': NotificationActionKeys.viewInvoice,
         'invoiceId': invoiceId,
@@ -464,17 +475,17 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        'Payment reminder',
-        '${customer?.name ?? 'Customer'} · ${_rupees(remainingPaise)} · Invoice #${invoice.invoiceNumber}',
+        '$bizPrefix${trLang('Payment reminder', lang)}',
+        '${customer?.name ?? trLang('Customer', lang)} · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
         tz.TZDateTime.from(snoozeTarget, tz.local),
         NotificationDetails(
           android: _buildAndroidDetails(
             channelId: NotificationChannels.reminders,
             channelName: 'Payment & Invoice Reminders',
-            actions: const [
+            actions: [
               AndroidNotificationAction(
                 NotificationActionKeys.viewInvoice,
-                'View Invoice',
+                trLang('View Invoice', lang),
                 showsUserInterface: true,
               ),
             ],
@@ -561,12 +572,27 @@ class NotificationService {
                 '${overdueInvoices.length}:$totalOverduePaise:$overdueIds';
 
             if (settings.lastOverdueSignature != currentSignature) {
-              final lang = await _getLanguageCode();
+              final overdueBizIds = overdueInvoices.map((i) => i.businessId).toSet();
+              String bizPrefix = '';
+              String? primaryBizId;
+              if (overdueBizIds.length == 1) {
+                primaryBizId = overdueBizIds.first;
+                final b = await (_db.select(_db.businesses)
+                      ..where((x) => x.id.equals(primaryBizId!)))
+                    .getSingleOrNull();
+                if (b != null && b.name.trim().isNotEmpty) {
+                  bizPrefix = '${b.name.trim()} · ';
+                }
+              }
+              final lang = await _getLanguageCode(primaryBizId);
               final overdueCount = overdueInvoices.length;
               final invoiceWord = overdueCount == 1 ? trLang('invoice', lang) : trLang('invoices', lang);
-              final title = '$overdueCount $invoiceWord ${trLang('overdue', lang)}';
+              final title = '$bizPrefix$overdueCount $invoiceWord ${trLang('overdue', lang)}';
               final body = '${trLang('Total Due', lang)}: ${_rupees(totalOverduePaise)}';
-              final payload = jsonEncode({'action': 'view_overdue'});
+              final payload = jsonEncode({
+                'action': 'view_overdue',
+                if (primaryBizId != null) 'businessId': primaryBizId,
+              });
 
               await _plugin.show(
                 groupNotifId,
@@ -626,7 +652,7 @@ class NotificationService {
 
       for (final business in businesses) {
         final lang = await _getLanguageCode(business.id);
-        final bizPrefix = businesses.length > 1 ? '${business.name} · ' : '';
+        final bizPrefix = business.name.trim().isNotEmpty ? '${business.name.trim()} · ' : '';
 
         final bizInvoices = await (_db.select(_db.invoices)
               ..where((i) => i.businessId.equals(business.id) & i.deletedAt.isNull()))
@@ -838,7 +864,14 @@ class NotificationService {
       final remainingPaise = totalPaise - invoice.paidPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final title = trLang('Payment received', lang);
+      final business = await (_db.select(_db.businesses)
+            ..where((b) => b.id.equals(invoice.businessId)))
+          .getSingleOrNull();
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+
+      final title = '$bizPrefix${trLang('Payment received', lang)}';
       final body = isFullyPaid
           ? '$customerName · ${_rupees(payment.amountPaise)}\n${trLang('Invoice', lang)} #${invoice.invoiceNumber} · ${trLang('Fully paid', lang)}'
           : '${_rupees(payment.amountPaise)} ${trLang('from', lang)} $customerName\n${_rupees(remainingPaise)} ${trLang('remaining', lang)}';
@@ -902,7 +935,15 @@ class NotificationService {
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
-      final title = trLang('Invoice created', lang);
+
+      final business = await (_db.select(_db.businesses)
+            ..where((b) => b.id.equals(invoice.businessId)))
+          .getSingleOrNull();
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+
+      final title = '$bizPrefix${trLang('Invoice created', lang)}';
       final body = '${trLang('Invoice', lang)} #${invoice.invoiceNumber} · $customerName · ${_rupees(totalPaise)}';
 
       final payload = jsonEncode({
@@ -961,7 +1002,15 @@ class NotificationService {
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
-      final title = trLang('Invoice shared', lang);
+
+      final business = await (_db.select(_db.businesses)
+            ..where((b) => b.id.equals(invoice.businessId)))
+          .getSingleOrNull();
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+
+      final title = '$bizPrefix${trLang('Invoice shared', lang)}';
       final body =
           '${trLang('Invoice', lang)} #${invoice.invoiceNumber} ${trLang('shared with', lang)} $customerName · ${_rupees(totalPaise)}';
 
@@ -1017,7 +1066,15 @@ class NotificationService {
       final totalPaise =
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
-      final title = trLang('Paper receipt shared', lang);
+
+      final business = await (_db.select(_db.businesses)
+            ..where((b) => b.id.equals(invoice.businessId)))
+          .getSingleOrNull();
+      final bizPrefix = (business != null && business.name.trim().isNotEmpty)
+          ? '${business.name.trim()} · '
+          : '';
+
+      final title = '$bizPrefix${trLang('Paper receipt shared', lang)}';
       final body =
           '${trLang('Paper receipt', lang)} #${invoice.invoiceNumber} ${trLang('shared with', lang)} $customerName \u2022 ${_rupees(totalPaise)}';
 
@@ -1191,8 +1248,7 @@ class NotificationService {
         return dt.year == now.year && dt.month == now.month && dt.day == now.day;
       }).toList();
 
-      final allBusinesses = await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())).get();
-      final bizPrefix = allBusinesses.length > 1 && active != null ? '${active.name} · ' : '';
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
       final title = '$bizPrefix${trLang('Daily Summary', lang)}';
       final body = lang == 'te'
           ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
@@ -1234,28 +1290,32 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> showTestWeeklySummary({String? langCode}) async {
+  Future<void> showTestWeeklySummary({String? langCode, String? businessId}) async {
     try {
-      final active = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull())
-            ..limit(1))
-          .getSingleOrNull();
+      String? bizId = businessId;
+      if (bizId == null) {
+        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        bizId = session?.activeBusinessId;
+      }
+      final active = bizId != null
+          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
-      final bizId = active?.id;
+      final effectiveBizId = active?.id;
 
       final now = DateTime.now();
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       final weekStartDate = DateTime(weekStart.year, weekStart.month, weekStart.day);
 
-      final bizInvoices = bizId != null
+      final bizInvoices = effectiveBizId != null
           ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
               .get()
           : <Invoice>[];
 
-      final bizPayments = bizId != null
+      final bizPayments = effectiveBizId != null
           ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(bizId)))
+                ..where((p) => p.businessId.equals(effectiveBizId)))
               .get()
           : <Payment>[];
 
@@ -1263,7 +1323,8 @@ class NotificationService {
       final weekCollectedPaise = weekPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
       final weekInvoices = bizInvoices.where((i) => i.createdAt.isAfter(weekStartDate)).toList();
 
-      final title = trLang('Weekly Summary', lang);
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
+      final title = '$bizPrefix${trLang('Weekly Summary', lang)}';
       final body = lang == 'te'
           ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'
@@ -1304,27 +1365,31 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> showTestMonthlySummary({String? langCode}) async {
+  Future<void> showTestMonthlySummary({String? langCode, String? businessId}) async {
     try {
-      final active = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull())
-            ..limit(1))
-          .getSingleOrNull();
+      String? bizId = businessId;
+      if (bizId == null) {
+        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        bizId = session?.activeBusinessId;
+      }
+      final active = bizId != null
+          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
-      final bizId = active?.id;
+      final effectiveBizId = active?.id;
 
       final now = DateTime.now();
       final monthStart = DateTime(now.year, now.month, 1);
 
-      final bizInvoices = bizId != null
+      final bizInvoices = effectiveBizId != null
           ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(bizId) & i.deletedAt.isNull()))
+                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
               .get()
           : <Invoice>[];
 
-      final bizPayments = bizId != null
+      final bizPayments = effectiveBizId != null
           ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(bizId)))
+                ..where((p) => p.businessId.equals(effectiveBizId)))
               .get()
           : <Payment>[];
 
@@ -1332,7 +1397,8 @@ class NotificationService {
       final monthCollectedPaise = monthPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
       final monthInvoices = bizInvoices.where((i) => i.createdAt.isAfter(monthStart)).toList();
 
-      final title = trLang('Monthly Performance', lang);
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
+      final title = '$bizPrefix${trLang('Monthly Performance', lang)}';
       final body = lang == 'te'
           ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'

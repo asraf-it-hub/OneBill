@@ -45,11 +45,9 @@ class OneBillApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider).valueOrNull;
     final savedLang = ref.watch(appLanguageProvider);
-    final effectiveLang = savedLang.isNotEmpty
-        ? savedLang
-        : ((session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
-            ? session.localeCode
-            : 'en');
+    final effectiveLang = (session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
+        ? session.localeCode
+        : (savedLang.isNotEmpty ? savedLang : 'en');
     final locale = {'en', 'hi', 'te'}.contains(effectiveLang) ? effectiveLang : 'en';
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
@@ -2212,34 +2210,50 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     }
   }
 
-  void _openOverdueSheet() {
+  void _openOverdueSheet([String? businessId]) async {
+    if (!mounted) return;
+    final bId = businessId ?? widget.session.activeBusinessId;
+    if (bId == null) return;
+    if (businessId != null && businessId != widget.session.activeBusinessId) {
+      await ref.read(businessRepositoryProvider).switchBusiness(
+        sessionId: widget.session.id,
+        businessId: businessId,
+      );
+    }
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _OverdueInvoicesSheet(
-        businessId: widget.session.activeBusinessId!,
+        businessId: bId,
       ),
     );
   }
 
-  void _openReportsTab() {
+  void _openReportsTab([String? businessId]) async {
+    if (!mounted) return;
+    final targetBizId = businessId ?? widget.session.activeBusinessId;
+    if (targetBizId == null) return;
+    if (businessId != null && businessId != widget.session.activeBusinessId) {
+      await ref.read(businessRepositoryProvider).switchBusiness(
+        sessionId: widget.session.id,
+        businessId: businessId,
+      );
+    }
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
-    final activeId = widget.session.activeBusinessId;
-    if (activeId == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => Consumer(
           builder: (context, ref, _) {
-            final summary = ref.watch(businessBillingSummaryProvider(activeId));
-            final customers = ref.watch(customersProvider(activeId));
+            final summary = ref.watch(businessBillingSummaryProvider(targetBizId));
+            final customers = ref.watch(customersProvider(targetBizId));
             return Scaffold(
               appBar: AppBar(
                 title: Text(_tr(context, 'Reports')),
               ),
               body: _ReportsTab(
-                businessId: activeId,
+                businessId: targetBizId,
                 summary: summary,
                 customers: customers,
               ),
@@ -2250,36 +2264,46 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     );
   }
 
-  void _openInvoiceDetails(String invoiceId, [String? businessId]) {
+  void _openInvoiceDetails(String invoiceId, [String? businessId]) async {
     if (!mounted) return;
     final bId = businessId ?? widget.session.activeBusinessId;
     if (bId == null) return;
+    if (businessId != null && businessId != widget.session.activeBusinessId) {
+      await ref.read(businessRepositoryProvider).switchBusiness(
+        sessionId: widget.session.id,
+        businessId: businessId,
+      );
+    }
     final db = ref.read(databaseProvider);
-    (db.select(db.invoices)..where((i) => i.id.equals(invoiceId))).getSingleOrNull().then((inv) {
-      if (inv != null && mounted) {
-        showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (_) => _InvoiceDetailsSheet(businessId: bId, invoice: inv),
-        );
-      }
-    });
+    final inv = await (db.select(db.invoices)..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
+    if (inv != null && mounted) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => _InvoiceDetailsSheet(businessId: bId, invoice: inv),
+      );
+    }
   }
 
-  void _openCustomerDetails(String customerId, [String? businessId]) {
+  void _openCustomerDetails(String customerId, [String? businessId]) async {
     if (!mounted) return;
     final bId = businessId ?? widget.session.activeBusinessId;
     if (bId == null) return;
+    if (businessId != null && businessId != widget.session.activeBusinessId) {
+      await ref.read(businessRepositoryProvider).switchBusiness(
+        sessionId: widget.session.id,
+        businessId: businessId,
+      );
+    }
     final db = ref.read(databaseProvider);
-    (db.select(db.customers)..where((c) => c.id.equals(customerId))).getSingleOrNull().then((cust) {
-      if (cust != null && mounted) {
-        showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (_) => _CustomerDetailsSheet(businessId: bId, customer: cust),
-        );
-      }
-    });
+    final cust = await (db.select(db.customers)..where((c) => c.id.equals(customerId))).getSingleOrNull();
+    if (cust != null && mounted) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => _CustomerDetailsSheet(businessId: bId, customer: cust),
+      );
+    }
   }
 
   void _openSyncSheet() {
@@ -2303,22 +2327,31 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
       if (action == 'view_overdue' ||
           (action == NotificationActionKeys.viewInvoice && invoiceId == null)) {
-        _openOverdueSheet();
+        _openOverdueSheet(businessId);
       } else if (invoiceId != null &&
           (action == NotificationActionKeys.viewInvoice ||
-              action == NotificationActionKeys.viewPayment)) {
+              action == NotificationActionKeys.viewPayment ||
+              action == NotificationActionKeys.shareInvoice ||
+              action == 'view_invoice' ||
+              action == 'view_payment' ||
+              action == 'share_invoice')) {
         _openInvoiceDetails(invoiceId, businessId);
       } else if (customerId != null &&
           (action == NotificationActionKeys.viewCustomer ||
+              action == 'view_customer' ||
               action == 'view_customers')) {
         _openCustomerDetails(customerId, businessId);
+      } else if (action == NotificationActionKeys.retrySync ||
+          action == 'retry_sync') {
+        _syncNow();
+        _openSyncSheet();
       } else if (action == NotificationActionKeys.viewSync ||
           action == 'view_sync') {
         _openSyncSheet();
       } else if (action == NotificationActionKeys.viewSummary ||
           action == 'view_summary' ||
           action == 'view_reports') {
-        _openReportsTab();
+        _openReportsTab(businessId);
       }
     } catch (_) {}
   }
@@ -6560,7 +6593,11 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
   @override
   void initState() {
     super.initState();
-    _language = ref.read(appLanguageProvider) ?? 'en';
+    final session = ref.read(sessionProvider).valueOrNull;
+    final savedLang = ref.read(appLanguageProvider);
+    _language = (session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
+        ? session.localeCode
+        : (savedLang.isNotEmpty ? savedLang : 'en');
   }
 
   @override
@@ -6648,7 +6685,6 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   isSelected: _language == 'en',
                   onTap: () {
                     setState(() => _language = 'en');
-                    ref.read(appLanguageProvider.notifier).setLanguage('en');
                   },
                 ),
                 const SizedBox(width: 8),
@@ -6659,7 +6695,6 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   isSelected: _language == 'te',
                   onTap: () {
                     setState(() => _language = 'te');
-                    ref.read(appLanguageProvider.notifier).setLanguage('te');
                   },
                 ),
                 const SizedBox(width: 8),
@@ -6670,7 +6705,6 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
                   isSelected: _language == 'hi',
                   onTap: () {
                     setState(() => _language = 'hi');
-                    ref.read(appLanguageProvider.notifier).setLanguage('hi');
                   },
                 ),
               ],
@@ -8392,6 +8426,12 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                                 businessId: businessId,
                                                 paymentId: payment.id,
                                               );
+                                          ref
+                                              .read(notificationServiceProvider)
+                                              .reconcileInvoice(invoice.id);
+                                          ref
+                                              .read(notificationServiceProvider)
+                                              .reconcileSummaries();
                                           if (context.mounted) {
                                             ScaffoldMessenger.of(
                                               context,
