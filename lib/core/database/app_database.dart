@@ -136,62 +136,6 @@ class Expenses extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-class InventoryProducts extends Table {
-  TextColumn get id => text()();
-  TextColumn get businessId => text().references(Businesses, #id)();
-  TextColumn get name => text()();
-  TextColumn get sku => text().nullable()();
-  TextColumn get unit => text().withDefault(const Constant('pcs'))();
-  IntColumn get stockMilliunits => integer().withDefault(const Constant(0))();
-  IntColumn get lowStockThresholdMilliunits =>
-      integer().withDefault(const Constant(0))();
-  IntColumn get unitCostPaise => integer().withDefault(const Constant(0))();
-  DateTimeColumn get createdAt => dateTime()();
-  DateTimeColumn get updatedAt => dateTime()();
-  DateTimeColumn get deletedAt => dateTime().nullable()();
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-class InventoryMovements extends Table {
-  TextColumn get id => text()();
-  TextColumn get businessId => text().references(Businesses, #id)();
-  TextColumn get productId => text().references(InventoryProducts, #id)();
-  IntColumn get deltaMilliunits => integer()();
-  TextColumn get reason => text()();
-  DateTimeColumn get createdAt => dateTime()();
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-class Suppliers extends Table {
-  TextColumn get id => text()();
-  TextColumn get businessId => text().references(Businesses, #id)();
-  TextColumn get name => text()();
-  TextColumn get phone => text()();
-  TextColumn get email => text().nullable()();
-  TextColumn get address => text().nullable()();
-  TextColumn get notes => text().nullable()();
-  DateTimeColumn get createdAt => dateTime()();
-  DateTimeColumn get updatedAt => dateTime()();
-  DateTimeColumn get deletedAt => dateTime().nullable()();
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-class SupplierPayments extends Table {
-  TextColumn get id => text()();
-  TextColumn get businessId => text().references(Businesses, #id)();
-  TextColumn get supplierId => text().references(Suppliers, #id)();
-  IntColumn get amountPaise => integer()();
-  DateTimeColumn get paidAt => dateTime()();
-  TextColumn get note => text().nullable()();
-  DateTimeColumn get createdAt => dateTime()();
-  DateTimeColumn get deletedAt => dateTime().nullable()();
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
 class SyncOperations extends Table {
   TextColumn get id => text()();
   TextColumn get businessId => text().nullable()();
@@ -284,10 +228,6 @@ class PaperReceipts extends Table {
     Payments,
     IncomeEntries,
     Expenses,
-    InventoryProducts,
-    InventoryMovements,
-    Suppliers,
-    SupplierPayments,
     SyncOperations,
     AppNotifications,
     NotificationPreferences,
@@ -300,19 +240,13 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'onebill'));
   AppDatabase.forTesting(super.executor);
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
     onUpgrade: (m, from, to) async {
       if (from < 2) await m.createTable(incomeEntries);
       if (from < 3) await m.createTable(expenses);
-      if (from < 4) {
-        await m.createTable(inventoryProducts);
-        await m.createTable(inventoryMovements);
-        await m.createTable(suppliers);
-        await m.createTable(supplierPayments);
-      }
       if (from < 5) {
         await m.addColumn(businesses, businesses.paymentQrImage);
       }
@@ -344,6 +278,12 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 11) {
         await m.addColumn(invoices, invoices.paperReceiptImage);
+      }
+      if (from < 12) {
+        await customStatement('DROP TABLE IF EXISTS inventory_movements;');
+        await customStatement('DROP TABLE IF EXISTS inventory_products;');
+        await customStatement('DROP TABLE IF EXISTS supplier_payments;');
+        await customStatement('DROP TABLE IF EXISTS suppliers;');
       }
     },
     beforeOpen: (details) async {

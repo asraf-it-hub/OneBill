@@ -23,12 +23,6 @@ class BackupService {
     final expenses = await (_db.select(
       _db.expenses,
     )..where((e) => e.businessId.equals(businessId))).get();
-    final products = await (_db.select(
-      _db.inventoryProducts,
-    )..where((p) => p.businessId.equals(businessId))).get();
-    final suppliers = await (_db.select(
-      _db.suppliers,
-    )..where((s) => s.businessId.equals(businessId))).get();
     String dt(DateTime v) => v.toUtc().toIso8601String();
     return jsonEncode({
       'format': 'onebill-backup-v1',
@@ -106,29 +100,6 @@ class BackupService {
               'category': e.category,
               'description': e.description,
               'expenseDate': dt(e.expenseDate),
-            },
-          )
-          .toList(),
-      'inventory': products
-          .map(
-            (p) => {
-              'id': p.id,
-              'name': p.name,
-              'sku': p.sku,
-              'unit': p.unit,
-              'stockMilliunits': p.stockMilliunits,
-              'lowStockThresholdMilliunits': p.lowStockThresholdMilliunits,
-              'unitCostPaise': p.unitCostPaise,
-            },
-          )
-          .toList(),
-      'suppliers': suppliers
-          .map(
-            (s) => {
-              'id': s.id,
-              'name': s.name,
-              'phone': s.phone,
-              'email': s.email,
             },
           )
           .toList(),

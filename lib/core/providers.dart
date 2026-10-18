@@ -12,8 +12,6 @@ import '../features/invoices/services/pdf_invoice_service.dart';
 import '../features/sync/data/sync_worker.dart';
 import '../features/income/data/income_repository.dart';
 import '../features/expenses/data/expense_repository.dart';
-import '../features/inventory/data/inventory_repository.dart';
-import '../features/suppliers/data/supplier_repository.dart';
 import '../features/security/data/security_service.dart';
 import '../features/backup/data/backup_service.dart';
 import '../features/notifications/data/notification_repository.dart';
@@ -49,20 +47,6 @@ final expenseRepositoryProvider = Provider<ExpenseRepository>(
 );
 final expensesProvider = StreamProvider.family<List<Expense>, String>(
   (ref, businessId) => ref.watch(expenseRepositoryProvider).watch(businessId),
-);
-final inventoryRepositoryProvider = Provider<InventoryRepository>(
-  (ref) => InventoryRepository(ref.watch(databaseProvider)),
-);
-final inventoryProductsProvider =
-    StreamProvider.family<List<InventoryProduct>, String>(
-      (ref, businessId) =>
-          ref.watch(inventoryRepositoryProvider).watchProducts(businessId),
-    );
-final supplierRepositoryProvider = Provider<SupplierRepository>(
-  (ref) => SupplierRepository(ref.watch(databaseProvider)),
-);
-final suppliersProvider = StreamProvider.family<List<Supplier>, String>(
-  (ref, businessId) => ref.watch(supplierRepositoryProvider).watch(businessId),
 );
 final securityServiceProvider = Provider<SecurityService>(
   (ref) => const SecurityService(),
