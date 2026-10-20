@@ -35,6 +35,7 @@ import '../features/business/ui/confirm_delete_business_dialog.dart';
 import '../features/business/ui/post_creation_guidance_sheet.dart';
 import '../features/auth/domain/auth_error_details.dart';
 import '../features/auth/services/app_credential_manager.dart';
+import '../features/auth/ui/confirm_delete_account_dialog.dart';
 import '../core/localization/app_localizations.dart';
 import '../core/localization/app_language_provider.dart';
 
@@ -5624,6 +5625,151 @@ class _BusinessSettingsSheetState
     }
   }
 
+  Future<void> _handleDeleteAccount(BuildContext context, WidgetRef ref) async {
+    // 1. Check network connectivity before starting deletion
+    try {
+      final lookup = await InternetAddress.lookup('supabase.co').timeout(const Duration(seconds: 4));
+      if (lookup.isEmpty || lookup.first.rawAddress.isEmpty) {
+        throw const SocketException('Offline');
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            content: Text(
+              _tr(context, 'Internet connection is required to delete your account. Please check your network and try again.'),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 2. Check pending unsynced operations
+    int pendingSyncCount = 0;
+    try {
+      final db = ref.read(databaseProvider);
+      final pendingOps = await (db.select(db.syncOperations)
+            ..where((s) => s.businessId.equals(widget.business.id)))
+          .get();
+      pendingSyncCount = pendingOps.length;
+    } catch (_) {}
+
+    // 3. Show professional confirmation dialog
+    if (!context.mounted) return;
+    final confirmed = await showConfirmDeleteAccountDialog(
+      context,
+      pendingSyncCount: pendingSyncCount,
+    );
+
+    if (confirmed != true) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_tr(context, 'Account deletion cancelled')),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!context.mounted) return;
+
+    // 4. Show modal progress barrier while deletion executes
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dlgCtx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(color: Color(0xFFDC2626)),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  _tr(context, 'Deleting account...'),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final auth = ref.read(authServiceProvider);
+    final db = ref.read(databaseProvider);
+    final security = ref.read(securityServiceProvider);
+    final notifService = ref.read(notificationServiceProvider);
+    final accountId = widget.business.accountId;
+
+    try {
+      // 5. Call backend deletion
+      await auth.deleteAccount();
+
+      // 6. Backend confirmed deletion. Now perform complete local cleanup
+      try {
+        await notifService.cancelAll();
+      } catch (_) {}
+      try {
+        await security.clearPin();
+      } catch (_) {}
+      try {
+        await const FlutterSecureStorage().deleteAll();
+      } catch (_) {}
+      try {
+        await db.deleteAccountData(accountId);
+      } catch (_) {
+        await db.clearAllTables();
+      }
+      try {
+        await auth.signOut();
+      } catch (_) {}
+
+      // Close progress dialog if open
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // 7. Reset session and route user to Welcome / Sign In screen
+      ref.read(isSigningOutProvider.notifier).state = true;
+      ref.invalidate(sessionProvider);
+      ref.invalidate(authSessionProvider);
+
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green.shade800,
+          content: Text(_tr(context, 'Account deleted successfully')),
+        ),
+      );
+    } catch (error) {
+      // Close progress dialog
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      final errorDetails = AuthErrorDetails.fromError(error);
+      final errorMsg = errorDetails.type == AuthErrorType.connectionProblem
+          ? _tr(context, 'Internet connection is required to delete your account. Please check your network and try again.')
+          : _cleanErrorMessage(error, _tr(context, 'Could not delete account'));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            content: Text(errorMsg),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -5825,6 +5971,45 @@ class _BusinessSettingsSheetState
                     builder: (_) => _SyncQueueSheet(businessId: widget.business.id),
                   );
                 },
+              ),
+            ),
+
+            const SizedBox(height: 20),
+            // Section 4: Account Deletion (BELOW Data & Sync)
+            Text(
+              _tr(context, 'Account'),
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.error,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(color: theme.colorScheme.error.withOpacity(0.4)),
+              ),
+              child: ListTile(
+                leading: Icon(
+                  Icons.person_remove_outlined,
+                  color: theme.colorScheme.error,
+                ),
+                title: Text(
+                  _tr(context, 'Delete Account'),
+                  style: TextStyle(
+                    color: theme.colorScheme.error,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  _tr(context, 'Permanently delete your account and associated data.'),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                onTap: () => _handleDeleteAccount(context, ref),
               ),
             ),
 

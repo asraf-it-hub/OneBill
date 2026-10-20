@@ -1333,4 +1333,84 @@ final Map<String, Map<String, String>> appTranslations = {
     'hi': 'ऐप पिन नहीं पढ़ा जा सका। ऐप लॉक को अक्षम करके पुनः सक्षम करें।',
     'te': 'యాప్ పిన్ చదవలేకపోయాము. దయచేసి యాప్ లాక్‌ను డిసేబుల్ చేసి మళ్ళీ ఎనేబుల్ చేయండి.',
   },
+
+  // Account Deletion Localization
+  'Account': {'hi': 'खाता', 'te': 'ఖాతా'},
+  'Delete Account': {'hi': 'खाता हटाएं', 'te': 'ఖాతాను తొలగించండి'},
+  'Permanently delete your account and associated data.': {
+    'hi': 'अपना खाता और संबंधित डेटा स्थायी रूप से हटाएं।',
+    'te': 'మీ ఖాతాను మరియు అనుబంధ డేటాను శాశ్వతంగా తొలగించండి.',
+  },
+  'Delete Account Permanently?': {
+    'hi': 'खाता स्थायी रूप से हटाएं?',
+    'te': 'ఖాతాను శాశ్వతంగా తొలగించాలా?',
+  },
+  'PERMANENT ACCOUNT AND DATA DELETION': {
+    'hi': 'स्थायी खाता और डेटा निष्कासन',
+    'te': 'శాశ్వత ఖాతా మరియు డేటా తొలగింపు',
+  },
+  'You are about to permanently delete your OneBill account and the data associated with it.': {
+    'hi': 'आप अपना वनबिल खाता और उससे संबंधित डेटा स्थायी रूप से हटाने जा रहे हैं।',
+    'te': 'మీరు మీ వన్ బిల్ ఖాతాను మరియు దాని అనుబంధ డేటాను శాశ్వతంగా తొలగించబోతున్నారు.',
+  },
+  'This will permanently delete:': {
+    'hi': 'यह स्थायी रूप से हटा देगा:',
+    'te': 'ఇది శాశ్వతంగా తొలగిస్తుంది:',
+  },
+  '• Your account profile and login credentials': {
+    'hi': '• आपकी खाता प्रोफ़ाइल और लॉगिन क्रेडेंशियल',
+    'te': '• మీ ఖాతా ప్రొఫైల్ మరియు లాగిన్ వివరాలు',
+  },
+  '• All businesses and workspaces owned by this account': {
+    'hi': '• इस खाते के स्वामित्व वाले सभी व्यवसाय और कार्यक्षेत्र',
+    'te': '• ఈ ఖాతాకు చెందిన అన్ని వ్యాపారాలు మరియు వర్క్‌స్పేస్‌లు',
+  },
+  '• All customer records, invoices, and payments': {
+    'hi': '• सभी ग्राहक रिकॉर्ड, चालान और भुगतान',
+    'te': '• అన్ని కస్టమర్ రికార్డులు, ఇన్‌వాయిస్‌లు మరియు చెల్లింపులు',
+  },
+  '• All income entries and expense tracking records': {
+    'hi': '• सभी आय प्रविष्टियां और व्यय ट्रैकिंग रिकॉर्ड',
+    'te': '• అన్ని ఆదాయ నమోదులు మరియు ఖర్చుల రికార్డులు',
+  },
+  '• All cloud backups and sync history': {
+    'hi': '• सभी क्लाउड बैकअप और सिंक इतिहास',
+    'te': '• అన్ని క్లౌడ్ బ్యాకప్‌లు మరియు సింక్ హిస్టరీ',
+  },
+  'This action cannot be undone. Data that exists only on this device and has not been synchronized may also be permanently lost. Legally required records, if any, may be retained as disclosed in the privacy policy.': {
+    'hi': 'इस क्रिया को पूर्ववत नहीं किया जा सकता है। इस डिवाइस पर मौजूद और सिंक न हुआ डेटा भी स्थायी रूप से हट जाएगा। यदि कोई कानूनी रूप से आवश्यक रिकॉर्ड हैं, तो वे गोपनीयता नीति के अनुसार रखे जा सकते हैं।',
+    'te': 'ఈ చర్యను రద్దు చేయడం సాధ్యం కాదు. ఈ పరికరంలో మాత్రమే ఉండి క్లౌడ్‌కు సింక్ చేయని డేటా కూడా శాశ్వతంగా తొలగించబడుతుంది. చట్టపరంగా అవసరమైన రికార్డులు ఏవైనా ఉంటే, ప్రైవసీ పాలసీ ప్రకారం భద్రపరచబడవచ్చు.',
+  },
+  'To confirm account deletion, please type DELETE below:': {
+    'hi': 'खाता हटाने की पुष्टि करने के लिए, कृपया नीचे DELETE टाइप करें:',
+    'te': 'ఖాతా తొలగింపును నిర్ధారించడానికి, దయచేసి క్రింద DELETE అని టైప్ చేయండి:',
+  },
+  'Type DELETE to confirm': {
+    'hi': 'पुष्टि के लिए DELETE टाइप करें',
+    'te': 'నిర్ధారించడానికి DELETE అని టైప్ చేయండి',
+  },
+  'Deleting account...': {
+    'hi': 'खाता हटाया जा रहा है...',
+    'te': 'ఖాతాను తొలగిస్తోంది...',
+  },
+  'Account deleted successfully': {
+    'hi': 'खाता सफलतापूर्वक हटा दिया गया',
+    'te': 'ఖాతా విజయవంతంగా తొలగించబడింది',
+  },
+  'Internet connection is required to delete your account. Please check your network and try again.': {
+    'hi': 'अपना खाता हटाने के लिए इंटरनेट कनेक्शन आवश्यक है। कृपया अपने नेटवर्क की जाँच करें और पुनः प्रयास करें।',
+    'te': 'మీ ఖాతాను తొలగించడానికి ఇంటర్నెట్ కనెక్షన్ అవసరం. దయచేసి మీ నెట్‌వర్క్‌ను తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.',
+  },
+  'Could not delete account': {
+    'hi': 'खाता हटाया नहीं जा सका',
+    'te': 'ఖాతాను తొలగించడం సాధ్యం కాలేదు',
+  },
+  'Account deletion cancelled': {
+    'hi': 'खाता हटाना रद्द कर दिया गया',
+    'te': 'ఖాతా తొలగింపు రద్దు చేయబడింది',
+  },
+  'You have {count} unsynchronized change(s) that will be permanently lost.': {
+    'hi': 'आपके पास {count} असिंक्रनाइज़ किए गए परिवर्तन हैं जो स्थायी रूप से खो जाएंगे।',
+    'te': 'మీ వద్ద {count} సింక్ చేయని మార్పులు ఉన్నాయి, అవి శాశ్వతంగా పోతాయి.',
+  },
 };

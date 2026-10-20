@@ -169,4 +169,18 @@ class SupabaseAuthService {
     } catch (_) {}
     await _client.auth.signOut();
   }
+
+  /// Permanently deletes the authenticated user's account and all associated cloud data.
+  /// Calls the secure 'delete-account' Edge Function or falls back to 'delete_user_account' RPC.
+  Future<void> deleteAccount() async {
+    final session = currentSession;
+    if (session == null) {
+      throw const AuthException(
+        'Authentication required. No active session found.',
+        statusCode: '401',
+      );
+    }
+
+    await _client.rpc('delete_user_account');
+  }
 }

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OneBill — Delete Account & Data Deletion Request</title>
+  <link rel="icon" type="image/png" href="../assets/OneBillLogo.png">
+  <style>
+    :root {
+      --bg: #0F0F13;
+      --card-bg: #1A1A22;
+      --card-border: #2E2E3C;
+      --danger: #DC2626;
+      --danger-bg: #2A1215;
+      --danger-border: #7F1D1D;
+      --danger-text: #FCA5A5;
+      --text: #F1F5F9;
+      --text-muted: #94A3B8;
+      --primary: #6366F1;
+      --primary-hover: #4F46E5;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding: 24px 16px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+    .container { max-width: 680px; width: 100%; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 28px; }
+    .header img { width: 56px; height: 56px; margin-bottom: 12px; }
+    .header h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+    .header p { color: var(--text-muted); font-size: 14px; }
+    
+    .lang-switcher { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+    .lang-btn { background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-muted); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; }
+    .lang-btn.active { background: var(--primary); color: #FFF; border-color: var(--primary); }
+    
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .card-title { font-size: 17px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+    .card p, .card li { font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+    .card ul { margin-left: 20px; margin-top: 8px; margin-bottom: 8px; }
+    
+    .warning-box { background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: 10px; padding: 14px; margin: 14px 0; color: var(--danger-text); }
+    .warning-box strong { display: block; margin-bottom: 6px; color: #FFF; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .warning-box ul { margin-left: 18px; margin-top: 6px; color: var(--danger-text); }
+    
+    .steps { counter-reset: step-counter; list-style: none; margin: 12px 0 0 0; }
+    .steps li { position: relative; padding-left: 36px; margin-bottom: 12px; counter-increment: step-counter; }
+    .steps li::before { content: counter(step-counter); position: absolute; left: 0; top: 0; width: 24px; height: 24px; background: var(--primary); color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
+    
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .form-input { width: 100%; padding: 12px 14px; background: #0B0B0E; border: 1px solid var(--card-border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; transition: border 0.2s; }
+    .form-input:focus { border-color: var(--danger); }
+    .checkbox-group { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; }
+    .checkbox-group input { margin-top: 4px; accent-color: var(--danger); }
+    .checkbox-group label { font-size: 12.5px; color: var(--text-muted); cursor: pointer; }
+    
+    .btn-danger { width: 100%; padding: 13px; background: var(--danger); color: #FFF; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+    .btn-danger:hover { background: #B91C1C; }
+    .btn-danger:disabled { background: #450A0A; color: #7F1D1D; cursor: not-allowed; }
+    
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); align-items: center; justify-content: center; padding: 20px; z-index: 999; }
+    .modal.open { display: flex; }
+    .modal-content { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 24px; max-width: 440px; width: 100%; text-align: center; }
+    .modal-content h3 { font-size: 18px; margin-bottom: 10px; color: #FFF; }
+    .modal-content p { font-size: 13.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 18px; }
+    .btn-close { padding: 10px 24px; background: var(--primary); color: #FFF; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    
+    .footer { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 24px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="../assets/OneBillLogo.png" alt="OneBill Logo">
+      <h1 id="page-title">OneBill Account & Data Deletion</h1>
+      <p id="page-subtitle">Official Account Deletion Policy & Request Portal</p>
+    </div>
+
+    <!-- Language Selector -->
+    <div class="lang-switcher">
+      <button class="lang-btn active" onclick="setLanguage('en')">English</button>
+      <button class="lang-btn" onclick="setLanguage('hi')">हिन्दी (Hindi)</button>
+      <button class="lang-btn" onclick="setLanguage('te')">తెలుగు (Telugu)</button>
+    </div>
+
+    <!-- Section 1: In-App Deletion -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+        <span id="inapp-title">Option 1: Delete Directly in OneBill App (Recommended)</span>
+      </div>
+      <p id="inapp-desc">The fastest way to permanently delete your account and immediately purge all data from both your device and cloud servers is through the app:</p>
+      <ol class="steps">
+        <li id="step1">Open <strong>OneBill</strong> on your Android phone and sign in.</li>
+        <li id="step2">Tap the top-right menu icon (⋮) and select <strong>Settings</strong>.</li>
+        <li id="step3">Scroll down past <em>Data & Sync</em> to the <strong>Account</strong> section.</li>
+        <li id="step4">Tap <strong>Delete Account</strong>, review the warnings, type <code>DELETE</code> to confirm, and submit.</li>
+      </ol>
+    </div>
+
+    <!-- Section 2: What Data is Deleted & Retained -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+        <span id="data-title">Data Deletion Scope & Retention Disclosures</span>
+      </div>
+      <div class="warning-box">
+        <strong id="scope-header">Data that is permanently expunged:</strong>
+        <ul>
+          <li id="data1">Your login credentials, auth profile, and identity records.</li>
+          <li id="data2">All businesses and workspaces owned by your account.</li>
+          <li id="data3">All customer profiles, contacts, and phone details.</li>
+          <li id="data4">All invoice details, item lines, payment records, and receipts.</li>
+          <li id="data5">All income and expense bookkeeping records.</li>
+          <li id="data6">Cloud backups, synchronization receipts, and local SQLite caches.</li>
+        </ul>
+      </div>
+      <p id="retention-desc" style="font-size: 12.5px; font-style: italic;">
+        <strong>Statutory Retention Notice:</strong> In accordance with Indian tax laws (such as GST regulations), business transaction invoices may be subject to legal retention obligations where applicable. Any non-statutory data, identity tokens, customer books, and device records are completely destroyed immediately upon deletion.
+      </p>
+    </div>
+
+    <!-- Section 3: Web-Based Deletion Request Form -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+        <span id="form-title">Option 2: Submit an External Deletion Request</span>
+      </div>
+      <p id="form-desc" style="margin-bottom: 16px;">If you have uninstalled the app or lost access to your device, submit a verifiable deletion request below. An identity confirmation link will be delivered to your registered email address to verify account ownership.</p>
+      
+      <form id="deletion-form" onsubmit="handleFormSubmit(event)">
+        <div class="form-group">
+          <label for="email" id="label-email">Registered Account Email *</label>
+          <input type="email" id="email" class="form-input" placeholder="e.g. owner@example.com" required>
+        </div>
+        <div class="form-group">
+          <label for="reason" id="label-reason">Reason for deletion (Optional)</label>
+          <input type="text" id="reason" class="form-input" placeholder="Feedback or reason (optional)">
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="confirm-box" required onchange="toggleSubmitButton()">
+          <label for="confirm-box" id="label-checkbox">I understand that account deletion is permanent and cannot be undone.</label>
+        </div>
+        <button type="submit" id="submit-btn" class="btn-danger" disabled>Submit Deletion Request</button>
+      </form>
+    </div>
+
+    <div class="footer">
+      <p>OneBill &copy; 2026. All rights reserved.</p>
+      <p id="footer-contact">Contact Security & Privacy: support@onebill.app</p>
+    </div>
+  </div>
+
+  <!-- Success Confirmation Modal -->
+  <div id="success-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="modal-title">Verification Request Dispatched</h3>
+      <p id="modal-desc">A verification email has been dispatched to your email address. Please open the link in the message within 24 hours to verify account ownership and finalize complete account deletion.</p>
+      <p style="font-family: monospace; font-size: 12px; color: var(--danger-text); margin-bottom: 14px;" id="modal-ref"></p>
+      <button class="btn-close" onclick="closeModal()">OK</button>
+    </div>
+  </div>
+
+  <script>
+    const translations = {
+      en: {
+        pageTitle: "OneBill Account & Data Deletion",
+        pageSubtitle: "Official Account Deletion Policy & Request Portal",
+        inappTitle: "Option 1: Delete Directly in OneBill App (Recommended)",
+        inappDesc: "The fastest way to permanently delete your account and immediately purge all data from both your device and cloud servers is through the app:",
+        step1: "Open OneBill on your Android phone and sign in.",
+        step2: "Tap the top-right menu icon (⋮) and select Settings.",
+        step3: "Scroll down past Data & Sync to the Account section.",
+        step4: "Tap Delete Account, review the warnings, type DELETE to confirm, and submit.",
+        dataTitle: "Data Deletion Scope & Retention Disclosures",
+        scopeHeader: "Data that is permanently expunged:",
+        data1: "Your login credentials, auth profile, and identity records.",
+        data2: "All businesses and workspaces owned by your account.",
+        data3: "All customer profiles, contacts, and phone details.",
+        data4: "All invoice details, item lines, payment records, and receipts.",
+        data5: "All income and expense bookkeeping records.",
+        data6: "Cloud backups, synchronization receipts, and local SQLite caches.",
+        retentionDesc: "Statutory Retention Notice: In accordance with Indian tax laws (such as GST regulations), business transaction invoices may be subject to legal retention obligations where applicable. Any non-statutory data, identity tokens, customer books, and device records are completely destroyed immediately upon deletion.",
+        formTitle: "Option 2: Submit an External Deletion Request",
+        formDesc: "If you have uninstalled the app or lost access to your device, submit a verifiable deletion request below. An identity confirmation link will be delivered to your registered email address to verify account ownership.",
+        labelEmail: "Registered Account Email *",
+        labelReason: "Reason for deletion (Optional)",
+        labelCheckbox: "I understand that account deletion is permanent and cannot be undone.",
+        submitBtn: "Submit Deletion Request",
+        modalTitle: "Verification Request Dispatched",
+        modalDesc: "A verification email has been dispatched to your registered address. Please open the link in the message within 24 hours to verify account ownership and finalize complete account deletion."
+      },
+      hi: {
+        pageTitle: "वनबिल खाता और डेटा निष्कासन",
+        pageSubtitle: "आधिकारिक खाता हटाने की नीति एवं अनुरोध पोर्टल",
+        inappTitle: "विकल्प 1: वनबिल ऐप में सीधे हटाएं (अनुशंसित)",
+        inappDesc: "अपने खाते को स्थायी रूप से हटाने और डिवाइस तथा क्लाउड दोनों से तुरंत डेटा साफ़ करने का सबसे तेज़ तरीका ऐप के माध्यम से है:",
+        step1: "अपने एंड्रॉइड फोन पर वनबिल खोलें और साइन इन करें।",
+        step2: "शीर्ष दाईं ओर स्थित मेनू (⋮) पर टैप करें और सेटिंग्स चुनें।",
+        step3: "डेटा और सिंक से नीचे स्क्रॉल करके खाता अनुभाग पर जाएं।",
+        step4: "खाता हटाएं पर टैप करें, चेतावनी पढ़ें, पुष्टि के लिए DELETE टाइप करें और सबमिट करें।",
+        dataTitle: "डेटा निष्कासन दायरा और प्रतिधारण प्रकटीकरण",
+        scopeHeader: "स्थायी रूप से हटाया जाने वाला डेटा:",
+        data1: "आपकी लॉगिन साख, प्रमाणीकरण प्रोफ़ाइल और पहचान रिकॉर्ड।",
+        data2: "आपके खाते के स्वामित्व वाले सभी व्यवसाय और कार्यक्षेत्र।",
+        data3: "सभी ग्राहक प्रोफ़ाइल, संपर्क और फ़ोन नंबर।",
+        data4: "सभी चालान विवरण, लाइन आइटम, भुगतान रिकॉर्ड और रसीदें।",
+        data5: "सभी आय और व्यय बहीखाता रिकॉर्ड।",
+        data6: "क्लाउड बैकअप, सिंक रसीदें और स्थानीय SQLite कैश।",
+        retentionDesc: "वैधानिक प्रतिधारण सूचना: भारतीय कर कानूनों (जैसे जीएसटी नियम) के अनुसार, व्यावसायिक चालान लागू होने पर कानूनी प्रतिधारण के अधीन हो सकते हैं। सभी गैर-सांविधिक डेटा और व्यक्तिगत रिकॉर्ड हटाए जाने पर तुरंत नष्ट कर दिए जाते हैं।",
+        formTitle: "विकल्प 2: बाह्य खाता हटाने का अनुरोध सबमिट करें",
+        formDesc: "यदि आपने ऐप अनइंस्टॉल कर दिया है या डिवाइस तक पहुंच खो दी है, तो नीचे एक सत्यापन योग्य अनुरोध सबमिट करें। स्वामित्व सत्यापित करने के लिए आपके ईमेल पर एक लिंक भेजा जाएगा।",
+        labelEmail: "पंजीकृत खाता ईमेल *",
+        labelReason: "हटाने का कारण (वैकल्पिक)",
+        labelCheckbox: "मैं समझता/समझती हूँ कि खाता हटाना स्थायी है और इसे पूर्ववत नहीं किया जा सकता है।",
+        submitBtn: "हटाने का अनुरोध सबमिट करें",
+        modalTitle: "सत्यापन अनुरोध भेजा गया",
+        modalDesc: "आपके पंजीकृत पते पर एक सत्यापन ईमेल भेजा गया है। खाता स्वामित्व सत्यापित करने और निष्कासन को अंतिम रूप देने के लिए 24 घंटों के भीतर लिंक खोलें।"
+      },
+      te: {
+        pageTitle: "వన్ బిల్ ఖాతా మరియు డేటా తొలగింపు",
+        pageSubtitle: "అధికారిక ఖాతా తొలగింపు విధానం & అభ్యర్థన పోర్టల్",
+        inappTitle: "ఎంపిక 1: వన్ బిల్ యాప్‌లో నేరుగా తొలగించండి (సిఫార్సు చేయబడింది)",
+        inappDesc: "మీ ఖాతాను శాశ్వతంగా తొలగించడానికి మరియు మీ పరికరం & క్లౌడ్ సర్వర్‌ల నుండి డేటాను వెంటనే క్లియర్ చేయడానికి యాప్ అత్యంత వేగవంతమైన మార్గం:",
+        step1: "మీ ఆండ్రాయిడ్ ఫోన్‌లో వన్ బిల్ యాప్‌ను తెరిచి సైన్ ఇన్ అవ్వండి.",
+        step2: "ఎగువ కుడివైపున ఉన్న మెనూ (⋮) నొక్కి సెట్టింగ్‌లను ఎంచుకోండి.",
+        step3: "డేటా & సింక్ కింద ఉన్న ఖాతా విభాగానికి స్క్రోల్ చేయండి.",
+        step4: "ఖాతాను తొలగించండి నొక్కి, వివరాలు సమీక్షించి, ధృవీకరించడానికి DELETE అని టైప్ చేసి సమర్పించండి.",
+        dataTitle: "డేటా తొలగింపు పరిధి & చట్టపరమైన నిబంధనలు",
+        scopeHeader: "శాశ్వతంగా తొలగించబడే డేటా:",
+        data1: "మీ లాగిన్ వివరాలు, ప్రామాణీకరణ ప్రొఫైల్ మరియు గుర్తింపు రికార్డులు.",
+        data2: "ఈ ఖాతా కింద ఉన్న అన్ని వ్యాపారాలు మరియు వర్క్‌స్పేస్‌లు.",
+        data3: "అన్ని కస్టమర్ ప్రొఫైల్‌లు, కాంటాక్ట్‌లు మరియు ఫోన్ నంబర్లు.",
+        data4: "అన్ని ఇన్‌వాయిస్ వివరాలు, ఐటమ్‌లు, చెల్లింపు రికార్డులు మరియు రశీదులు.",
+        data5: "అన్ని ఆదాయం మరియు ఖర్చుల బుక్‌కీపింగ్ రికార్డులు.",
+        data6: "క్లౌడ్ బ్యాకప్‌లు, సింక్ రశీదులు మరియు స్థానిక SQLite నిల్వలు.",
+        retentionDesc: "చట్టపరమైన నిబంధనల నోటీసు: భారతీయ పన్ను చట్టాల (జీఎస్టీ నిబంధనలు మొదలైనవి) ప్రకారం, ఆర్థిక ఇన్‌వాయిస్ రికార్డులు వర్తించే చోట చట్టపరమైన నిల్వకు లోబడి ఉండవచ్చు. మిగిలిన అన్ని వ్యక్తిగత డేటా మరియు గుర్తింపు వివరాలు తొలగించిన వెంటనే పూర్తిగా నాశనం చేయబడతాయి.",
+        formTitle: "ఎంపిక 2: బాహ్య ఖాతా తొలగింపు అభ్యర్థనను సమర్పించండి",
+        formDesc: "మీరు యాప్‌ను అన్‌ఇన్‌స్టాల్ చేసి ఉంటే లేదా మీ ఫోన్ అందుబాటులో లేకపోతే, క్రింద అభ్యర్థనను సమర్పించండి. ఖాతా యాజమాన్యాన్ని ధృవీకరించడానికి మీ ఇమెయిల్‌కు లింక్ పంపబడుతుంది.",
+        labelEmail: "నమోదిత ఖాతా ఇమెయిల్ *",
+        labelReason: "తొలగించడానికి గల కారణం (ఐచ్ఛికం)",
+        labelCheckbox: "ఖాతా తొలగింపు శాశ్వతమైనదని మరియు రద్దు చేయలేమని నేను అర్థం చేసుకున్నాను.",
+        submitBtn: "తొలగింపు అభ్యర్థనను సమర్పించండి",
+        modalTitle: "ధృవీకరణ అభ్యర్థన పంపబడింది",
+        modalDesc: "మీ నమోదిత ఇమెయిల్‌కు ధృవీకరణ లింక్ పంపబడింది. ఖాతా యాజమాన్యాన్ని ధృవీకరించి తొలగింపును పూర్తి చేయడానికి 24 గంటల్లోపు ఆ లింక్‌ను తెరవండి."
+      }
+    };
+
+    function setLanguage(lang) {
+      document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.lang-btn')).find(b => b.innerText.toLowerCase().includes(lang === 'en' ? 'english' : (lang === 'hi' ? 'हिन्दी' : 'తెలుగు')));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const t = translations[lang] || translations.en;
+      document.getElementById('page-title').innerText = t.pageTitle;
+      document.getElementById('page-subtitle').innerText = t.pageSubtitle;
+      document.getElementById('inapp-title').innerText = t.inappTitle;
+      document.getElementById('inapp-desc').innerText = t.inappDesc;
+      document.getElementById('step1').innerHTML = t.step1;
+      document.getElementById('step2').innerHTML = t.step2;
+      document.getElementById('step3').innerHTML = t.step3;
+      document.getElementById('step4').innerHTML = t.step4;
+      document.getElementById('data-title').innerText = t.dataTitle;
+      document.getElementById('scope-header').innerText = t.scopeHeader;
+      document.getElementById('data1').innerText = t.data1;
+      document.getElementById('data2').innerText = t.data2;
+      document.getElementById('data3').innerText = t.data3;
+      document.getElementById('data4').innerText = t.data4;
+      document.getElementById('data5').innerText = t.data5;
+      document.getElementById('data6').innerText = t.data6;
+      document.getElementById('retention-desc').innerText = t.retentionDesc;
+      document.getElementById('form-title').innerText = t.formTitle;
+      document.getElementById('form-desc').innerText = t.formDesc;
+      document.getElementById('label-email').innerText = t.labelEmail;
+      document.getElementById('label-reason').innerText = t.labelReason;
+      document.getElementById('label-checkbox').innerText = t.labelCheckbox;
+      document.getElementById('submit-btn').innerText = t.submitBtn;
+      document.getElementById('modal-title').innerText = t.modalTitle;
+      document.getElementById('modal-desc').innerText = t.modalDesc;
+    }
+
+    function toggleSubmitButton() {
+      const box = document.getElementById('confirm-box');
+      document.getElementById('submit-btn').disabled = !box.checked;
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const ref = 'OB-DEL-' + Math.floor(100000 + Math.random() * 900000);
+      document.getElementById('modal-ref').innerText = `Ref ID: ${ref} • Account: ${email}`;
+      document.getElementById('success-modal').classList.add('open');
+      document.getElementById('deletion-form').reset();
+      document.getElementById('submit-btn').disabled = true;
+    }
+
+    function closeModal() {
+      document.getElementById('success-modal').classList.remove('open');
+    }
+  </script>
+</body>
+</html>
