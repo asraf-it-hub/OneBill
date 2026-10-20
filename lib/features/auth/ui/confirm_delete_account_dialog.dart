@@ -18,6 +18,7 @@ Future<bool?> showConfirmDeleteAccountDialog(
       return StatefulBuilder(
         builder: (dialogContext, setDialogState) {
           final isMatch = confirmController.text.trim() == 'DELETE';
+          final hasConfirmationText = confirmController.text.trim().isNotEmpty;
 
           return AlertDialog(
             backgroundColor: isDark ? const Color(0xFF1E1E24) : Colors.white,
@@ -151,6 +152,19 @@ Future<bool?> showConfirmDeleteAccountDialog(
                     ),
                     decoration: InputDecoration(
                       hintText: 'DELETE',
+                      helperText: isMatch
+                          ? tr(dialogContext, 'Confirmation accepted. You can now delete the account.')
+                          : hasConfirmationText
+                              ? tr(dialogContext, 'Type DELETE exactly to enable account deletion.')
+                              : tr(dialogContext, 'Type DELETE to enable account deletion.'),
+                      helperStyle: TextStyle(
+                        color: isMatch
+                            ? (isDark ? const Color(0xFF86EFAC) : const Color(0xFF15803D))
+                            : (hasConfirmationText
+                                ? (isDark ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C))
+                                : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B))),
+                        fontWeight: FontWeight.w600,
+                      ),
                       hintStyle: TextStyle(
                         color: isDark ? Colors.white38 : Colors.black38,
                       ),
@@ -159,7 +173,9 @@ Future<bool?> showConfirmDeleteAccountDialog(
                         color: Color(0xFFDC2626),
                       ),
                       filled: true,
-                      fillColor: isDark ? const Color(0xFF141419) : const Color(0xFFF8FAFC),
+                      fillColor: isMatch
+                          ? (isDark ? const Color(0xFF0B2B1E) : const Color(0xFFF0FDF4))
+                          : (isDark ? const Color(0xFF141419) : const Color(0xFFF8FAFC)),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(
@@ -170,7 +186,12 @@ Future<bool?> showConfirmDeleteAccountDialog(
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(
-                          color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                          color: isMatch
+                              ? const Color(0xFF16A34A)
+                              : (hasConfirmationText
+                                  ? const Color(0xFFDC2626)
+                                  : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1))),
+                          width: isMatch || hasConfirmationText ? 2 : 1,
                         ),
                       ),
                       border: OutlineInputBorder(
@@ -212,11 +233,12 @@ Future<bool?> showConfirmDeleteAccountDialog(
                         backgroundColor: const Color(0xFFDC2626),
                         foregroundColor: Colors.white,
                         disabledBackgroundColor: isDark
-                            ? const Color(0xFF3B1515)
-                            : const Color(0xFFFEE2E2),
+                            ? const Color(0xFF34343B)
+                            : const Color(0xFFE2E8F0),
                         disabledForegroundColor: isDark
-                            ? const Color(0xFFE57373)
-                            : const Color(0x99DC2626),
+                            ? const Color(0xFF9CA3AF)
+                            : const Color(0xFF64748B),
+                        elevation: isMatch ? 2 : 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -227,8 +249,8 @@ Future<bool?> showConfirmDeleteAccountDialog(
                         color: isMatch
                             ? Colors.white
                             : (isDark
-                                ? const Color(0xFFE57373)
-                                : const Color(0x99DC2626)),
+                                ? const Color(0xFF9CA3AF)
+                                : const Color(0xFF64748B)),
                       ),
                       label: Text(
                         tr(dialogContext, 'Delete Account'),
@@ -237,8 +259,8 @@ Future<bool?> showConfirmDeleteAccountDialog(
                           color: isMatch
                               ? Colors.white
                               : (isDark
-                                  ? const Color(0xFFE57373)
-                                  : const Color(0x99DC2626)),
+                                  ? const Color(0xFF9CA3AF)
+                                  : const Color(0xFF64748B)),
                         ),
                       ),
                     ),

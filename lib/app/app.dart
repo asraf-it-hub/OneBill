@@ -46,7 +46,14 @@ class OneBillApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider).valueOrNull;
     final savedLang = ref.watch(appLanguageProvider);
-    final effectiveLang = (session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
+    final isSigningOut = ref.watch(isSigningOutProvider);
+    final authSession = ref.watch(authSessionProvider).valueOrNull;
+    final useSessionLanguage = !isSigningOut &&
+        session != null &&
+        session.activeBusinessId != null &&
+        session.localeCode.isNotEmpty &&
+        (!AppEnvironment.cloudConfigured || authSession != null);
+    final effectiveLang = useSessionLanguage
         ? session.localeCode
         : (savedLang.isNotEmpty ? savedLang : 'en');
     final locale = {'en', 'hi', 'te'}.contains(effectiveLang) ? effectiveLang : 'en';
@@ -1000,6 +1007,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
   bool _obscurePassword = true;
   AuthErrorDetails? _authErrorDetails;
 
+  bool get _canSubmit =>
+      _emailValidator(_email.text) == null && _passwordValidator(_password.text) == null;
+
   @override
   void initState() {
     super.initState();
@@ -1494,6 +1504,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                             labelText: _tr(context, 'Email address'),
                             prefixIcon: const Icon(Icons.email_outlined),
                           ),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          onChanged: (_) => setState(() {}),
                           validator: _emailValidator,
                         ),
                         const SizedBox(height: 16),
@@ -1516,6 +1528,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                   setState(() => _obscurePassword = !_obscurePassword),
                             ),
                           ),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          onChanged: (_) => setState(() {}),
                           validator: _passwordValidator,
                         ),
                         if (!_registering &&
@@ -1531,7 +1545,11 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                         ],
                         const SizedBox(height: 24),
                         FilledButton(
-                          onPressed: _submitting ? null : _submit,
+                          onPressed: _submitting || !_canSubmit ? null : _submit,
+                          style: FilledButton.styleFrom(
+                            disabledBackgroundColor: theme.colorScheme.surfaceContainerHighest,
+                            disabledForegroundColor: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.65),
+                          ),
                           child: _submitting
                               ? const SizedBox(
                                   width: 20,
@@ -4380,14 +4398,16 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
         Navigator.pop(context);
       }
     },
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: ListView(
+    child: SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: ListView(
         shrinkWrap: true,
         children: [
           Text(
@@ -4448,7 +4468,8 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
             ],
           ),
         ],
-      ),
+          ),
+        ),
     ),
   );
 }
@@ -4720,14 +4741,16 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
         Navigator.pop(context);
       }
     },
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: ListView(
+    child: SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: ListView(
         shrinkWrap: true,
         children: [
           Text(
@@ -4786,6 +4809,7 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
             child: Text(saving ? _tr(context, 'Saving...') : _tr(context, 'Save expense')),
           ),
         ],
+        ),
       ),
     ),
   );
@@ -4952,7 +4976,7 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
           ],
-        ),
+          ),
       ),
     );
   }
@@ -5986,14 +6010,21 @@ class _BusinessSettingsSheetState
             const SizedBox(height: 10),
             Card(
               margin: const EdgeInsets.only(bottom: 12),
+              color: theme.colorScheme.errorContainer.withValues(alpha: 0.28),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: theme.colorScheme.error.withOpacity(0.4)),
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.55)),
               ),
               child: ListTile(
-                leading: Icon(
-                  Icons.person_remove_outlined,
-                  color: theme.colorScheme.error,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.delete_forever_outlined, color: theme.colorScheme.error),
                 ),
                 title: Text(
                   _tr(context, 'Delete Account'),
@@ -6006,7 +6037,7 @@ class _BusinessSettingsSheetState
                   _tr(context, 'Permanently delete your account and associated data.'),
                 ),
                 trailing: Icon(
-                  Icons.chevron_right_rounded,
+                  Icons.arrow_forward_rounded,
                   color: theme.colorScheme.error,
                 ),
                 onTap: () => _handleDeleteAccount(context, ref),
@@ -8739,7 +8770,9 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
           Navigator.pop(context);
         }
       },
-      child: Padding(
+      child: SafeArea(
+        top: false,
+        child: Padding(
         padding: EdgeInsets.fromLTRB(
           24,
           24,
@@ -8788,6 +8821,7 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
                 child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Save customer')),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -10718,9 +10752,11 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
             final summaryLabel = isOverdueOnly ? 'Total Overdue' : 'Total Due';
             final emptyTitle = isOverdueOnly ? 'No overdue invoices' : 'No due invoices';
 
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: Column(
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
@@ -10818,6 +10854,7 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                     ),
                   ),
                 ],
+                ),
               ),
             );
           },

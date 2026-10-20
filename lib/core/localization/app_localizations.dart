@@ -1389,6 +1389,18 @@ final Map<String, Map<String, String>> appTranslations = {
     'hi': 'पुष्टि के लिए DELETE टाइप करें',
     'te': 'నిర్ధారించడానికి DELETE అని టైప్ చేయండి',
   },
+  'Type DELETE to enable account deletion.': {
+    'hi': 'खाता हटाना सक्षम करने के लिए DELETE टाइप करें।',
+    'te': 'ఖాతా తొలగింపును ప్రారంభించడానికి DELETE అని టైప్ చేయండి.',
+  },
+  'Type DELETE exactly to enable account deletion.': {
+    'hi': 'खाता हटाना सक्षम करने के लिए बिल्कुल DELETE टाइप करें।',
+    'te': 'ఖాతా తొలగింపును ప్రారంభించడానికి DELETE అని కచ్చితంగా టైప్ చేయండి.',
+  },
+  'Confirmation accepted. You can now delete the account.': {
+    'hi': 'पुष्टि स्वीकार की गई। अब आप खाता हटा सकते हैं।',
+    'te': 'నిర్ధారణ ఆమోదించబడింది. ఇప్పుడు మీరు ఖాతాను తొలగించవచ్చు.',
+  },
   'Deleting account...': {
     'hi': 'खाता हटाया जा रहा है...',
     'te': 'ఖాతాను తొలగిస్తోంది...',

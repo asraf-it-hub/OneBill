@@ -284,9 +284,11 @@ class _BusinessProfileScreenState
           ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
+      body: SafeArea(
+        top: false,
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           children: [
             _buildProgressCard(theme),
@@ -775,6 +777,7 @@ class _BusinessProfileScreenState
             _buildDangerZoneSection(theme),
             const SizedBox(height: 32),
           ],
+          ),
         ),
       ),
     );
