@@ -48,7 +48,8 @@ class OneBillApp extends ConsumerWidget {
     final savedLang = ref.watch(appLanguageProvider);
     final isSigningOut = ref.watch(isSigningOutProvider);
     final authSession = ref.watch(authSessionProvider).valueOrNull;
-    final useSessionLanguage = !isSigningOut &&
+    final useSessionLanguage =
+        !isSigningOut &&
         session != null &&
         session.activeBusinessId != null &&
         session.localeCode.isNotEmpty &&
@@ -56,7 +57,9 @@ class OneBillApp extends ConsumerWidget {
     final effectiveLang = useSessionLanguage
         ? session.localeCode
         : (savedLang.isNotEmpty ? savedLang : 'en');
-    final locale = {'en', 'hi', 'te'}.contains(effectiveLang) ? effectiveLang : 'en';
+    final locale = {'en', 'hi', 'te'}.contains(effectiveLang)
+        ? effectiveLang
+        : 'en';
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'OneBill',
@@ -176,16 +179,15 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
   Future<void> _checkDanglingRecoverySession() async {
     try {
       final storage = FlutterSecureStorage();
-      final inRecovery = await storage.read(key: 'onebill.auth.in_password_recovery');
+      final inRecovery = await storage.read(
+        key: 'onebill.auth.in_password_recovery',
+      );
       if (inRecovery == 'true') {
-        // App was closed or killed while in password recovery.
-        // Force full sign out and database wipe for safety so recovery session never bypasses login!
+        // App was closed or killed while in password recovery. Force the
+        // session back to the auth screen, but preserve offline financial data.
         await storage.delete(key: 'onebill.auth.in_password_recovery');
         try {
           await ref.read(notificationServiceProvider).cancelAll();
-        } catch (_) {}
-        try {
-          await ref.read(databaseProvider).clearAllTables();
         } catch (_) {}
         try {
           await ref.read(authServiceProvider).signOut();
@@ -204,9 +206,12 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     final appLinks = AppLinks();
 
     // Check initial launch link (cold start)
-    appLinks.getInitialLink().then((uri) {
-      if (uri != null) _handleUri(uri);
-    }).catchError((_) {});
+    appLinks
+        .getInitialLink()
+        .then((uri) {
+          if (uri != null) _handleUri(uri);
+        })
+        .catchError((_) {});
 
     // Listen to deep links while app is open / foregrounded / backgrounded
     _appLinksSub = appLinks.uriLinkStream.listen((uri) {
@@ -240,16 +245,20 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
         : <String, String>{};
 
     final error = query['error'] ?? fragmentParams['error'];
-    final errorDesc = query['error_description'] ??
+    final errorDesc =
+        query['error_description'] ??
         fragmentParams['error_description'] ??
         query['error_code'] ??
         fragmentParams['error_code'];
 
-    final isRecovery = uri.host == 'reset-password' ||
+    final isRecovery =
+        uri.host == 'reset-password' ||
         uri.path.contains('reset-password') ||
         uri.fragment.contains('type=recovery') ||
         uri.queryParameters['type'] == 'recovery' ||
-        (error != null && (uri.path.contains('reset-password') || uri.host == 'reset-password'));
+        (error != null &&
+            (uri.path.contains('reset-password') ||
+                uri.host == 'reset-password'));
 
     final email = query['email'] ?? fragmentParams['email'];
     if (email != null && email.isNotEmpty) {
@@ -337,7 +346,8 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
   @override
   void initState() {
     super.initState();
-    _emailController.text = ref.read(lastAuthEmailProvider) ??
+    _emailController.text =
+        ref.read(lastAuthEmailProvider) ??
         Supabase.instance.client.auth.currentUser?.email ??
         '';
     if (AppEnvironment.cloudConfigured) {
@@ -394,7 +404,8 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           final fragmentParams = fragment.isNotEmpty
               ? Uri.splitQueryString(fragment)
               : <String, String>{};
-          final refreshToken = fragmentParams['refresh_token'] ??
+          final refreshToken =
+              fragmentParams['refresh_token'] ??
               uri.queryParameters['refresh_token'];
           if (refreshToken != null && refreshToken.isNotEmpty) {
             await Supabase.instance.client.auth.setSession(refreshToken);
@@ -447,7 +458,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         _authErrorDetails = AuthErrorDetails(
           type: AuthErrorType.somethingWentWrong,
           title: _tr(context, 'Email required'),
-          message: _tr(context, 'Please enter a valid email address to request a new link.'),
+          message: _tr(
+            context,
+            'Please enter a valid email address to request a new link.',
+          ),
         );
       });
       return;
@@ -474,7 +488,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         });
         AppToast.showSuccess(
           context,
-          _tr(context, 'Password reset instructions have been sent to your email address.'),
+          _tr(
+            context,
+            'Password reset instructions have been sent to your email address.',
+          ),
         );
       }
     } catch (error) {
@@ -524,7 +541,9 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
 
     final newPassword = _passwordController.text;
     try {
-      await ref.read(authServiceProvider).updatePassword(newPassword: newPassword);
+      await ref
+          .read(authServiceProvider)
+          .updatePassword(newPassword: newPassword);
       if (!mounted) return;
 
       AppToast.showSuccess(
@@ -581,22 +600,19 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
       await ref.read(notificationServiceProvider).cancelAll();
     } catch (_) {}
 
-    // 4. Wipe all local database tables so no session or business remains cached
-    try {
-      await ref.read(databaseProvider).clearAllTables();
-    } catch (_) {}
-
-    // 5. Force full sign out from Supabase (clearing token storage on device)
+    // 4. Force full sign out from Supabase while preserving local offline data
+    // and its sync queue. A later sign-in under another account is isolated by
+    // restoreAccount before the workspace is exposed.
     try {
       await ref.read(authServiceProvider).signOut();
     } catch (_) {}
 
-    // 6. Reset security lock authenticated state
+    // 5. Reset security lock authenticated state
     try {
       await ref.read(securityServiceProvider).markAuthenticated();
     } catch (_) {}
 
-    // 7. Reset password recovery state
+    // 6. Reset password recovery state
     ref.read(isPasswordRecoveryProvider.notifier).state = false;
     ref.read(passwordRecoveryErrorProvider.notifier).state = null;
     ref.read(passwordRecoveryUriProvider.notifier).state = null;
@@ -686,11 +702,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         children: [
           Row(
             children: [
-              Icon(
-                Icons.mark_email_read_rounded,
-                size: 24,
-                color: titleColor,
-              ),
+              Icon(Icons.mark_email_read_rounded, size: 24, color: titleColor),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -705,7 +717,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            _tr(context, 'Password reset instructions have been sent to your email address.'),
+            _tr(
+              context,
+              'Password reset instructions have been sent to your email address.',
+            ),
             style: theme.textTheme.bodyMedium?.copyWith(
               fontSize: 13,
               height: 1.4,
@@ -764,9 +779,10 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
       );
     }
 
-    final isExpired = _authErrorDetails != null &&
+    final isExpired =
+        _authErrorDetails != null &&
         (_authErrorDetails!.title == 'Reset link expired' ||
-         Supabase.instance.client.auth.currentSession == null);
+            Supabase.instance.client.auth.currentSession == null);
 
     return PopScope(
       canPop: false,
@@ -776,143 +792,220 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
         }
       },
       child: Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
-                          shape: BoxShape.circle,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer
+                                .withValues(alpha: 0.25),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Image.asset(
+                            'assets/OneBillLogo.png',
+                            width: 64,
+                            height: 64,
+                            fit: BoxFit.contain,
+                          ),
                         ),
-                        child: Image.asset(
-                          'assets/OneBillLogo.png',
-                          width: 64,
-                          height: 64,
-                          fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        _tr(context, 'Reset your password'),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      _tr(context, 'Reset your password'),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isExpired
-                          ? (_resetEmailSent
-                              ? _tr(context, 'Check your email inbox to reset your password.')
-                              : _tr(context, 'This password reset link has expired or has already been used.'))
-                          : _tr(context, 'Enter a new password for your OneBill account.'),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // Prominent Preferred Language Choice (Design identical to Sign-in & Create Business pages)
-                    Builder(
-                      builder: (context) {
-                        final activeLang = ref.watch(appLanguageProvider);
-                        final effectiveLang =
-                            {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : 'en';
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _tr(context, 'Choose your preferred language'),
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: theme.colorScheme.primary,
+                      const SizedBox(height: 8),
+                      Text(
+                        isExpired
+                            ? (_resetEmailSent
+                                  ? _tr(
+                                      context,
+                                      'Check your email inbox to reset your password.',
+                                    )
+                                  : _tr(
+                                      context,
+                                      'This password reset link has expired or has already been used.',
+                                    ))
+                            : _tr(
+                                context,
+                                'Enter a new password for your OneBill account.',
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                _LanguageChoiceCard(
-                                  code: 'en',
-                                  nativeTitle: 'English',
-                                  subtitle: 'English',
-                                  isSelected: effectiveLang == 'en',
-                                  onTap: () =>
-                                      ref.read(appLanguageProvider.notifier).setLanguage('en'),
-                                ),
-                                const SizedBox(width: 8),
-                                _LanguageChoiceCard(
-                                  code: 'te',
-                                  nativeTitle: 'తెలుగు',
-                                  subtitle: 'Telugu',
-                                  isSelected: effectiveLang == 'te',
-                                  onTap: () =>
-                                      ref.read(appLanguageProvider.notifier).setLanguage('te'),
-                                ),
-                                const SizedBox(width: 8),
-                                _LanguageChoiceCard(
-                                  code: 'hi',
-                                  nativeTitle: 'हिन्दी',
-                                  subtitle: 'Hindi',
-                                  isSelected: effectiveLang == 'hi',
-                                  onTap: () =>
-                                      ref.read(appLanguageProvider.notifier).setLanguage('hi'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    if (isExpired) ...[
-                      if (_resetEmailSent) ...[
-                        _buildSuccessBox(theme),
-                        FilledButton(
-                          onPressed: _submitting ? null : _cancel,
-                          child: Text(_tr(context, 'Back to sign in')),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
-                        const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: _submitting ? null : _sendNewResetEmail,
-                          child: Text(_tr(context, 'Resend email')),
-                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Prominent Preferred Language Choice (Design identical to Sign-in & Create Business pages)
+                      Builder(
+                        builder: (context) {
+                          final activeLang = ref.watch(appLanguageProvider);
+                          final effectiveLang =
+                              {'en', 'hi', 'te'}.contains(activeLang)
+                              ? activeLang
+                              : 'en';
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _tr(context, 'Choose your preferred language'),
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _LanguageChoiceCard(
+                                    code: 'en',
+                                    nativeTitle: 'English',
+                                    subtitle: 'English',
+                                    isSelected: effectiveLang == 'en',
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('en'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _LanguageChoiceCard(
+                                    code: 'te',
+                                    nativeTitle: 'తెలుగు',
+                                    subtitle: 'Telugu',
+                                    isSelected: effectiveLang == 'te',
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('te'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _LanguageChoiceCard(
+                                    code: 'hi',
+                                    nativeTitle: 'हिन्दी',
+                                    subtitle: 'Hindi',
+                                    isSelected: effectiveLang == 'hi',
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('hi'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      if (isExpired) ...[
+                        if (_resetEmailSent) ...[
+                          _buildSuccessBox(theme),
+                          FilledButton(
+                            onPressed: _submitting ? null : _cancel,
+                            child: Text(_tr(context, 'Back to sign in')),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _submitting ? null : _sendNewResetEmail,
+                            child: Text(_tr(context, 'Resend email')),
+                          ),
+                        ] else ...[
+                          _buildErrorBox(theme),
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: InputDecoration(
+                              labelText: _tr(context, 'Email address'),
+                              prefixIcon: const Icon(Icons.email_outlined),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton.icon(
+                            onPressed: _submitting ? null : _sendNewResetEmail,
+                            icon: _submitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.send_rounded),
+                            label: Text(_tr(context, 'Request new link')),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _submitting ? null : _cancel,
+                            child: Text(_tr(context, 'Back to sign in')),
+                          ),
+                        ],
                       ] else ...[
                         _buildErrorBox(theme),
                         TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
                           decoration: InputDecoration(
-                            labelText: _tr(context, 'Email address'),
-                            prefixIcon: const Icon(Icons.email_outlined),
+                            labelText: _tr(context, 'New password'),
+                            prefixIcon: const Icon(Icons.lock_outline_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () => setState(
+                                () => _obscurePassword = !_obscurePassword,
+                              ),
+                            ),
                           ),
+                          validator: _passwordValidator,
                         ),
-                        const SizedBox(height: 20),
-                        FilledButton.icon(
-                          onPressed: _submitting ? null : _sendNewResetEmail,
-                          icon: _submitting
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: _obscureConfirmPassword,
+                          decoration: InputDecoration(
+                            labelText: _tr(context, 'Confirm new password'),
+                            prefixIcon: const Icon(Icons.lock_reset_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () => setState(
+                                () => _obscureConfirmPassword =
+                                    !_obscureConfirmPassword,
+                              ),
+                            ),
+                          ),
+                          validator: _confirmPasswordValidator,
+                        ),
+                        const SizedBox(height: 24),
+                        FilledButton(
+                          onPressed: _submitting ? null : _submit,
+                          child: _submitting
                               ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
+                                  width: 20,
+                                  height: 20,
                                   child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                                    strokeWidth: 2.5,
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.send_rounded),
-                          label: Text(_tr(context, 'Request new link')),
+                              : Text(_tr(context, 'Update password')),
                         ),
                         const SizedBox(height: 12),
                         TextButton(
@@ -920,72 +1013,13 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
                           child: Text(_tr(context, 'Back to sign in')),
                         ),
                       ],
-                    ] else ...[
-                      _buildErrorBox(theme),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: _tr(context, 'New password'),
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                            ),
-                            onPressed: () =>
-                                setState(() => _obscurePassword = !_obscurePassword),
-                          ),
-                        ),
-                        validator: _passwordValidator,
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        obscureText: _obscureConfirmPassword,
-                        decoration: InputDecoration(
-                          labelText: _tr(context, 'Confirm new password'),
-                          prefixIcon: const Icon(Icons.lock_reset_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureConfirmPassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                            ),
-                            onPressed: () => setState(
-                                () => _obscureConfirmPassword = !_obscureConfirmPassword),
-                          ),
-                        ),
-                        validator: _confirmPasswordValidator,
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton(
-                        onPressed: _submitting ? null : _submit,
-                        child: _submitting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(_tr(context, 'Update password')),
-                      ),
-                      const SizedBox(height: 12),
-                      TextButton(
-                        onPressed: _submitting ? null : _cancel,
-                        child: Text(_tr(context, 'Back to sign in')),
-                      ),
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -1008,16 +1042,20 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
   AuthErrorDetails? _authErrorDetails;
 
   bool get _canSubmit =>
-      _emailValidator(_email.text) == null && _passwordValidator(_password.text) == null;
+      _emailValidator(_email.text) == null &&
+      _passwordValidator(_password.text) == null;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        final savedEmail = ref.read(passwordResetSentEmailProvider) ??
+        final savedEmail =
+            ref.read(passwordResetSentEmailProvider) ??
             ref.read(lastAuthEmailProvider);
-        if (savedEmail != null && savedEmail.isNotEmpty && _email.text.isEmpty) {
+        if (savedEmail != null &&
+            savedEmail.isNotEmpty &&
+            _email.text.isEmpty) {
           _email.text = savedEmail;
         }
       }
@@ -1054,7 +1092,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
       if (mounted) {
         AppToast.showSuccess(
           context,
-          _tr(context, 'Password reset instructions have been sent to your email address.'),
+          _tr(
+            context,
+            'Password reset instructions have been sent to your email address.',
+          ),
         );
       }
     } catch (error) {
@@ -1077,7 +1118,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
       if (mounted) {
         AppToast.showSuccess(
           context,
-          _tr(context, 'Password reset instructions have been sent to your email address.'),
+          _tr(
+            context,
+            'Password reset instructions have been sent to your email address.',
+          ),
         );
       }
     } catch (error) {
@@ -1197,9 +1241,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
       decoration: BoxDecoration(
         color: theme.colorScheme.errorContainer.withOpacity(0.4),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.colorScheme.error.withOpacity(0.3),
-        ),
+        border: Border.all(color: theme.colorScheme.error.withOpacity(0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1323,7 +1365,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            _tr(context, 'A new password reset link has been sent to your email. Please check your inbox and tap the link to set your new password.'),
+            _tr(
+              context,
+              'A new password reset link has been sent to your email. Please check your inbox and tap the link to set your new password.',
+            ),
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               fontSize: 14,
@@ -1360,7 +1405,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _submitting ? null : () => _resendResetEmail(sentEmail),
+              onPressed: _submitting
+                  ? null
+                  : () => _resendResetEmail(sentEmail),
               icon: const Icon(Icons.refresh_rounded, size: 18),
               label: Text(_tr(context, 'Resend email')),
             ),
@@ -1405,7 +1452,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+                            color: theme.colorScheme.primaryContainer
+                                .withValues(alpha: 0.25),
                             shape: BoxShape.circle,
                           ),
                           child: Image.asset(
@@ -1429,7 +1477,10 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _tr(context, 'Your business data stays available offline after setup.'),
+                        _tr(
+                          context,
+                          'Your business data stays available offline after setup.',
+                        ),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
@@ -1441,7 +1492,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                         builder: (context) {
                           final activeLang = ref.watch(appLanguageProvider);
                           final effectiveLang =
-                              {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : 'en';
+                              {'en', 'hi', 'te'}.contains(activeLang)
+                              ? activeLang
+                              : 'en';
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1461,8 +1514,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     nativeTitle: 'English',
                                     subtitle: 'English',
                                     isSelected: effectiveLang == 'en',
-                                    onTap: () =>
-                                        ref.read(appLanguageProvider.notifier).setLanguage('en'),
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('en'),
                                   ),
                                   const SizedBox(width: 8),
                                   _LanguageChoiceCard(
@@ -1470,8 +1524,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     nativeTitle: 'తెలుగు',
                                     subtitle: 'Telugu',
                                     isSelected: effectiveLang == 'te',
-                                    onTap: () =>
-                                        ref.read(appLanguageProvider.notifier).setLanguage('te'),
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('te'),
                                   ),
                                   const SizedBox(width: 8),
                                   _LanguageChoiceCard(
@@ -1479,8 +1534,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     nativeTitle: 'हिन्दी',
                                     subtitle: 'Hindi',
                                     isSelected: effectiveLang == 'hi',
-                                    onTap: () =>
-                                        ref.read(appLanguageProvider.notifier).setLanguage('hi'),
+                                    onTap: () => ref
+                                        .read(appLanguageProvider.notifier)
+                                        .setLanguage('hi'),
                                   ),
                                 ],
                               ),
@@ -1512,9 +1568,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                         TextFormField(
                           controller: _password,
                           obscureText: _obscurePassword,
-                          autofillHints: const [
-                            AutofillHints.password,
-                          ],
+                          autofillHints: const [AutofillHints.password],
                           decoration: InputDecoration(
                             labelText: _tr(context, 'Password'),
                             prefixIcon: const Icon(Icons.lock_outline_rounded),
@@ -1524,8 +1578,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     ? Icons.visibility_outlined
                                     : Icons.visibility_off_outlined,
                               ),
-                              onPressed: () =>
-                                  setState(() => _obscurePassword = !_obscurePassword),
+                              onPressed: () => setState(
+                                () => _obscurePassword = !_obscurePassword,
+                              ),
                             ),
                           ),
                           autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -1533,7 +1588,8 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                           validator: _passwordValidator,
                         ),
                         if (!_registering &&
-                            _authErrorDetails?.type != AuthErrorType.incorrectPassword) ...[
+                            _authErrorDetails?.type !=
+                                AuthErrorType.incorrectPassword) ...[
                           const SizedBox(height: 4),
                           Align(
                             alignment: Alignment.centerRight,
@@ -1545,10 +1601,16 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                         ],
                         const SizedBox(height: 24),
                         FilledButton(
-                          onPressed: _submitting || !_canSubmit ? null : _submit,
+                          onPressed: _submitting || !_canSubmit
+                              ? null
+                              : _submit,
                           style: FilledButton.styleFrom(
-                            disabledBackgroundColor: theme.colorScheme.surfaceContainerHighest,
-                            disabledForegroundColor: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.65),
+                            disabledBackgroundColor:
+                                theme.colorScheme.surfaceContainerHighest,
+                            disabledForegroundColor: theme
+                                .colorScheme
+                                .onSurfaceVariant
+                                .withValues(alpha: 0.65),
                           ),
                           child: _submitting
                               ? const SizedBox(
@@ -1559,7 +1621,11 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : Text(_registering ? _tr(context, 'Create account') : _tr(context, 'Sign in')),
+                              : Text(
+                                  _registering
+                                      ? _tr(context, 'Create account')
+                                      : _tr(context, 'Sign in'),
+                                ),
                         ),
                         const SizedBox(height: 12),
                         TextButton(
@@ -1573,16 +1639,28 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                 },
                           child: Text(
                             _registering
-                                ? _tr(context, 'Already have an account? Sign in')
-                                : _tr(context, 'New to OneBill? Create an account'),
+                                ? _tr(
+                                    context,
+                                    'Already have an account? Sign in',
+                                  )
+                                : _tr(
+                                    context,
+                                    'New to OneBill? Create an account',
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                            Expanded(
+                              child: Divider(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
                               child: Text(
                                 _tr(context, 'OR'),
                                 style: theme.textTheme.labelMedium?.copyWith(
@@ -1591,7 +1669,11 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                 ),
                               ),
                             ),
-                            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+                            Expanded(
+                              child: Divider(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 16),
@@ -1603,7 +1685,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                               borderRadius: BorderRadius.circular(14),
                             ),
                             side: BorderSide(
-                              color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                              color: theme.colorScheme.outline.withValues(
+                                alpha: 0.5,
+                              ),
                             ),
                           ),
                           child: _isGoogleAuthPending
@@ -1635,7 +1719,9 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
                                     const SizedBox(width: 12),
                                     Text(
                                       _tr(context, 'Sign in with Google'),
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1662,9 +1748,7 @@ class _GoogleIcon extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(
-        painter: _GoogleIconPainter(),
-      ),
+      child: CustomPaint(painter: _GoogleIconPainter()),
     );
   }
 }
@@ -1776,8 +1860,9 @@ class _LanguageChoiceCard extends StatelessWidget {
                   Text(
                     nativeTitle,
                     style: TextStyle(
-                      fontWeight:
-                          isSelected ? FontWeight.bold : FontWeight.w600,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.w600,
                       fontSize: 14,
                       color: isSelected ? primary : theme.colorScheme.onSurface,
                     ),
@@ -1838,8 +1923,10 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
         } catch (error) {
           if (mounted) {
             setState(() {
-              _restoreError =
-                  _cleanErrorMessage(error, 'Could not restore cloud data');
+              _restoreError = _cleanErrorMessage(
+                error,
+                'Could not restore cloud data',
+              );
             });
           }
         } finally {
@@ -1862,10 +1949,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
     ref.read(appLanguageProvider.notifier).setLanguage(lang);
     final session = ref.read(sessionProvider).valueOrNull;
     if (session != null) {
-      ref.read(businessRepositoryProvider).updateSessionLanguage(
-        sessionId: session.id,
-        languageCode: lang,
-      );
+      ref
+          .read(businessRepositoryProvider)
+          .updateSessionLanguage(sessionId: session.id, languageCode: lang);
     }
   }
 
@@ -1874,7 +1960,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
     setState(() => _saving = true);
     try {
       final activeLang = ref.read(appLanguageProvider);
-      final effectiveLang = {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : _language;
+      final effectiveLang = {'en', 'hi', 'te'}.contains(activeLang)
+          ? activeLang
+          : _language;
       await ref.read(appLanguageProvider.notifier).setLanguage(effectiveLang);
       await ref
           .read(businessRepositoryProvider)
@@ -1887,7 +1975,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
           );
       final session = await ref.read(sessionProvider.future);
       if (session?.activeBusinessId != null) {
-        await ref.read(syncWorkerProvider).retryFailedOperations(session!.activeBusinessId!);
+        await ref
+            .read(syncWorkerProvider)
+            .retryFailedOperations(session!.activeBusinessId!);
       }
     } catch (error) {
       if (mounted) {
@@ -1966,7 +2056,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer.withOpacity(0.25),
+                          color: theme.colorScheme.primaryContainer.withOpacity(
+                            0.25,
+                          ),
                           shape: BoxShape.circle,
                         ),
                         child: Image.asset(
@@ -1988,7 +2080,10 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _tr(context, 'Create your first business. Your information is saved on this device and works offline.'),
+                      _tr(
+                        context,
+                        'Create your first business. Your information is saved on this device and works offline.',
+                      ),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
@@ -1999,7 +2094,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer.withOpacity(0.7),
+                          color: theme.colorScheme.errorContainer.withOpacity(
+                            0.7,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -2018,7 +2115,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                       builder: (context) {
                         final activeLang = ref.watch(appLanguageProvider);
                         final effectiveLang =
-                            {'en', 'hi', 'te'}.contains(activeLang) ? activeLang : _language;
+                            {'en', 'hi', 'te'}.contains(activeLang)
+                            ? activeLang
+                            : _language;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2070,7 +2169,8 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         labelText: _tr(context, 'Owner name'),
                         prefixIcon: const Icon(Icons.person_outline_rounded),
                       ),
-                      validator: (value) => value == null || value.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                           ? _tr(context, 'This field is required.')
                           : null,
                     ),
@@ -2082,7 +2182,8 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         labelText: _tr(context, 'Business or shop name'),
                         prefixIcon: const Icon(Icons.storefront_outlined),
                       ),
-                      validator: (value) => value == null || value.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                           ? _tr(context, 'This field is required.')
                           : null,
                     ),
@@ -2099,7 +2200,10 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                         final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
                         return RegExp(r'^[6-9][0-9]{9}$').hasMatch(digits)
                             ? null
-                            : _tr(context, 'Enter a valid 10-digit Indian mobile number.');
+                            : _tr(
+                                context,
+                                'Enter a valid 10-digit Indian mobile number.',
+                              );
                       },
                     ),
                     const SizedBox(height: 28),
@@ -2164,6 +2268,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       }
     }
   }
+
   var _lockChecking = true;
   var _locked = false;
   var _biometricEnabled = false;
@@ -2234,18 +2339,15 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     final bId = businessId ?? widget.session.activeBusinessId;
     if (bId == null) return;
     if (businessId != null && businessId != widget.session.activeBusinessId) {
-      await ref.read(businessRepositoryProvider).switchBusiness(
-        sessionId: widget.session.id,
-        businessId: businessId,
-      );
+      await ref
+          .read(businessRepositoryProvider)
+          .switchBusiness(sessionId: widget.session.id, businessId: businessId);
     }
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _OverdueInvoicesSheet(
-        businessId: bId,
-      ),
+      builder: (_) => _OverdueInvoicesSheet(businessId: bId),
     );
   }
 
@@ -2254,10 +2356,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     final targetBizId = businessId ?? widget.session.activeBusinessId;
     if (targetBizId == null) return;
     if (businessId != null && businessId != widget.session.activeBusinessId) {
-      await ref.read(businessRepositoryProvider).switchBusiness(
-        sessionId: widget.session.id,
-        businessId: businessId,
-      );
+      await ref
+          .read(businessRepositoryProvider)
+          .switchBusiness(sessionId: widget.session.id, businessId: businessId);
     }
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -2265,12 +2366,12 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       MaterialPageRoute<void>(
         builder: (_) => Consumer(
           builder: (context, ref, _) {
-            final summary = ref.watch(businessBillingSummaryProvider(targetBizId));
+            final summary = ref.watch(
+              businessBillingSummaryProvider(targetBizId),
+            );
             final customers = ref.watch(customersProvider(targetBizId));
             return Scaffold(
-              appBar: AppBar(
-                title: Text(_tr(context, 'Reports')),
-              ),
+              appBar: AppBar(title: Text(_tr(context, 'Reports'))),
               body: _ReportsTab(
                 businessId: targetBizId,
                 summary: summary,
@@ -2288,13 +2389,14 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     final bId = businessId ?? widget.session.activeBusinessId;
     if (bId == null) return;
     if (businessId != null && businessId != widget.session.activeBusinessId) {
-      await ref.read(businessRepositoryProvider).switchBusiness(
-        sessionId: widget.session.id,
-        businessId: businessId,
-      );
+      await ref
+          .read(businessRepositoryProvider)
+          .switchBusiness(sessionId: widget.session.id, businessId: businessId);
     }
     final db = ref.read(databaseProvider);
-    final inv = await (db.select(db.invoices)..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
+    final inv = await (db.select(
+      db.invoices,
+    )..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
     if (inv != null && mounted) {
       showModalBottomSheet<void>(
         context: context,
@@ -2309,13 +2411,14 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     final bId = businessId ?? widget.session.activeBusinessId;
     if (bId == null) return;
     if (businessId != null && businessId != widget.session.activeBusinessId) {
-      await ref.read(businessRepositoryProvider).switchBusiness(
-        sessionId: widget.session.id,
-        businessId: businessId,
-      );
+      await ref
+          .read(businessRepositoryProvider)
+          .switchBusiness(sessionId: widget.session.id, businessId: businessId);
     }
     final db = ref.read(databaseProvider);
-    final cust = await (db.select(db.customers)..where((c) => c.id.equals(customerId))).getSingleOrNull();
+    final cust = await (db.select(
+      db.customers,
+    )..where((c) => c.id.equals(customerId))).getSingleOrNull();
     if (cust != null && mounted) {
       showModalBottomSheet<void>(
         context: context,
@@ -2404,7 +2507,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (state == AppLifecycleState.resumed) {
       _syncNow();
       security.shouldLockOnResume().then((shouldLock) {
-        if (shouldLock && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
+        if (shouldLock &&
+            mounted &&
+            !_isSigningOut &&
+            !ref.read(isSigningOutProvider)) {
           _checkAppLock(lockIfEnabled: true);
         }
       });
@@ -2425,7 +2531,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _tr(context, 'App lock storage is unavailable. Please disable and enable App Lock again.'),
+              _tr(
+                context,
+                'App lock storage is unavailable. Please disable and enable App Lock again.',
+              ),
             ),
           ),
         );
@@ -2438,7 +2547,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       _biometricEnabled = biometric;
       if (enabled && (lockIfEnabled || !_locked)) _locked = true;
     });
-    if (enabled && biometric && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
+    if (enabled &&
+        biometric &&
+        mounted &&
+        !_isSigningOut &&
+        !ref.read(isSigningOutProvider)) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _tryBiometricUnlock(),
       );
@@ -2446,7 +2559,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
   }
 
   Future<void> _tryBiometricUnlock() async {
-    if (_isSigningOut || !_locked || _checkingPin || ref.read(isSigningOutProvider)) return;
+    if (_isSigningOut ||
+        !_locked ||
+        _checkingPin ||
+        ref.read(isSigningOutProvider))
+      return;
     final ok = await ref.read(securityServiceProvider).authenticateBiometrics();
     if (ok && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
@@ -2472,16 +2589,19 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         final err = _tr(context, 'Incorrect PIN. Please try again.');
         setState(() => _unlockError = err);
         _lockPin.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(err)));
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _tr(context, 'Could not read the app PIN. Disable and enable App Lock again.'),
+              _tr(
+                context,
+                'Could not read the app PIN. Disable and enable App Lock again.',
+              ),
             ),
           ),
         );
@@ -2529,7 +2649,8 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
           ),
         );
         final nextSession = await ref.read(sessionProvider.future);
-        if (mounted && (nextSession == null || nextSession.activeBusinessId == null)) {
+        if (mounted &&
+            (nextSession == null || nextSession.activeBusinessId == null)) {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }
@@ -2583,7 +2704,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               const SizedBox(height: 12),
               Text(
                 _tr(context, 'Unlock OneBill'),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -2595,7 +2718,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   keyboardType: TextInputType.number,
                   maxLength: 6,
                   textAlign: TextAlign.center,
-                  decoration: InputDecoration(labelText: _tr(context, 'Enter PIN')),
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Enter PIN'),
+                  ),
                   onChanged: _onLockPinChanged,
                   onSubmitted: (_) => _unlock(),
                 ),
@@ -2603,7 +2728,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               FilledButton.icon(
                 onPressed: _checkingPin ? null : _unlock,
                 icon: const Icon(Icons.lock_open),
-                label: Text(_checkingPin ? _tr(context, 'Checking...') : _tr(context, 'Unlock with PIN')),
+                label: Text(
+                  _checkingPin
+                      ? _tr(context, 'Checking...')
+                      : _tr(context, 'Unlock with PIN'),
+                ),
               ),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),
@@ -2636,7 +2765,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            _tr(context, 'Biometric authentication was cancelled or unavailable.'),
+                            _tr(
+                              context,
+                              'Biometric authentication was cancelled or unavailable.',
+                            ),
                           ),
                         ),
                       );
@@ -2654,7 +2786,8 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (currentSession != null && currentSession.activeBusinessId == null) {
       return const _WorkspaceSetupScreen();
     }
-    final session = (currentSession != null && currentSession.activeBusinessId != null)
+    final session =
+        (currentSession != null && currentSession.activeBusinessId != null)
         ? currentSession
         : widget.session;
     if (session.activeBusinessId == null) {
@@ -3023,7 +3156,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       builder: (context) => AlertDialog(
         title: Text(_tr(context, 'Sign out?')),
         content: Text(
-          _tr(context, 'You will need internet to sign in again. Local business data remains protected on this device.'),
+          _tr(
+            context,
+            'You will need internet to sign in again. Local business data remains protected on this device.',
+          ),
         ),
         actions: [
           TextButton(
@@ -3039,8 +3175,6 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     );
     if (confirmed != true || !context.mounted) return;
 
-    setState(() => _isSigningOut = true);
-
     final security = ref.read(securityServiceProvider);
     final isLockEnabled = await security.isPinEnabled();
     if (isLockEnabled) {
@@ -3049,17 +3183,112 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         if (mounted) setState(() => _isSigningOut = false);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_tr(context, 'Sign out cancelled')),
-            ),
+            SnackBar(content: Text(_tr(context, 'Sign out cancelled'))),
           );
         }
         return;
       }
     }
 
-    final auth = ref.read(authServiceProvider);
     final db = ref.read(databaseProvider);
+    final session =
+        await (db.select(db.localSessions)
+              ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    final ownedBusinessIds = session?.accountId == null
+        ? <String>[]
+        : (await (db.select(
+                db.businesses,
+              )..where((b) => b.accountId.equals(session!.accountId!))).get())
+              .map((b) => b.id)
+              .toList();
+    var pendingBusinessIds = <String>[];
+    if (ownedBusinessIds.isNotEmpty) {
+      final pending =
+          await (db.select(db.syncOperations)..where(
+                (op) =>
+                    op.businessId.isIn(ownedBusinessIds) &
+                    (op.status.equals('pending') |
+                        (op.status.isNotValue('synced') &
+                            op.status.isNotValue('pending'))),
+              ))
+              .get();
+      pendingBusinessIds = pending.map((op) => op.businessId!).toSet().toList();
+    }
+
+    if (pendingBusinessIds.isNotEmpty && context.mounted) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_tr(dialogContext, 'Unsynchronized changes')),
+          content: Text(
+            _tr(
+              dialogContext,
+              'Some changes are still waiting to sync. Sync them before signing out to keep your data current.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+              child: Text(_tr(dialogContext, 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'sync'),
+              child: Text(_tr(dialogContext, 'Sync now')),
+            ),
+          ],
+        ),
+      );
+      if (action == 'cancel' || action == null || !context.mounted) return;
+      if (action == 'sync') {
+        for (final businessId in pendingBusinessIds) {
+          try {
+            await ref
+                .read(syncWorkerProvider)
+                .retryFailedOperations(businessId);
+          } catch (_) {}
+        }
+        final remaining =
+            await (db.select(db.syncOperations)..where(
+                  (op) =>
+                      op.businessId.isIn(ownedBusinessIds) &
+                      (op.status.equals('pending') |
+                          (op.status.isNotValue('synced') &
+                              op.status.isNotValue('pending'))),
+                ))
+                .get();
+        if (remaining.isNotEmpty && context.mounted) {
+          final keepLocal = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(_tr(dialogContext, 'Sync unavailable')),
+              content: Text(
+                _tr(
+                  dialogContext,
+                  'Your unsynchronized data will be kept safely on this device. You can cancel and try again later.',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(_tr(dialogContext, 'Cancel')),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(_tr(dialogContext, 'Keep data and sign out')),
+                ),
+              ],
+            ),
+          );
+          if (keepLocal != true || !context.mounted) return;
+        }
+      }
+    }
+
+    if (mounted) setState(() => _isSigningOut = true);
+
+    final auth = ref.read(authServiceProvider);
     final notifService = ref.read(notificationServiceProvider);
 
     try {
@@ -3070,9 +3299,8 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     try {
       await notifService.cancelAll();
     } catch (_) {}
-    try {
-      await db.clearAllTables();
-    } catch (_) {}
+    // Keep the local account and its pending queue. On the next sign-in,
+    // restoreAccount clears foreign-account data before exposing the workspace.
     try {
       await auth.signOut();
     } catch (_) {}
@@ -3095,7 +3323,10 @@ Future<void> _configurePin(BuildContext context, WidgetRef ref) async {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _tr(context, 'App lock storage is unavailable. Please restart the app and try again.'),
+            _tr(
+              context,
+              'App lock storage is unavailable. Please restart the app and try again.',
+            ),
           ),
         ),
       );
@@ -3180,7 +3411,9 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       return;
     }
     if (value != confirmation) {
-      setState(() => _error = _tr(context, "PINs don't match. Please try again."));
+      setState(
+        () => _error = _tr(context, "PINs don't match. Please try again."),
+      );
       return;
     }
     setState(() {
@@ -3247,7 +3480,10 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       return AlertDialog(
         title: Text(_tr(context, 'Use Biometric?')),
         content: Text(
-          _tr(context, 'Biometric will be the primary unlock method. Your PIN remains available as a fallback.'),
+          _tr(
+            context,
+            'Biometric will be the primary unlock method. Your PIN remains available as a fallback.',
+          ),
         ),
         actions: [
           TextButton(
@@ -3256,18 +3492,26 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
           ),
           FilledButton(
             onPressed: _saving ? null : () => _setBiometric(true),
-            child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Enable')),
+            child: Text(
+              _saving ? _tr(context, 'Saving...') : _tr(context, 'Enable'),
+            ),
           ),
         ],
       );
     }
     return AlertDialog(
-      title: Text(widget.enabled ? _tr(context, 'Change PIN') : _tr(context, 'Secure OneBill')),
+      title: Text(
+        widget.enabled
+            ? _tr(context, 'Change PIN')
+            : _tr(context, 'Secure OneBill'),
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(_tr(context, 'Choose a secure 4–6 digit PIN for offline unlock.')),
+          Text(
+            _tr(context, 'Choose a secure 4–6 digit PIN for offline unlock.'),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _pin,
@@ -3308,7 +3552,9 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
           ),
         FilledButton(
           onPressed: _saving ? null : _savePin,
-          child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Save')),
+          child: Text(
+            _saving ? _tr(context, 'Saving...') : _tr(context, 'Save'),
+          ),
         ),
       ],
     );
@@ -3363,44 +3609,46 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(_tr(context, 'Confirm your PIN')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _pin,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              autofocus: true,
-              decoration: InputDecoration(labelText: _tr(context, 'Enter PIN')),
-              onSubmitted: (_) => _submit(),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-          ],
+    title: Text(_tr(context, 'Confirm your PIN')),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _pin,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          autofocus: true,
+          decoration: InputDecoration(labelText: _tr(context, 'Enter PIN')),
+          onSubmitted: (_) => _submit(),
         ),
-        actions: [
-          TextButton(
-            onPressed: _checking ? null : () => Navigator.pop(context, false),
-            child: Text(_tr(context, 'Cancel')),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              _error!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 13,
+              ),
+            ),
           ),
-          FilledButton(
-            onPressed: _checking ? null : _submit,
-            child: Text(_checking ? _tr(context, 'Checking...') : _tr(context, 'Continue')),
-          ),
-        ],
-      );
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: _checking ? null : () => Navigator.pop(context, false),
+        child: Text(_tr(context, 'Cancel')),
+      ),
+      FilledButton(
+        onPressed: _checking ? null : _submit,
+        child: Text(
+          _checking ? _tr(context, 'Checking...') : _tr(context, 'Continue'),
+        ),
+      ),
+    ],
+  );
 }
 
 class _ProfileMenuItem extends StatelessWidget {
@@ -3455,15 +3703,16 @@ class _DashboardTab extends StatelessWidget {
             leading: const Icon(Icons.warning_amber),
             title: Text(_tr(context, 'Overdue invoices')),
             subtitle: Text(
-              _tr(context, '{amount} remains overdue. Tap to view and review payment status.').replaceAll('{amount}', _rupees(overdue)),
+              _tr(
+                context,
+                '{amount} remains overdue. Tap to view and review payment status.',
+              ).replaceAll('{amount}', _rupees(overdue)),
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => showModalBottomSheet<void>(
               context: context,
               isScrollControlled: true,
-              builder: (_) => _OverdueInvoicesSheet(
-                businessId: businessId,
-              ),
+              builder: (_) => _OverdueInvoicesSheet(businessId: businessId),
             ),
           ),
         ),
@@ -3577,18 +3826,18 @@ enum _IncomeSourceType { customer, owner }
 
 class _CombinedIncomeItem {
   _CombinedIncomeItem.fromPayment(Payment p)
-      : payment = p,
-        ownerEntry = null,
-        sourceType = _IncomeSourceType.customer,
-        date = p.receivedAt,
-        amountPaise = p.amountPaise;
+    : payment = p,
+      ownerEntry = null,
+      sourceType = _IncomeSourceType.customer,
+      date = p.receivedAt,
+      amountPaise = p.amountPaise;
 
   _CombinedIncomeItem.fromOwnerEntry(IncomeEntry o)
-      : payment = null,
-        ownerEntry = o,
-        sourceType = _IncomeSourceType.owner,
-        date = o.incomeDate,
-        amountPaise = o.amountPaise;
+    : payment = null,
+      ownerEntry = o,
+      sourceType = _IncomeSourceType.owner,
+      date = o.incomeDate,
+      amountPaise = o.amountPaise;
 
   final Payment? payment;
   final IncomeEntry? ownerEntry;
@@ -3616,23 +3865,38 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    final paymentsAsync = ref.watch(businessPaymentsProvider(widget.businessId));
-    final ownerIncomeAsync = ref.watch(incomeEntriesProvider(widget.businessId));
+    final paymentsAsync = ref.watch(
+      businessPaymentsProvider(widget.businessId),
+    );
+    final ownerIncomeAsync = ref.watch(
+      incomeEntriesProvider(widget.businessId),
+    );
 
     if (paymentsAsync.isLoading || ownerIncomeAsync.isLoading) {
       return const _SkeletonListLoader();
     }
     if (paymentsAsync.hasError) {
-      return Center(child: Text('Unable to load customer payments.\n${paymentsAsync.error}'));
+      return Center(
+        child: Text(
+          'Unable to load customer payments.\n${paymentsAsync.error}',
+        ),
+      );
     }
     if (ownerIncomeAsync.hasError) {
-      return Center(child: Text('Unable to load owner income entries.\n${ownerIncomeAsync.error}'));
+      return Center(
+        child: Text(
+          'Unable to load owner income entries.\n${ownerIncomeAsync.error}',
+        ),
+      );
     }
 
     final customerPayments = paymentsAsync.valueOrNull ?? [];
     final ownerEntries = ownerIncomeAsync.valueOrNull ?? [];
 
-    final customerTotal = customerPayments.fold<int>(0, (s, e) => s + e.amountPaise);
+    final customerTotal = customerPayments.fold<int>(
+      0,
+      (s, e) => s + e.amountPaise,
+    );
     final ownerTotal = ownerEntries.fold<int>(0, (s, e) => s + e.amountPaise);
     final grandTotal = customerTotal + ownerTotal;
 
@@ -3643,10 +3907,12 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
 
     final query = search.text.trim().toLowerCase();
     final sourceFiltered = allCombined.where((item) {
-      if (_filterSource == 'customer' && item.sourceType != _IncomeSourceType.customer) {
+      if (_filterSource == 'customer' &&
+          item.sourceType != _IncomeSourceType.customer) {
         return false;
       }
-      if (_filterSource == 'owner' && item.sourceType != _IncomeSourceType.owner) {
+      if (_filterSource == 'owner' &&
+          item.sourceType != _IncomeSourceType.owner) {
         return false;
       }
       return true;
@@ -3764,19 +4030,29 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
               child: Center(
                 child: Text(
                   _filterSource == 'owner'
-                      ? _tr(context, 'No manual owner income entries added yet. Tap "+ Add Income" above to add one.')
+                      ? _tr(
+                          context,
+                          'No manual owner income entries added yet. Tap "+ Add Income" above to add one.',
+                        )
                       : _filterSource == 'customer'
-                          ? _tr(context, 'No customer payments recorded yet.')
-                          : _tr(context, 'No income records found.'),
+                      ? _tr(context, 'No customer payments recorded yet.')
+                      : _tr(context, 'No income records found.'),
                   textAlign: TextAlign.center,
                 ),
               ),
             ),
           ),
         ...sortedMonths.map((entry) {
-          final monthTotal = entry.value.fold<int>(0, (s, e) => s + e.amountPaise);
-          final custCount = entry.value.where((e) => e.sourceType == _IncomeSourceType.customer).length;
-          final ownerCount = entry.value.where((e) => e.sourceType == _IncomeSourceType.owner).length;
+          final monthTotal = entry.value.fold<int>(
+            0,
+            (s, e) => s + e.amountPaise,
+          );
+          final custCount = entry.value
+              .where((e) => e.sourceType == _IncomeSourceType.customer)
+              .length;
+          final ownerCount = entry.value
+              .where((e) => e.sourceType == _IncomeSourceType.owner)
+              .length;
           return Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
@@ -3816,11 +4092,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
     final onSurface = theme.colorScheme.onSurface;
 
     return ChoiceChip(
-      avatar: Icon(
-        icon,
-        size: 18,
-        color: isSelected ? onPrimary : primary,
-      ),
+      avatar: Icon(icon, size: 18, color: isSelected ? onPrimary : primary),
       label: Text(
         '$label ($count)',
         style: TextStyle(
@@ -3834,7 +4106,9 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
       backgroundColor: containerColor,
       showCheckmark: false,
       side: BorderSide(
-        color: isSelected ? primary : theme.colorScheme.outline.withOpacity(0.3),
+        color: isSelected
+            ? primary
+            : theme.colorScheme.outline.withOpacity(0.3),
       ),
       onSelected: (_) => setState(() => _filterSource = key),
     );
@@ -3855,11 +4129,7 @@ class _IncomeMonthSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final days = <DateTime, List<_CombinedIncomeItem>>{};
     for (final item in items) {
-      final day = DateTime(
-        item.date.year,
-        item.date.month,
-        item.date.day,
-      );
+      final day = DateTime(item.date.year, item.date.month, item.date.day);
       (days[day] ??= []).add(item);
     }
     final total = items.fold<int>(0, (sum, item) => sum + item.amountPaise);
@@ -3902,9 +4172,14 @@ class _IncomeMonthSheet extends StatelessWidget {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                        color: theme.colorScheme.primaryContainer.withValues(
+                          alpha: 0.5,
+                        ),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -3929,86 +4204,144 @@ class _IncomeMonthSheet extends StatelessWidget {
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                    side: BorderSide(
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.6,
+                      ),
+                    ),
                   ),
                   child: Theme(
                     data: theme.copyWith(dividerColor: Colors.transparent),
                     child: ExpansionTile(
                       initiallyExpanded: false,
-                      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      tilePadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
                       title: Text(
                         _date(entry.key),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
                       subtitle: Text(
                         '${_tr(context, 'Day Total')}: ${_rupees(dayTotal)} • ${entry.value.length} ${entry.value.length == 1 ? _tr(context, 'entry') : _tr(context, 'entries')}',
-                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
                       ),
                       children: entry.value.map((item) {
-                        final isCust = item.sourceType == _IncomeSourceType.customer;
+                        final isCust =
+                            item.sourceType == _IncomeSourceType.customer;
                         final p = item.payment;
                         final o = item.ownerEntry;
-                        final method = isCust ? _formatTitleCase(p?.method ?? 'Cash') : _tr(context, 'Owner Entry');
+                        final method = isCust
+                            ? _formatTitleCase(p?.method ?? 'Cash')
+                            : _tr(context, 'Owner Entry');
                         final note = isCust ? p?.note : o?.description;
-                        final timeStr = TimeOfDay.fromDateTime(item.date).format(context);
+                        final timeStr = TimeOfDay.fromDateTime(
+                          item.date,
+                        ).format(context);
 
                         return Container(
                           margin: const EdgeInsets.only(top: 8),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.35),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                            border: Border.all(
+                              color: theme.colorScheme.outlineVariant
+                                  .withValues(alpha: 0.4),
+                            ),
                           ),
                           child: Material(
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
-                              onTap: () => _showIncomeDetailSheet(context, businessId: businessId, item: item),
+                              onTap: () => _showIncomeDetailSheet(
+                                context,
+                                businessId: businessId,
+                                item: item,
+                              ),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
                                 child: Row(
                                   children: [
                                     CircleAvatar(
                                       radius: 18,
                                       backgroundColor: isCust
                                           ? Colors.teal.withValues(alpha: 0.15)
-                                          : theme.colorScheme.primary.withValues(alpha: 0.15),
+                                          : theme.colorScheme.primary
+                                                .withValues(alpha: 0.15),
                                       child: Icon(
-                                        isCust ? Icons.receipt_long_outlined : Icons.person_add_alt_1_outlined,
-                                        color: isCust ? Colors.teal : theme.colorScheme.primary,
+                                        isCust
+                                            ? Icons.receipt_long_outlined
+                                            : Icons.person_add_alt_1_outlined,
+                                        color: isCust
+                                            ? Colors.teal
+                                            : theme.colorScheme.primary,
                                         size: 18,
                                       ),
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Row(
                                             children: [
                                               Flexible(
                                                 child: Text(
-                                                  isCust ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
+                                                  isCust
+                                                      ? _tr(
+                                                          context,
+                                                          'Customer Payment',
+                                                        )
+                                                      : _tr(
+                                                          context,
+                                                          'Owner Entry',
+                                                        ),
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 13.5,
+                                                  ),
                                                 ),
                                               ),
                                               if (isCust) ...[
                                                 const SizedBox(width: 6),
                                                 Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 1.5,
+                                                      ),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.teal.withValues(alpha: 0.12),
-                                                    borderRadius: BorderRadius.circular(6),
+                                                    color: Colors.teal
+                                                        .withValues(
+                                                          alpha: 0.12,
+                                                        ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
                                                   ),
                                                   child: Text(
                                                     method,
                                                     style: const TextStyle(
                                                       color: Colors.teal,
                                                       fontSize: 10.5,
-                                                      fontWeight: FontWeight.bold,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                     ),
                                                   ),
                                                 ),
@@ -4017,13 +4350,16 @@ class _IncomeMonthSheet extends StatelessWidget {
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            note != null && note.trim().isNotEmpty
+                                            note != null &&
+                                                    note.trim().isNotEmpty
                                                 ? '$timeStr • ${_formatTitleCase(note.trim())}'
                                                 : timeStr,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: theme.colorScheme.onSurfaceVariant,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -4035,12 +4371,18 @@ class _IncomeMonthSheet extends StatelessWidget {
                                       '+ ${_rupees(item.amountPaise)}',
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        color: isCust ? Colors.teal : theme.colorScheme.primary,
+                                        color: isCust
+                                            ? Colors.teal
+                                            : theme.colorScheme.primary,
                                         fontSize: 14.5,
                                       ),
                                     ),
                                     const SizedBox(width: 4),
-                                    Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.outline),
+                                    Icon(
+                                      Icons.chevron_right,
+                                      size: 16,
+                                      color: theme.colorScheme.outline,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -4062,10 +4404,14 @@ class _IncomeMonthSheet extends StatelessWidget {
 
 String _formatTitleCase(String text) {
   if (text.trim().isEmpty) return text;
-  return text.trim().split(' ').map((word) {
-    if (word.isEmpty) return word;
-    return word[0].toUpperCase() + word.substring(1).toLowerCase();
-  }).join(' ');
+  return text
+      .trim()
+      .split(' ')
+      .map((word) {
+        if (word.isEmpty) return word;
+        return word[0].toUpperCase() + word.substring(1).toLowerCase();
+      })
+      .join(' ');
 }
 
 void _showIncomeDetailSheet(
@@ -4080,10 +4426,11 @@ void _showIncomeDetailSheet(
   final title = isCustomer
       ? '${_tr(context, 'Customer Payment')}${p?.method != null ? ' (${_formatTitleCase(p!.method)})' : ''}'
       : (o?.description != null && o!.description!.trim().isNotEmpty)
-          ? _formatTitleCase(o.description!)
-          : _tr(context, 'Owner Entry');
+      ? _formatTitleCase(o.description!)
+      : _tr(context, 'Owner Entry');
 
-  final formattedDate = '${_date(item.date)} at ${TimeOfDay.fromDateTime(item.date).format(context)}';
+  final formattedDate =
+      '${_date(item.date)} at ${TimeOfDay.fromDateTime(item.date).format(context)}';
   final note = isCustomer ? p?.note : o?.description;
 
   showModalBottomSheet<void>(
@@ -4109,7 +4456,9 @@ void _showIncomeDetailSheet(
                         : theme.primaryColor.withValues(alpha: 0.15),
                     radius: 22,
                     child: Icon(
-                      isCustomer ? Icons.receipt_long_outlined : Icons.person_add_alt_1_outlined,
+                      isCustomer
+                          ? Icons.receipt_long_outlined
+                          : Icons.person_add_alt_1_outlined,
                       color: isCustomer ? Colors.teal : theme.primaryColor,
                       size: 24,
                     ),
@@ -4127,7 +4476,10 @@ void _showIncomeDetailSheet(
                         ),
                         const SizedBox(height: 2),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: isCustomer
                                 ? Colors.teal.withValues(alpha: 0.12)
@@ -4135,9 +4487,13 @@ void _showIncomeDetailSheet(
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            isCustomer ? _tr(context, 'Customer Payment') : _tr(context, 'Owner Entry'),
+                            isCustomer
+                                ? _tr(context, 'Customer Payment')
+                                : _tr(context, 'Owner Entry'),
                             style: TextStyle(
-                              color: isCustomer ? Colors.teal : theme.primaryColor,
+                              color: isCustomer
+                                  ? Colors.teal
+                                  : theme.primaryColor,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                             ),
@@ -4151,10 +4507,16 @@ void _showIncomeDetailSheet(
               const SizedBox(height: 20),
               Card(
                 elevation: 0,
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.4,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                  side: BorderSide(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.6,
+                    ),
+                  ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -4165,14 +4527,19 @@ void _showIncomeDetailSheet(
                         children: [
                           Text(
                             _tr(context, 'Amount Received'),
-                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 13,
+                            ),
                           ),
                           Text(
                             '+ ${_rupees(item.amountPaise)}',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: isCustomer ? Colors.teal : theme.primaryColor,
+                              color: isCustomer
+                                  ? Colors.teal
+                                  : theme.primaryColor,
                             ),
                           ),
                         ],
@@ -4183,9 +4550,18 @@ void _showIncomeDetailSheet(
                         children: [
                           Text(
                             _tr(context, 'Date & Time'),
-                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 13,
+                            ),
                           ),
-                          Text(formattedDate, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          Text(
+                            formattedDate,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
                       if (isCustomer && p?.method != null) ...[
@@ -4195,11 +4571,17 @@ void _showIncomeDetailSheet(
                           children: [
                             Text(
                               _tr(context, 'Payment Method'),
-                              style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontSize: 13,
+                              ),
                             ),
                             Text(
                               _formatTitleCase(p!.method),
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
                             ),
                           ],
                         ),
@@ -4211,7 +4593,10 @@ void _showIncomeDetailSheet(
               const SizedBox(height: 16),
               Text(
                 _tr(context, 'Description / Notes'),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.5,
+                ),
               ),
               const SizedBox(height: 6),
               Container(
@@ -4220,12 +4605,21 @@ void _showIncomeDetailSheet(
                 decoration: BoxDecoration(
                   color: theme.cardColor,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.6,
+                    ),
+                  ),
                 ),
                 child: Text(
                   (note != null && note.trim().isNotEmpty)
                       ? _formatTitleCase(note.trim())
-                      : (isCustomer ? _tr(context, 'Payment received for customer invoice.') : _tr(context, 'Manual income recorded by owner.')),
+                      : (isCustomer
+                            ? _tr(
+                                context,
+                                'Payment received for customer invoice.',
+                              )
+                            : _tr(context, 'Manual income recorded by owner.')),
                   style: const TextStyle(fontSize: 13.5, height: 1.4),
                 ),
               ),
@@ -4311,7 +4705,9 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
     final paise = _parseOptionalRupees(amount.text);
     if (paise <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_tr(context, 'Enter an amount greater than zero.'))),
+        SnackBar(
+          content: Text(_tr(context, 'Enter an amount greater than zero.')),
+        ),
       );
       return;
     }
@@ -4337,9 +4733,13 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Failed to save income')))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Failed to save income')),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -4351,7 +4751,12 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(_tr(context, 'Delete income entry?')),
-        content: Text(_tr(context, 'Are you sure you want to delete this manual income entry?')),
+        content: Text(
+          _tr(
+            context,
+            'Are you sure you want to delete this manual income entry?',
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -4368,15 +4773,16 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
     if (confirm != true) return;
     setState(() => saving = true);
     try {
-      await ref.read(incomeRepositoryProvider).delete(
-        businessId: widget.businessId,
-        id: widget.income!.id,
-      );
+      await ref
+          .read(incomeRepositoryProvider)
+          .delete(businessId: widget.businessId, id: widget.income!.id);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(e, 'Failed to delete income'))),
+          SnackBar(
+            content: Text(_cleanErrorMessage(e, 'Failed to delete income')),
+          ),
         );
       }
     } finally {
@@ -4384,9 +4790,7 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
     }
   }
 
-  bool get _isDirty =>
-      amount.text.isNotEmpty ||
-      description.text.isNotEmpty;
+  bool get _isDirty => amount.text.isNotEmpty || description.text.isNotEmpty;
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -4408,68 +4812,79 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
           24 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: ListView(
-        shrinkWrap: true,
-        children: [
-          Text(
-            widget.income == null ? _tr(context, 'Add income') : _tr(context, 'Edit income'),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: amount,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: _tr(context, 'Amount (₹)')),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: description,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Description (optional)'),
+          shrinkWrap: true,
+          children: [
+            Text(
+              widget.income == null
+                  ? _tr(context, 'Add income')
+                  : _tr(context, 'Edit income'),
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(_tr(context, 'Income date')),
-            subtitle: Text(_date(date)),
-            onTap: saving
-                ? null
-                : () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: date,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime.now(),
-                    );
-                    if (picked != null && mounted) setState(() => date = picked);
-                  },
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              if (widget.income != null)
-                OutlinedButton.icon(
-                  onPressed: saving ? null : delete,
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                  icon: const Icon(Icons.delete_outline),
-                  label: Text(_tr(context, 'Delete')),
-                ),
-              if (widget.income != null) const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: saving ? null : save,
-                  child: Text(
-                    saving
-                        ? _tr(context, 'Saving...')
-                        : (widget.income == null ? _tr(context, 'Save income') : _tr(context, 'Update income')),
+            const SizedBox(height: 16),
+            TextField(
+              controller: amount,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Amount (₹)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: description,
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Description (optional)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(_tr(context, 'Income date')),
+              subtitle: Text(_date(date)),
+              onTap: saving
+                  ? null
+                  : () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: date,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null && mounted)
+                        setState(() => date = picked);
+                    },
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (widget.income != null)
+                  OutlinedButton.icon(
+                    onPressed: saving ? null : delete,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    icon: const Icon(Icons.delete_outline),
+                    label: Text(_tr(context, 'Delete')),
+                  ),
+                if (widget.income != null) const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: saving ? null : save,
+                    child: Text(
+                      saving
+                          ? _tr(context, 'Saving...')
+                          : (widget.income == null
+                                ? _tr(context, 'Save income')
+                                : _tr(context, 'Update income')),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
-          ),
+              ],
+            ),
+          ],
         ),
+      ),
     ),
   );
 }
@@ -4614,8 +5029,14 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
                           }
                         },
                         itemBuilder: (_) => [
-                          PopupMenuItem(value: 'edit', child: Text(_tr(context, 'Edit'))),
-                          PopupMenuItem(value: 'delete', child: Text(_tr(context, 'Delete'))),
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text(_tr(context, 'Edit')),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text(_tr(context, 'Delete')),
+                          ),
                         ],
                       ),
                     ),
@@ -4674,8 +5095,8 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
       setState(() {
         _amountError = hasAmountError
             ? (amount.text.trim().isEmpty
-                ? _tr(context, 'Amount is required')
-                : _tr(context, 'Enter a valid amount and category.'))
+                  ? _tr(context, 'Amount is required')
+                  : _tr(context, 'Enter a valid amount and category.'))
             : null;
         _categoryError = hasCategoryError
             ? _tr(context, 'Category is required')
@@ -4683,7 +5104,12 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_tr(context, 'Please fill all mandatory fields (Amount and Category).')),
+          content: Text(
+            _tr(
+              context,
+              'Please fill all mandatory fields (Amount and Category).',
+            ),
+          ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -4717,9 +5143,11 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_cleanErrorMessage(e, 'Could not save expense'))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_cleanErrorMessage(e, 'Could not save expense')),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -4751,64 +5179,74 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
           24 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: ListView(
-        shrinkWrap: true,
-        children: [
-          Text(
-            _tr(context, widget.expense == null ? 'Add expense' : 'Edit expense'),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: amount,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Amount (₹)'),
-              errorText: _amountError,
+          shrinkWrap: true,
+          children: [
+            Text(
+              _tr(
+                context,
+                widget.expense == null ? 'Add expense' : 'Edit expense',
+              ),
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            onChanged: (_) {
-              if (_amountError != null) setState(() => _amountError = null);
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: category,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Category'),
-              errorText: _categoryError,
+            const SizedBox(height: 16),
+            TextField(
+              controller: amount,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Amount (₹)'),
+                errorText: _amountError,
+              ),
+              onChanged: (_) {
+                if (_amountError != null) setState(() => _amountError = null);
+              },
             ),
-            onChanged: (_) {
-              if (_categoryError != null) setState(() => _categoryError = null);
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: description,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Description (optional)'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: category,
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Category'),
+                errorText: _categoryError,
+              ),
+              onChanged: (_) {
+                if (_categoryError != null)
+                  setState(() => _categoryError = null);
+              },
             ),
-          ),
-          const SizedBox(height: 12),
-          _DatePickerField(
-            label: _tr(context, 'Expense date'),
-            selectedDate: date,
-            onTap: saving
-                ? () {}
-                : () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: date,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime.now(),
-                    );
-                    if (d != null && mounted) setState(() => date = d);
-                  },
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: saving ? null : save,
-            child: Text(saving ? _tr(context, 'Saving...') : _tr(context, 'Save expense')),
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: description,
+              decoration: InputDecoration(
+                labelText: _tr(context, 'Description (optional)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _DatePickerField(
+              label: _tr(context, 'Expense date'),
+              selectedDate: date,
+              onTap: saving
+                  ? () {}
+                  : () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: date,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now(),
+                      );
+                      if (d != null && mounted) setState(() => date = d);
+                    },
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: saving ? null : save,
+              child: Text(
+                saving
+                    ? _tr(context, 'Saving...')
+                    : _tr(context, 'Save expense'),
+              ),
+            ),
+          ],
         ),
       ),
     ),
@@ -4890,9 +5328,10 @@ class _SkeletonCardState extends State<_SkeletonCard>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.25, end: 0.65).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.25,
+      end: 0.65,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -4920,7 +5359,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
 
 class _SkeletonListLoader extends StatelessWidget {
   const _SkeletonListLoader({this.itemCount = 5, double? cardHeight})
-      : cardHeight = cardHeight ?? 72.0;
+    : cardHeight = cardHeight ?? 72.0;
   final int itemCount;
   final double cardHeight;
 
@@ -4964,7 +5403,9 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               _tr(context, title),
-              style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
@@ -4976,7 +5417,7 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
           ],
-          ),
+        ),
       ),
     );
   }
@@ -5058,8 +5499,7 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
         return const _EmptyState(
           icon: Icons.delete_sweep_outlined,
           title: 'Recycle bin is empty',
-          message:
-              'Deleted customers and expenses will appear here.',
+          message: 'Deleted customers and expenses will appear here.',
         );
       }
       return Column(
@@ -5069,10 +5509,14 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
             margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.35),
+              color: Theme.of(
+                context,
+              ).colorScheme.errorContainer.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: Theme.of(context).colorScheme.error.withValues(alpha: 0.25),
+                color: Theme.of(
+                  context,
+                ).colorScheme.error.withValues(alpha: 0.25),
               ),
             ),
             child: Row(
@@ -5097,7 +5541,10 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _tr(context, 'Deleted items can be restored back to your active lists.'),
+                        _tr(
+                          context,
+                          'Deleted items can be restored back to your active lists.',
+                        ),
                         style: TextStyle(
                           fontSize: 12.5,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -5127,7 +5574,9 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
                         if (!context.mounted) return;
                         setState(() => _records = _load());
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(_tr(context, 'Record restored'))),
+                          SnackBar(
+                            content: Text(_tr(context, 'Record restored')),
+                          ),
                         );
                       },
                       child: Text(_tr(context, 'Restore')),
@@ -5191,8 +5640,14 @@ class _ReportsTab extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       _tr(context, '{collected} collected of {billed} billed')
-                          .replaceAll('{collected}', _rupees(data.totalReceivedPaise))
-                          .replaceAll('{billed}', _rupees(data.totalBilledPaise)),
+                          .replaceAll(
+                            '{collected}',
+                            _rupees(data.totalReceivedPaise),
+                          )
+                          .replaceAll(
+                            '{billed}',
+                            _rupees(data.totalBilledPaise),
+                          ),
                     ),
                   ],
                 ),
@@ -5222,12 +5677,11 @@ class _ReportsTab extends StatelessWidget {
                     ),
                     onTap: data.overdueInvoiceCount > 0
                         ? () => showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              builder: (_) => _OverdueInvoicesSheet(
-                                businessId: businessId,
-                              ),
-                            )
+                            context: context,
+                            isScrollControlled: true,
+                            builder: (_) =>
+                                _OverdueInvoicesSheet(businessId: businessId),
+                          )
                         : null,
                   ),
                   ListTile(
@@ -5266,10 +5720,12 @@ class _SyncQueueSheet extends ConsumerWidget {
             .read(databaseProvider)
             .update(ref.read(databaseProvider).syncOperations)
           ..where((operation) => operation.id.equals(id)))
-        .write(const SyncOperationsCompanion(
-          status: Value('pending'),
-          attemptCount: Value(0),
-        ));
+        .write(
+          const SyncOperationsCompanion(
+            status: Value('pending'),
+            attemptCount: Value(0),
+          ),
+        );
     // Requeueing and starting the worker are one user action. This avoids
     // making the user wait for the next periodic sync tick.
     await ref.read(syncWorkerProvider).syncBusiness(businessId);
@@ -5372,7 +5828,11 @@ class _MetricCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 if (onTap != null)
                   Icon(
                     Icons.chevron_right_rounded,
@@ -5388,9 +5848,9 @@ class _MetricCard extends StatelessWidget {
               child: Text(
                 value,
                 maxLines: 1,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 2),
@@ -5399,8 +5859,8 @@ class _MetricCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -5547,8 +6007,9 @@ class _CustomerListItem extends ConsumerWidget {
         trailing: outstandingAsync.maybeWhen(
           data: (outstanding) {
             final isClear = outstanding == 0;
-            final color =
-                isClear ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+            final color = isClear
+                ? const Color(0xFF10B981)
+                : const Color(0xFFEF4444);
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
@@ -5557,7 +6018,9 @@ class _CustomerListItem extends ConsumerWidget {
                 border: Border.all(color: color.withOpacity(0.25)),
               ),
               child: Text(
-                isClear ? _tr(context, 'Clear') : '${_tr(context, 'Due')} ${_rupees(outstanding)}',
+                isClear
+                    ? _tr(context, 'Clear')
+                    : '${_tr(context, 'Due')} ${_rupees(outstanding)}',
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.w600,
@@ -5624,7 +6087,9 @@ class _BusinessSettingsSheetState
       _saving = true;
     });
     try {
-      await ref.read(businessRepositoryProvider).updateLanguage(
+      await ref
+          .read(businessRepositoryProvider)
+          .updateLanguage(
             businessId: widget.business.id,
             languageCode: newLanguage,
           );
@@ -5641,7 +6106,11 @@ class _BusinessSettingsSheetState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(error, 'Could not update language'))),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(error, 'Could not update language'),
+            ),
+          ),
         );
       }
     } finally {
@@ -5652,7 +6121,9 @@ class _BusinessSettingsSheetState
   Future<void> _handleDeleteAccount(BuildContext context, WidgetRef ref) async {
     // 1. Check network connectivity before starting deletion
     try {
-      final lookup = await InternetAddress.lookup('supabase.co').timeout(const Duration(seconds: 4));
+      final lookup = await InternetAddress.lookup(
+        'supabase.co',
+      ).timeout(const Duration(seconds: 4));
       if (lookup.isEmpty || lookup.first.rawAddress.isEmpty) {
         throw const SocketException('Offline');
       }
@@ -5662,7 +6133,10 @@ class _BusinessSettingsSheetState
           SnackBar(
             backgroundColor: Theme.of(context).colorScheme.error,
             content: Text(
-              _tr(context, 'Internet connection is required to delete your account. Please check your network and try again.'),
+              _tr(
+                context,
+                'Internet connection is required to delete your account. Please check your network and try again.',
+              ),
             ),
           ),
         );
@@ -5674,9 +6148,9 @@ class _BusinessSettingsSheetState
     int pendingSyncCount = 0;
     try {
       final db = ref.read(databaseProvider);
-      final pendingOps = await (db.select(db.syncOperations)
-            ..where((s) => s.businessId.equals(widget.business.id)))
-          .get();
+      final pendingOps = await (db.select(
+        db.syncOperations,
+      )..where((s) => s.businessId.equals(widget.business.id))).get();
       pendingSyncCount = pendingOps.length;
     } catch (_) {}
 
@@ -5690,9 +6164,7 @@ class _BusinessSettingsSheetState
     if (confirmed != true) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_tr(context, 'Account deletion cancelled')),
-          ),
+          SnackBar(content: Text(_tr(context, 'Account deletion cancelled'))),
         );
       }
       return;
@@ -5780,7 +6252,10 @@ class _BusinessSettingsSheetState
 
       final errorDetails = AuthErrorDetails.fromError(error);
       final errorMsg = errorDetails.type == AuthErrorType.connectionProblem
-          ? _tr(context, 'Internet connection is required to delete your account. Please check your network and try again.')
+          ? _tr(
+              context,
+              'Internet connection is required to delete your account. Please check your network and try again.',
+            )
           : _cleanErrorMessage(error, _tr(context, 'Could not delete account'));
 
       if (context.mounted) {
@@ -5821,14 +6296,22 @@ class _BusinessSettingsSheetState
                 side: BorderSide(color: theme.colorScheme.outlineVariant),
               ),
               child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 leading: CircleAvatar(
                   backgroundColor: theme.colorScheme.primaryContainer,
-                  child: Icon(Icons.storefront_rounded, color: theme.colorScheme.primary),
+                  child: Icon(
+                    Icons.storefront_rounded,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
                 title: Text(
                   widget.business.name,
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 subtitle: Text(
                   '${_tr(context, 'Owner')}: ${widget.business.ownerName}\n${_tr(context, 'Tap to view and edit shop name, owner, logo, GSTIN, UPI & address')}',
@@ -5839,9 +6322,8 @@ class _BusinessSettingsSheetState
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => BusinessProfileScreen(
-                        businessId: widget.business.id,
-                      ),
+                      builder: (_) =>
+                          BusinessProfileScreen(businessId: widget.business.id),
                     ),
                   );
                 },
@@ -5864,12 +6346,22 @@ class _BusinessSettingsSheetState
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.6)),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                ),
               ),
               child: ListTile(
-                leading: Icon(Icons.notifications_outlined, color: theme.colorScheme.onSurfaceVariant),
+                leading: Icon(
+                  Icons.notifications_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 title: Text(_tr(context, 'Notifications')),
-                subtitle: Text(_tr(context, 'Manage payment alerts, invoice reminders & quiet hours')),
+                subtitle: Text(
+                  _tr(
+                    context,
+                    'Manage payment alerts, invoice reminders & quiet hours',
+                  ),
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () {
                   Navigator.push(
@@ -5887,12 +6379,19 @@ class _BusinessSettingsSheetState
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.6)),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                ),
               ),
               child: ListTile(
-                leading: Icon(Icons.lock_outline_rounded, color: theme.colorScheme.onSurfaceVariant),
+                leading: Icon(
+                  Icons.lock_outline_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 title: Text(_tr(context, 'App Security & PIN Lock')),
-                subtitle: Text(_tr(context, 'Configure PIN code protection for app startup')),
+                subtitle: Text(
+                  _tr(context, 'Configure PIN code protection for app startup'),
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _configurePin(context, ref),
               ),
@@ -5903,12 +6402,19 @@ class _BusinessSettingsSheetState
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.6)),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                ),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 child: DropdownButtonFormField<String>(
-                  value: ['en', 'hi', 'te'].contains(_language) ? _language : 'en',
+                  value: ['en', 'hi', 'te'].contains(_language)
+                      ? _language
+                      : 'en',
                   decoration: InputDecoration(
                     labelText: _tr(context, 'App Language'),
                     border: InputBorder.none,
@@ -5916,12 +6422,20 @@ class _BusinessSettingsSheetState
                   ),
                   items: const [
                     DropdownMenuItem(value: 'en', child: Text('English')),
-                    DropdownMenuItem(value: 'hi', child: Text('हिन्दी (Hindi)')),
-                    DropdownMenuItem(value: 'te', child: Text('తెలుగు (Telugu)')),
+                    DropdownMenuItem(
+                      value: 'hi',
+                      child: Text('हिन्दी (Hindi)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'te',
+                      child: Text('తెలుగు (Telugu)'),
+                    ),
                   ],
-                  onChanged: _saving ? null : (val) {
-                    if (val != null) _saveLanguage(val);
-                  },
+                  onChanged: _saving
+                      ? null
+                      : (val) {
+                          if (val != null) _saveLanguage(val);
+                        },
                 ),
               ),
             ),
@@ -5944,7 +6458,10 @@ class _BusinessSettingsSheetState
                     ButtonSegment<ThemeMode>(
                       value: ThemeMode.system,
                       label: Text(_tr(context, 'System')),
-                      icon: const Icon(Icons.brightness_auto_outlined, size: 18),
+                      icon: const Icon(
+                        Icons.brightness_auto_outlined,
+                        size: 18,
+                      ),
                     ),
                     ButtonSegment<ThemeMode>(
                       value: ThemeMode.light,
@@ -5960,7 +6477,9 @@ class _BusinessSettingsSheetState
                   selected: {mode},
                   onSelectionChanged: (selection) {
                     if (selection.isNotEmpty) {
-                      ref.read(themeModeProvider.notifier).setThemeMode(selection.first);
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .setThemeMode(selection.first);
                     }
                   },
                 );
@@ -5981,18 +6500,29 @@ class _BusinessSettingsSheetState
               margin: const EdgeInsets.only(bottom: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.6)),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                ),
               ),
               child: ListTile(
-                leading: Icon(Icons.cloud_sync_outlined, color: theme.colorScheme.onSurfaceVariant),
+                leading: Icon(
+                  Icons.cloud_sync_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 title: Text(_tr(context, 'Sync Queue & Status')),
-                subtitle: Text(_tr(context, 'Check offline queued operations and retry status')),
+                subtitle: Text(
+                  _tr(
+                    context,
+                    'Check offline queued operations and retry status',
+                  ),
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () {
                   showModalBottomSheet<void>(
                     context: context,
                     isScrollControlled: true,
-                    builder: (_) => _SyncQueueSheet(businessId: widget.business.id),
+                    builder: (_) =>
+                        _SyncQueueSheet(businessId: widget.business.id),
                   );
                 },
               ),
@@ -6013,10 +6543,15 @@ class _BusinessSettingsSheetState
               color: theme.colorScheme.errorContainer.withValues(alpha: 0.28),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.55)),
+                side: BorderSide(
+                  color: theme.colorScheme.error.withValues(alpha: 0.55),
+                ),
               ),
               child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 leading: Container(
                   width: 42,
                   height: 42,
@@ -6024,7 +6559,10 @@ class _BusinessSettingsSheetState
                     color: theme.colorScheme.error.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.delete_forever_outlined, color: theme.colorScheme.error),
+                  child: Icon(
+                    Icons.delete_forever_outlined,
+                    color: theme.colorScheme.error,
+                  ),
                 ),
                 title: Text(
                   _tr(context, 'Delete Account'),
@@ -6034,7 +6572,10 @@ class _BusinessSettingsSheetState
                   ),
                 ),
                 subtitle: Text(
-                  _tr(context, 'Permanently delete your account and associated data.'),
+                  _tr(
+                    context,
+                    'Permanently delete your account and associated data.',
+                  ),
                 ),
                 trailing: Icon(
                   Icons.arrow_forward_rounded,
@@ -6065,7 +6606,10 @@ class _BusinessSettingsSheetState
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _tr(context, 'Offline-First Smart Billing & Business Management'),
+                    _tr(
+                      context,
+                      'Offline-First Smart Billing & Business Management',
+                    ),
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.outline,
@@ -6102,7 +6646,10 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
     super.initState();
     final session = ref.read(sessionProvider).valueOrNull;
     final savedLang = ref.read(appLanguageProvider);
-    _language = (session != null && session.activeBusinessId != null && session.localeCode.isNotEmpty)
+    _language =
+        (session != null &&
+            session.activeBusinessId != null &&
+            session.localeCode.isNotEmpty)
         ? session.localeCode
         : (savedLang.isNotEmpty ? savedLang : 'en');
   }
@@ -6147,7 +6694,9 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(error, 'Could not add business'))),
+          SnackBar(
+            content: Text(_cleanErrorMessage(error, 'Could not add business')),
+          ),
         );
       }
     } finally {
@@ -6156,8 +6705,9 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
   }
 
   String _t(String key) => trLang(key, _language);
-  String? _req(String? value) =>
-      value == null || value.trim().isEmpty ? _t('This field is required.') : null;
+  String? _req(String? value) => value == null || value.trim().isEmpty
+      ? _t('This field is required.')
+      : null;
 
   @override
   Widget build(BuildContext context) {
@@ -6180,7 +6730,9 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              _t('This business starts with empty customers, invoices, and payments.'),
+              _t(
+                'This business starts with empty customers, invoices, and payments.',
+              ),
             ),
             const SizedBox(height: 16),
             Row(
@@ -6242,7 +6794,9 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : _save,
-              child: Text(_saving ? _t('Creating...') : _t('Create empty business')),
+              child: Text(
+                _saving ? _t('Creating...') : _t('Create empty business'),
+              ),
             ),
           ],
         ),
@@ -6256,7 +6810,9 @@ Future<void> _launchCustomerCall(BuildContext context, String rawPhone) async {
   if (cleanNumber.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(_tr(context, 'No phone number available for this customer')),
+        content: Text(
+          _tr(context, 'No phone number available for this customer'),
+        ),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -6321,11 +6877,7 @@ class _CustomerDetailsSheet extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.phone_rounded,
-                  size: 15,
-                  color: callFgColor,
-                ),
+                Icon(Icons.phone_rounded, size: 15, color: callFgColor),
                 const SizedBox(width: 4),
                 Text(
                   _tr(context, 'Call'),
@@ -6375,11 +6927,7 @@ class _CustomerDetailsSheet extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FaIcon(
-                  FontAwesomeIcons.whatsapp,
-                  size: 16,
-                  color: waFgColor,
-                ),
+                FaIcon(FontAwesomeIcons.whatsapp, size: 16, color: waFgColor),
               ],
             ),
           ),
@@ -6388,14 +6936,22 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     );
   }
 
-  Future<void> _sendWhatsAppReminder(BuildContext context, WidgetRef ref) async {
+  Future<void> _sendWhatsAppReminder(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final rawPhone = customer.phone.trim();
     var cleanPhone = rawPhone.replaceAll(RegExp(r'[^\d]'), '');
     if (cleanPhone.isEmpty || cleanPhone.length < 10) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_tr(context, 'Please enter a valid phone number for this customer.')),
+            content: Text(
+              _tr(
+                context,
+                'Please enter a valid phone number for this customer.',
+              ),
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -6410,13 +6966,16 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     final invoiceRepo = ref.read(invoiceRepositoryProvider);
     final db = ref.read(databaseProvider);
 
-    final invoices = await (db.select(db.invoices)
-          ..where((i) =>
-              i.businessId.equals(businessId) &
-              i.customerId.equals(customer.id) &
-              i.deletedAt.isNull())
-          ..orderBy([(i) => OrderingTerm.asc(i.issuedAt)]))
-        .get();
+    final invoices =
+        await (db.select(db.invoices)
+              ..where(
+                (i) =>
+                    i.businessId.equals(businessId) &
+                    i.customerId.equals(customer.id) &
+                    i.deletedAt.isNull(),
+              )
+              ..orderBy([(i) => OrderingTerm.asc(i.issuedAt)]))
+            .get();
 
     final eligibleInvoices = <Invoice>[];
     var totalOutstandingPaise = 0;
@@ -6444,7 +7003,9 @@ class _CustomerDetailsSheet extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_tr(context, 'This customer has no outstanding payments.')),
+            content: Text(
+              _tr(context, 'This customer has no outstanding payments.'),
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -6452,8 +7013,12 @@ class _CustomerDetailsSheet extends ConsumerWidget {
       return;
     }
 
-    final business = await (db.select(db.businesses)..where((b) => b.id.equals(businessId))).getSingleOrNull();
-    final businessName = business?.name.trim().isNotEmpty == true ? business!.name.trim() : 'OneBill';
+    final business = await (db.select(
+      db.businesses,
+    )..where((b) => b.id.equals(businessId))).getSingleOrNull();
+    final businessName = business?.name.trim().isNotEmpty == true
+        ? business!.name.trim()
+        : 'OneBill';
     final customerName = customer.name.trim();
 
     final buffer = StringBuffer();
@@ -6469,8 +7034,12 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     }
 
     buffer.writeln('📋 *${_tr(context, 'YOUR PAYMENT SUMMARY')}*\n');
-    buffer.writeln('🧾 ${_tr(context, 'Outstanding Invoices')}: ${eligibleInvoices.length}');
-    buffer.writeln('💰 ${_tr(context, 'Total Due')}: ${_rupees(totalOutstandingPaise)}\n');
+    buffer.writeln(
+      '🧾 ${_tr(context, 'Outstanding Invoices')}: ${eligibleInvoices.length}',
+    );
+    buffer.writeln(
+      '💰 ${_tr(context, 'Total Due')}: ${_rupees(totalOutstandingPaise)}\n',
+    );
     buffer.writeln('━━━━━━━━━━━━━━━━\n');
 
     if (eligibleInvoices.length <= 5) {
@@ -6494,44 +7063,70 @@ class _CustomerDetailsSheet extends ConsumerWidget {
           statusEmoji = '🟠';
         }
 
-        buffer.writeln('*$num. ${_tr(context, 'Invoice')} ${inv.invoiceNumber}*\n');
+        buffer.writeln(
+          '*$num. ${_tr(context, 'Invoice')} ${inv.invoiceNumber}*\n',
+        );
         buffer.writeln('📅 ${_tr(context, 'Date')}: ${_date(inv.issuedAt)}');
         if (inv.dueAt != null) {
-          buffer.writeln('📅 ${_tr(context, 'Due Date')}: ${_date(inv.dueAt!)}');
+          buffer.writeln(
+            '📅 ${_tr(context, 'Due Date')}: ${_date(inv.dueAt!)}',
+          );
         }
-        buffer.writeln('💵 ${_tr(context, 'Invoice Amount')}: ${_rupees(invTotal)}');
+        buffer.writeln(
+          '💵 ${_tr(context, 'Invoice Amount')}: ${_rupees(invTotal)}',
+        );
         if (inv.paidPaise > 0) {
-          buffer.writeln('✅ ${_tr(context, 'Paid')}: ${_rupees(inv.paidPaise)}');
+          buffer.writeln(
+            '✅ ${_tr(context, 'Paid')}: ${_rupees(inv.paidPaise)}',
+          );
         }
         buffer.writeln('⏳ ${_tr(context, 'Balance Due')}: ${_rupees(invBal)}');
-        buffer.writeln('$statusEmoji ${_tr(context, 'Status')}: $statusLabel\n');
+        buffer.writeln(
+          '$statusEmoji ${_tr(context, 'Status')}: $statusLabel\n',
+        );
       }
       buffer.writeln('━━━━━━━━━━━━━━━━\n');
-      buffer.writeln('💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n');
+      buffer.writeln(
+        '💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n',
+      );
     } else {
       buffer.writeln('🔴 ${_tr(context, 'Overdue')}: $overdueCount');
       buffer.writeln('🟠 ${_tr(context, 'Unpaid')}: $unpaidCount');
-      buffer.writeln('🟡 ${_tr(context, 'Partially Paid')}: $partiallyPaidCount\n');
+      buffer.writeln(
+        '🟡 ${_tr(context, 'Partially Paid')}: $partiallyPaidCount\n',
+      );
       buffer.writeln('━━━━━━━━━━━━━━━━\n');
-      buffer.writeln('💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n');
+      buffer.writeln(
+        '💰 *${_tr(context, 'TOTAL DUE')}: ${_rupees(totalOutstandingPaise)}*\n',
+      );
     }
 
-    buffer.writeln('${_tr(context, 'Kindly settle your outstanding payments at your convenience.')}\n');
-    buffer.writeln('${_tr(context, 'If you have already made any payments, please let us know.')}\n');
-    buffer.writeln('${_tr(context, 'Thank you for your continued support! 🙏')}\n');
+    buffer.writeln(
+      '${_tr(context, 'Kindly settle your outstanding payments at your convenience.')}\n',
+    );
+    buffer.writeln(
+      '${_tr(context, 'If you have already made any payments, please let us know.')}\n',
+    );
+    buffer.writeln(
+      '${_tr(context, 'Thank you for your continued support! 🙏')}\n',
+    );
     buffer.writeln('*$businessName*\n');
     buffer.writeln('━━━━━━━━━━━━━━━━\n');
     buffer.writeln('_Generated by OneBill_');
 
     final messageText = buffer.toString();
-    final whatsappUrl = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}';
+    final whatsappUrl =
+        'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}';
     final uri = Uri.parse(whatsappUrl);
 
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
-        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        final launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
         if (!launched) {
           await Share.share(messageText);
         }
@@ -6613,7 +7208,10 @@ class _CustomerDetailsSheet extends ConsumerWidget {
                   ),
                 ],
               ),
-              Text(_tr(context, 'Invoices'), style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                _tr(context, 'Invoices'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               Expanded(
                 child: _CustomerInvoiceList(
@@ -6637,7 +7235,13 @@ class _CustomerDetailsSheet extends ConsumerWidget {
                     ),
                   ),
                   icon: const Icon(Icons.add),
-                  label: Text(_tr(context, 'Create invoice'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  label: Text(
+                    _tr(context, 'Create invoice'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -6676,7 +7280,11 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(error, 'Could not remove customer'))),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(error, 'Could not remove customer'),
+            ),
+          ),
         );
       }
     }
@@ -6726,7 +7334,9 @@ class _CustomerInfoSheet extends StatelessWidget {
                   await Clipboard.setData(ClipboardData(text: customer.phone));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(_tr(context, 'Mobile number copied'))),
+                      SnackBar(
+                        content: Text(_tr(context, 'Mobile number copied')),
+                      ),
                     );
                   }
                 },
@@ -6816,7 +7426,8 @@ class _CustomerInvoiceListState extends State<_CustomerInvoiceList> {
       ),
     ),
     data: (items) {
-      if (items.isEmpty) return Center(child: Text(_tr(context, 'No invoices yet.')));
+      if (items.isEmpty)
+        return Center(child: Text(_tr(context, 'No invoices yet.')));
       final query = _search.text.trim().toLowerCase();
       final filtered = items
           .where(
@@ -6851,7 +7462,9 @@ class _CustomerInvoiceListState extends State<_CustomerInvoiceList> {
           const SizedBox(height: 8),
           DropdownButtonFormField<InvoicePaymentStatus?>(
             initialValue: _statusFilter,
-            decoration: InputDecoration(labelText: _tr(context, 'Filter by status')),
+            decoration: InputDecoration(
+              labelText: _tr(context, 'Filter by status'),
+            ),
             items: [
               DropdownMenuItem<InvoicePaymentStatus?>(
                 value: null,
@@ -6976,7 +7589,9 @@ class _InvoiceListItem extends ConsumerWidget {
                 Text(
                   '${_tr(context, "Due")}:\u00A0${_rupees(balance)}',
                   style: TextStyle(
-                    color: balance > 0 ? theme.colorScheme.error : theme.colorScheme.primary,
+                    color: balance > 0
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.primary,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                   ),
@@ -7037,10 +7652,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         customerName: customer.name,
         invoiceNumber: invoice.invoiceNumber,
       );
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: fileName,
-      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes, name: fileName);
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7067,11 +7679,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         await SharePlus.instance.share(
           ShareParams(
             files: [
-              XFile(
-                file.path,
-                mimeType: 'application/pdf',
-                name: fileName,
-              ),
+              XFile(file.path, mimeType: 'application/pdf', name: fileName),
             ],
             title: fileName,
             text: 'Invoice ${invoice.invoiceNumber}',
@@ -7101,10 +7709,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
             paperReceiptImage: invoice.paperReceiptImage!,
           );
       final fileName = 'Receipt_${invoice.invoiceNumber}.pdf';
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: fileName,
-      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes, name: fileName);
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7135,11 +7740,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         await SharePlus.instance.share(
           ShareParams(
             files: [
-              XFile(
-                file.path,
-                mimeType: 'application/pdf',
-                name: fileName,
-              ),
+              XFile(file.path, mimeType: 'application/pdf', name: fileName),
             ],
             title: fileName,
             text: 'Paper Receipt ${invoice.invoiceNumber}',
@@ -7178,7 +7779,8 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     Expanded(
                       child: Text(
                         _tr(context, 'Paper Receipt'),
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ),
                     IconButton(
@@ -7213,7 +7815,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     final trimmed = raw.trim();
     if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
       try {
-        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final base64Data = trimmed.contains(',')
+            ? trimmed.split(',').last
+            : trimmed;
         final bytes = base64Decode(base64Data);
         return Image.memory(bytes, fit: BoxFit.contain);
       } catch (_) {}
@@ -7229,7 +7833,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     final trimmed = raw.trim();
     if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
       try {
-        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final base64Data = trimmed.contains(',')
+            ? trimmed.split(',').last
+            : trimmed;
         final bytes = base64Decode(base64Data);
         return Image.memory(bytes, fit: BoxFit.cover);
       } catch (_) {}
@@ -7267,7 +7873,6 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         );
     return (bytes, business, customer);
   }
-
 
   Future<void> _confirmVoid(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
@@ -7320,19 +7925,20 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     final payments = ref.watch(
       invoicePaymentsProvider((businessId: businessId, invoiceId: invoice.id)),
     );
-    final customers = ref.watch(customersProvider(businessId)).valueOrNull ?? [];
+    final customers =
+        ref.watch(customersProvider(businessId)).valueOrNull ?? [];
     final customer = customers.cast<Customer?>().firstWhere(
-          (c) => c?.id == invoice.customerId,
-          orElse: () => null,
-        );
+      (c) => c?.id == invoice.customerId,
+      orElse: () => null,
+    );
     final session = ref.watch(sessionProvider).valueOrNull;
     final businesses = session?.accountId != null
         ? (ref.watch(businessesProvider(session!.accountId!)).valueOrNull ?? [])
         : <BusinessesData>[];
     final business = businesses.cast<BusinessesData?>().firstWhere(
-          (b) => b?.id == businessId,
-          orElse: () => null,
-        );
+      (b) => b?.id == businessId,
+      orElse: () => null,
+    );
 
     final total = repository.total(invoice);
     final balance = repository.balance(invoice);
@@ -7356,16 +7962,16 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                       if (customer != null && customer.name.trim().isNotEmpty)
                         Text(
                           customer.name.trim(),
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.bold),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       const SizedBox(height: 2),
                       Text(
                         invoice.invoiceNumber,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.bold,
                             ),
@@ -7376,20 +7982,27 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                         children: [
                           Text(
                             '${_tr(context, "Issued")} ${_date(invoice.issuedAt)}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                           ),
                           if (invoice.dueAt != null) ...[
                             Text(
                               '  •  ',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                                   ),
                             ),
                             Text(
                               '${_tr(context, "Due")} ${_date(invoice.dueAt!)}',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
                                     color: Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -7408,9 +8021,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
               const SizedBox(height: 6),
               Text(
                 invoice.notes!.trim(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontStyle: FontStyle.italic,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
               ),
             ],
             const SizedBox(height: 12),
@@ -7432,7 +8045,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                 child: child,
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 child: Column(
                   children: [
                     _AmountLine(
@@ -7450,25 +8066,42 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                         amount: invoice.interestPaise,
                       ),
                     const Divider(height: 12),
-                    _AmountLine(label: _tr(context, 'Grand Total'), amount: total, bold: true),
-                    _AmountLine(label: _tr(context, 'Paid'), amount: invoice.paidPaise),
-                    _AmountLine(label: _tr(context, 'Balance'), amount: balance, bold: true),
+                    _AmountLine(
+                      label: _tr(context, 'Grand Total'),
+                      amount: total,
+                      bold: true,
+                    ),
+                    _AmountLine(
+                      label: _tr(context, 'Paid'),
+                      amount: invoice.paidPaise,
+                    ),
+                    _AmountLine(
+                      label: _tr(context, 'Balance'),
+                      amount: balance,
+                      bold: true,
+                    ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 14),
-            if (invoice.paperReceiptImage != null && invoice.paperReceiptImage!.trim().isNotEmpty) ...[
+            if (invoice.paperReceiptImage != null &&
+                invoice.paperReceiptImage!.trim().isNotEmpty) ...[
               InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => _openReceiptViewer(context, invoice.paperReceiptImage!),
+                onTap: () =>
+                    _openReceiptViewer(context, invoice.paperReceiptImage!),
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 14),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -7488,15 +8121,20 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                           children: [
                             Text(
                               _tr(context, 'Paper Receipt'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               _tr(context, 'View Paper Receipt'),
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ],
                         ),
@@ -7529,7 +8167,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     icon: const Icon(Icons.payments_outlined, size: 20),
                     label: Text(
                       _tr(context, 'Record Payment'),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -7545,7 +8186,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                   icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
                   label: Text(
                     _tr(context, 'PDF / Preview'),
-                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -7560,7 +8204,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                   icon: const Icon(Icons.share_outlined, size: 20),
                   label: Text(
                     _tr(context, 'Share Invoice'),
-                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 if (invoice.paperReceiptImage != null &&
@@ -7577,7 +8224,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     icon: const Icon(Icons.print_outlined, size: 20),
                     label: Text(
                       _tr(context, 'Print Paper Receipt'),
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -7592,7 +8242,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     icon: const Icon(Icons.receipt_long_outlined, size: 20),
                     label: Text(
                       _tr(context, 'Share Paper Receipt'),
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -7616,7 +8269,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     icon: const Icon(Icons.edit_outlined, size: 20),
                     label: Text(
                       _tr(context, 'Edit Invoice'),
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -7625,7 +8281,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                       minimumSize: const Size.fromHeight(46),
                       foregroundColor: Theme.of(context).colorScheme.error,
                       side: BorderSide(
-                        color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.error.withValues(alpha: 0.5),
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -7635,14 +8293,20 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                     icon: const Icon(Icons.block_outlined, size: 20),
                     label: Text(
                       _tr(context, 'Void Invoice'),
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
               ],
             ),
             const SizedBox(height: 16),
-            Text(_tr(context, 'Items'), style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              _tr(context, 'Items'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             items.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -7689,10 +8353,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                 .withValues(alpha: 0.35),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.25),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.25),
                             ),
                           ),
                           child: Row(
@@ -7709,13 +8372,11 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                     context,
                                     'Mistake in payment? Tap "Reverse" to cancel it and restore the balance.',
                                   ),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
+                                  style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurface,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
                                       ),
                                 ),
                               ),
@@ -7751,17 +8412,17 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                         Container(
                                           padding: const EdgeInsets.all(6),
                                           decoration: BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primaryContainer,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primaryContainer,
                                             shape: BoxShape.circle,
                                           ),
                                           child: Icon(
                                             Icons.check_rounded,
                                             size: 16,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onPrimaryContainer,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer,
                                           ),
                                         ),
                                         const SizedBox(width: 10),
@@ -7784,8 +8445,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                         ),
                                         minimumSize: const Size(0, 32),
                                         visualDensity: VisualDensity.compact,
-                                        foregroundColor:
-                                            Theme.of(context).colorScheme.error,
+                                        foregroundColor: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
                                         side: BorderSide(
                                           color: Theme.of(context)
                                               .colorScheme
@@ -7812,9 +8474,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                               children: [
                                                 Icon(
                                                   Icons.warning_amber_rounded,
-                                                  color: Theme.of(dialog)
-                                                      .colorScheme
-                                                      .error,
+                                                  color: Theme.of(
+                                                    dialog,
+                                                  ).colorScheme.error,
                                                 ),
                                                 const SizedBox(width: 8),
                                                 Text(
@@ -7838,8 +8500,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                                 ),
                                                 const SizedBox(height: 12),
                                                 Container(
-                                                  padding:
-                                                      const EdgeInsets.all(10),
+                                                  padding: const EdgeInsets.all(
+                                                    10,
+                                                  ),
                                                   decoration: BoxDecoration(
                                                     color: Theme.of(dialog)
                                                         .colorScheme
@@ -7902,19 +8565,15 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                               ),
                                               FilledButton(
                                                 style: FilledButton.styleFrom(
-                                                  backgroundColor:
-                                                      Theme.of(dialog)
-                                                          .colorScheme
-                                                          .error,
-                                                  foregroundColor:
-                                                      Theme.of(dialog)
-                                                          .colorScheme
-                                                          .onError,
+                                                  backgroundColor: Theme.of(
+                                                    dialog,
+                                                  ).colorScheme.error,
+                                                  foregroundColor: Theme.of(
+                                                    dialog,
+                                                  ).colorScheme.onError,
                                                 ),
-                                                onPressed: () => Navigator.pop(
-                                                  dialog,
-                                                  true,
-                                                ),
+                                                onPressed: () =>
+                                                    Navigator.pop(dialog, true),
                                                 child: Text(
                                                   _tr(
                                                     dialog,
@@ -7979,9 +8638,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onSurfaceVariant,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
                                           ),
                                     ),
                                     if (payment.note != null &&
@@ -7992,9 +8651,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                             .textTheme
                                             .bodySmall
                                             ?.copyWith(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
                                             ),
                                       ),
                                       Expanded(
@@ -8007,9 +8666,9 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                               .bodySmall
                                               ?.copyWith(
                                                 fontStyle: FontStyle.italic,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurfaceVariant,
                                               ),
                                         ),
                                       ),
@@ -8044,10 +8703,7 @@ Widget _buildCircularFieldIcon(
     decoration: BoxDecoration(
       color: primary.withValues(alpha: 0.12),
       shape: BoxShape.circle,
-      border: Border.all(
-        color: primary.withValues(alpha: 0.35),
-        width: 1,
-      ),
+      border: Border.all(color: primary.withValues(alpha: 0.35), width: 1),
     ),
     alignment: Alignment.center,
     child: text != null
@@ -8059,11 +8715,7 @@ Widget _buildCircularFieldIcon(
               fontSize: 15,
             ),
           )
-        : Icon(
-            icon,
-            size: 16,
-            color: primary,
-          ),
+        : Icon(icon, size: 16, color: primary),
   );
 }
 
@@ -8112,11 +8764,14 @@ class _EditInvoiceDetailsSheetState
   }
 
   Future<void> _initReceiptFile() async {
-    if (_paperReceiptImage == null || _paperReceiptImage!.trim().isEmpty) return;
+    if (_paperReceiptImage == null || _paperReceiptImage!.trim().isEmpty)
+      return;
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final receiptsDir = Directory('${appDir.path}/receipts');
-      final localFile = File('${receiptsDir.path}/receipt_${widget.invoice.id}.jpg');
+      final localFile = File(
+        '${receiptsDir.path}/receipt_${widget.invoice.id}.jpg',
+      );
       if (localFile.existsSync()) {
         if (mounted) setState(() => _paperReceiptFile = localFile);
       } else {
@@ -8146,8 +8801,11 @@ class _EditInvoiceDetailsSheetState
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
-          if (!receiptsDir.existsSync()) receiptsDir.createSync(recursive: true);
-          final localFile = File('${receiptsDir.path}/receipt_${widget.invoice.id}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          if (!receiptsDir.existsSync())
+            receiptsDir.createSync(recursive: true);
+          final localFile = File(
+            '${receiptsDir.path}/receipt_${widget.invoice.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
           await localFile.writeAsBytes(bytes);
           setState(() {
             _paperReceiptFile = localFile;
@@ -8163,7 +8821,11 @@ class _EditInvoiceDetailsSheetState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Unable to select image')))),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Unable to select image')),
+            ),
+          ),
         );
       }
     }
@@ -8185,7 +8847,9 @@ class _EditInvoiceDetailsSheetState
             children: [
               Text(
                 _tr(context, 'Attach Paper Receipt'),
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -8196,7 +8860,10 @@ class _EditInvoiceDetailsSheetState
                     color: theme.colorScheme.primaryContainer,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.camera_alt_rounded, color: theme.colorScheme.primary),
+                  child: Icon(
+                    Icons.camera_alt_rounded,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
                 title: Text(_tr(context, 'Take Photo')),
                 onTap: () {
@@ -8211,7 +8878,10 @@ class _EditInvoiceDetailsSheetState
                     color: theme.colorScheme.secondaryContainer,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.photo_library_rounded, color: theme.colorScheme.secondary),
+                  child: Icon(
+                    Icons.photo_library_rounded,
+                    color: theme.colorScheme.secondary,
+                  ),
                 ),
                 title: Text(_tr(context, 'Choose from Gallery')),
                 onTap: () {
@@ -8308,15 +8978,21 @@ class _EditInvoiceDetailsSheetState
       interest.text.isNotEmpty ||
       notes.text.isNotEmpty ||
       _paperReceiptImage != widget.invoice.paperReceiptImage ||
-      items.any((i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty);
+      items.any(
+        (i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty,
+      );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtotalPaise = items.fold<int>(0, (sum, i) => sum + i.lineTotalPaise);
+    final subtotalPaise = items.fold<int>(
+      0,
+      (sum, i) => sum + i.lineTotalPaise,
+    );
     final discountPaise = _tryParseRupees(discount.text);
     final interestPaise = _tryParseRupees(interest.text);
-    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise).clamp(0, 1 << 62);
+    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise)
+        .clamp(0, 1 << 62);
     return PopScope(
       canPop: !_isDirty || saving,
       onPopInvokedWithResult: (didPop, result) async {
@@ -8374,23 +9050,38 @@ class _EditInvoiceDetailsSheetState
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: theme.colorScheme.primary,
-                          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                          backgroundColor: theme.colorScheme.primary.withValues(
+                            alpha: 0.08,
+                          ),
                           side: BorderSide(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.35,
+                            ),
                             width: 1,
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                         ),
                         onPressed: saving
                             ? null
-                            : () => setState(() => items.add(_InvoiceItemDraft())),
-                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                            : () => setState(
+                                () => items.add(_InvoiceItemDraft()),
+                              ),
+                        icon: const Icon(
+                          Icons.add_circle_outline_rounded,
+                          size: 18,
+                        ),
                         label: Text(
                           _tr(context, 'Add Another Item'),
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                          ),
                         ),
                       ),
                     ),
@@ -8398,26 +9089,49 @@ class _EditInvoiceDetailsSheetState
 
                   TextFormField(
                     controller: discount,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Discount (₹)'),
                       hintText: '0.00',
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.discount_outlined),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.discount_outlined,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                     validator: _optionalNonNegativeAmountValidator,
@@ -8427,26 +9141,49 @@ class _EditInvoiceDetailsSheetState
 
                   TextFormField(
                     controller: interest,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Extra charge (₹)'),
                       hintText: '0.00',
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.percent_rounded,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                     validator: _optionalNonNegativeAmountValidator,
@@ -8461,22 +9198,43 @@ class _EditInvoiceDetailsSheetState
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Notes'),
                       hintText: _tr(context, 'Add any additional notes...'),
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.description_outlined),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.description_outlined,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
@@ -8501,14 +9259,18 @@ class _EditInvoiceDetailsSheetState
                         ),
                       ),
                       const SizedBox(height: 10),
-                      if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+                      if (_paperReceiptImage != null &&
+                          _paperReceiptImage!.isNotEmpty)
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.35),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.35,
+                              ),
                               width: 1,
                             ),
                           ),
@@ -8519,9 +9281,16 @@ class _EditInvoiceDetailsSheetState
                                 child: SizedBox(
                                   width: 48,
                                   height: 48,
-                                  child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
-                                      ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
-                                      : _buildReceiptThumbnail(_paperReceiptImage!),
+                                  child:
+                                      _paperReceiptFile != null &&
+                                          _paperReceiptFile!.existsSync()
+                                      ? Image.file(
+                                          _paperReceiptFile!,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : _buildReceiptThumbnail(
+                                          _paperReceiptImage!,
+                                        ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -8531,18 +9300,22 @@ class _EditInvoiceDetailsSheetState
                                   children: [
                                     Text(
                                       _tr(context, 'Receipt Attached'),
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: theme.colorScheme.primary,
+                                          ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       _tr(context, 'Tap to change or remove'),
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                        fontSize: 11,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            fontSize: 11,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -8551,11 +9324,17 @@ class _EditInvoiceDetailsSheetState
                                 visualDensity: VisualDensity.compact,
                                 icon: const Icon(Icons.edit_outlined, size: 20),
                                 tooltip: _tr(context, 'Change Photo'),
-                                onPressed: saving ? null : () => _showPickOptionsSheet(context),
+                                onPressed: saving
+                                    ? null
+                                    : () => _showPickOptionsSheet(context),
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error, size: 20),
+                                icon: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: theme.colorScheme.error,
+                                  size: 20,
+                                ),
                                 tooltip: _tr(context, 'Remove Receipt'),
                                 onPressed: saving
                                     ? null
@@ -8576,21 +9355,35 @@ class _EditInvoiceDetailsSheetState
                               child: OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: theme.colorScheme.primary,
-                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  backgroundColor: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                                   side: BorderSide(
-                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4),
                                   ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                                icon: const Icon(
+                                  Icons.camera_alt_outlined,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   _tr(context, 'Take Photo'),
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                onPressed: saving ? null : () => _pickReceipt(ImageSource.camera),
+                                onPressed: saving
+                                    ? null
+                                    : () => _pickReceipt(ImageSource.camera),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -8598,21 +9391,35 @@ class _EditInvoiceDetailsSheetState
                               child: OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: theme.colorScheme.primary,
-                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  backgroundColor: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                                   side: BorderSide(
-                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4),
                                   ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                                icon: const Icon(
+                                  Icons.photo_library_outlined,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   _tr(context, 'Choose from Gallery'),
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                onPressed: saving ? null : () => _pickReceipt(ImageSource.gallery),
+                                onPressed: saving
+                                    ? null
+                                    : () => _pickReceipt(ImageSource.gallery),
                               ),
                             ),
                           ],
@@ -8622,9 +9429,14 @@ class _EditInvoiceDetailsSheetState
                   const SizedBox(height: 16),
 
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                      color: theme.colorScheme.primaryContainer.withValues(
+                        alpha: 0.35,
+                      ),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                         color: theme.colorScheme.primary.withValues(alpha: 0.3),
@@ -8675,8 +9487,13 @@ class _EditInvoiceDetailsSheetState
                             )
                           : const Icon(Icons.check_circle_rounded, size: 20),
                       label: Text(
-                        saving ? _tr(context, 'Saving...') : _tr(context, 'Save changes'),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        saving
+                            ? _tr(context, 'Saving...')
+                            : _tr(context, 'Save changes'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -8773,55 +9590,67 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
       child: SafeArea(
         top: false,
         child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            shrinkWrap: true,
-            children: <Widget>[
-              Text(
-                _tr(context, 'Edit customer'),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _name,
-                decoration: InputDecoration(labelText: _tr(context, 'Customer name')),
-                validator: _required,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phone,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(labelText: _tr(context, 'Mobile number')),
-                validator: _phoneValidator,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(labelText: _tr(context, 'Email (optional)')),
-                validator: _optionalEmailValidator,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _notes,
-                minLines: 2,
-                maxLines: 4,
-                decoration: InputDecoration(labelText: _tr(context, 'Notes (optional)')),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: Text(_saving ? _tr(context, 'Saving...') : _tr(context, 'Save customer')),
-              ),
-            ],
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            24 + MediaQuery.viewInsetsOf(context).bottom,
           ),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              shrinkWrap: true,
+              children: <Widget>[
+                Text(
+                  _tr(context, 'Edit customer'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _name,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Customer name'),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Mobile number'),
+                  ),
+                  validator: _phoneValidator,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Email (optional)'),
+                  ),
+                  validator: _optionalEmailValidator,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _notes,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Notes (optional)'),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: Text(
+                    _saving
+                        ? _tr(context, 'Saving...')
+                        : _tr(context, 'Save customer'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -8851,7 +9680,9 @@ class _DatePickerField extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.35,
+          ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: hasDate
@@ -8862,7 +9693,10 @@ class _DatePickerField extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _buildCircularFieldIcon(context, icon: Icons.calendar_today_rounded),
+            _buildCircularFieldIcon(
+              context,
+              icon: Icons.calendar_today_rounded,
+            ),
             const SizedBox(width: 4),
             Expanded(
               child: Column(
@@ -8878,10 +9712,16 @@ class _DatePickerField extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    hasDate ? _date(selectedDate!) : _tr(context, 'Select Date (Tap to open calendar)'),
+                    hasDate
+                        ? _date(selectedDate!)
+                        : _tr(context, 'Select Date (Tap to open calendar)'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: hasDate ? FontWeight.w600 : FontWeight.normal,
-                      color: hasDate ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      color: hasDate
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
                       fontSize: 13.5,
                     ),
                   ),
@@ -8922,9 +9762,7 @@ class _AmountLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      fontWeight: bold ? FontWeight.w700 : null,
-    );
+    final style = TextStyle(fontWeight: bold ? FontWeight.w700 : null);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -8949,11 +9787,7 @@ class _AmountLine extends StatelessWidget {
                 child: child,
               ),
             ),
-            child: Text(
-              _rupees(amount),
-              key: ValueKey(amount),
-              style: style,
-            ),
+            child: Text(_rupees(amount), key: ValueKey(amount), style: style),
           ),
         ],
       ),
@@ -8969,7 +9803,10 @@ class _InvoiceStatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
       InvoicePaymentStatus.unpaid => ('Unpaid', const Color(0xFFF59E0B)),
-      InvoicePaymentStatus.partiallyPaid => ('Partially paid', const Color(0xFF3B82F6)),
+      InvoicePaymentStatus.partiallyPaid => (
+        'Partially paid',
+        const Color(0xFF3B82F6),
+      ),
       InvoicePaymentStatus.paid => ('Paid', const Color(0xFF10B981)),
       InvoicePaymentStatus.overdue => ('Overdue', const Color(0xFFEF4444)),
     };
@@ -9042,28 +9879,32 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
 
       try {
         final db = ref.read(databaseProvider);
-        final updatedInvoice = await (db.select(db.invoices)
-              ..where((i) => i.id.equals(widget.invoice.id)))
-            .getSingleOrNull();
+        final updatedInvoice = await (db.select(
+          db.invoices,
+        )..where((i) => i.id.equals(widget.invoice.id))).getSingleOrNull();
         final customer = updatedInvoice == null
             ? null
             : await (db.select(db.customers)
-                  ..where((c) => c.id.equals(updatedInvoice.customerId)))
-                .getSingleOrNull();
-        final latestPayment = await (db.select(db.payments)
-              ..where((p) => p.invoiceId.equals(widget.invoice.id))
-              ..orderBy([(p) => OrderingTerm.desc(p.createdAt)]))
-            .get()
-            .then((list) => list.firstOrNull);
+                    ..where((c) => c.id.equals(updatedInvoice.customerId)))
+                  .getSingleOrNull();
+        final latestPayment =
+            await (db.select(db.payments)
+                  ..where((p) => p.invoiceId.equals(widget.invoice.id))
+                  ..orderBy([(p) => OrderingTerm.desc(p.createdAt)]))
+                .get()
+                .then((list) => list.firstOrNull);
 
         if (updatedInvoice != null && latestPayment != null) {
-          final totalPaise = updatedInvoice.subtotalPaise +
+          final totalPaise =
+              updatedInvoice.subtotalPaise +
               updatedInvoice.interestPaise -
               updatedInvoice.discountPaise;
           final remainingPaise = totalPaise - updatedInvoice.paidPaise;
           final isFullyPaid = remainingPaise <= 0;
 
-          await ref.read(notificationServiceProvider).notifyPaymentRecorded(
+          await ref
+              .read(notificationServiceProvider)
+              .notifyPaymentRecorded(
                 payment: latestPayment,
                 invoice: updatedInvoice,
                 customer: customer,
@@ -9118,14 +9959,21 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(_tr(context, 'Record payment'), style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    _tr(context, 'Record payment'),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 8),
                   Text('${_tr(context, "Due")}: ${_rupees(_remaining)}'),
                   const SizedBox(height: 20),
                   TextFormField(
                     controller: _amount,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(labelText: _tr(context, 'Amount received (₹)')),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Amount received (₹)'),
+                    ),
                     validator: (value) {
                       final error = _amountValidator(value);
                       if (error != null) return error;
@@ -9140,7 +9988,9 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
                       onPressed: _saving
                           ? null
                           : () {
-                              _amount.text = (_remaining / 100).toStringAsFixed(2);
+                              _amount.text = (_remaining / 100).toStringAsFixed(
+                                2,
+                              );
                             },
                       child: Text(_tr(context, 'Use full balance')),
                     ),
@@ -9148,27 +9998,44 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     initialValue: _method,
-                    decoration: InputDecoration(labelText: _tr(context, 'Payment method')),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Payment method'),
+                    ),
                     items: [
-                      DropdownMenuItem(value: 'Cash', child: Text(_tr(context, 'Cash'))),
-                      DropdownMenuItem(value: 'UPI', child: Text(_tr(context, 'UPI'))),
+                      DropdownMenuItem(
+                        value: 'Cash',
+                        child: Text(_tr(context, 'Cash')),
+                      ),
+                      DropdownMenuItem(
+                        value: 'UPI',
+                        child: Text(_tr(context, 'UPI')),
+                      ),
                       DropdownMenuItem(
                         value: 'Bank transfer',
                         child: Text(_tr(context, 'Bank transfer')),
                       ),
-                      DropdownMenuItem(value: 'Other', child: Text(_tr(context, 'Other'))),
+                      DropdownMenuItem(
+                        value: 'Other',
+                        child: Text(_tr(context, 'Other')),
+                      ),
                     ],
                     onChanged: (value) => setState(() => _method = value!),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _note,
-                    decoration: InputDecoration(labelText: _tr(context, 'Note (optional)')),
+                    decoration: InputDecoration(
+                      labelText: _tr(context, 'Note (optional)'),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   FilledButton(
                     onPressed: _saving ? null : _save,
-                    child: Text(_saving ? _tr(context, 'Recording...') : _tr(context, 'Confirm payment')),
+                    child: Text(
+                      _saving
+                          ? _tr(context, 'Recording...')
+                          : _tr(context, 'Confirm payment'),
+                    ),
                   ),
                 ],
               ),
@@ -9229,8 +10096,11 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
-          if (!receiptsDir.existsSync()) receiptsDir.createSync(recursive: true);
-          final localFile = File('${receiptsDir.path}/receipt_new_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          if (!receiptsDir.existsSync())
+            receiptsDir.createSync(recursive: true);
+          final localFile = File(
+            '${receiptsDir.path}/receipt_new_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
           await localFile.writeAsBytes(bytes);
           setState(() {
             _paperReceiptFile = localFile;
@@ -9246,7 +10116,11 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cleanErrorMessage(e, _tr(context, 'Unable to select image')))),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Unable to select image')),
+            ),
+          ),
         );
       }
     }
@@ -9268,7 +10142,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
             children: [
               Text(
                 _tr(context, 'Attach Paper Receipt'),
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -9279,7 +10155,10 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     color: theme.colorScheme.primaryContainer,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.camera_alt_rounded, color: theme.colorScheme.primary),
+                  child: Icon(
+                    Icons.camera_alt_rounded,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
                 title: Text(_tr(context, 'Take Photo')),
                 onTap: () {
@@ -9294,7 +10173,10 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     color: theme.colorScheme.secondaryContainer,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.photo_library_rounded, color: theme.colorScheme.secondary),
+                  child: Icon(
+                    Icons.photo_library_rounded,
+                    color: theme.colorScheme.secondary,
+                  ),
                 ),
                 title: Text(_tr(context, 'Choose from Gallery')),
                 onTap: () {
@@ -9337,12 +10219,12 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
 
       try {
         final db = ref.read(databaseProvider);
-        final createdInvoice = await (db.select(db.invoices)
-              ..where((i) => i.id.equals(invoiceId)))
-            .getSingleOrNull();
-        final customer = await (db.select(db.customers)
-              ..where((c) => c.id.equals(widget.customerId)))
-            .getSingleOrNull();
+        final createdInvoice = await (db.select(
+          db.invoices,
+        )..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
+        final customer = await (db.select(
+          db.customers,
+        )..where((c) => c.id.equals(widget.customerId))).getSingleOrNull();
 
         if (createdInvoice != null) {
           await ref
@@ -9378,7 +10260,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
   }
 
   bool get _isDirty =>
-      _items.any((i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty) ||
+      _items.any(
+        (i) => i.description.text.isNotEmpty || i.unitPrice.text.isNotEmpty,
+      ) ||
       _discount.text.isNotEmpty ||
       _interest.text.isNotEmpty ||
       _notes.text.isNotEmpty ||
@@ -9387,10 +10271,14 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtotalPaise = _items.fold<int>(0, (sum, i) => sum + i.lineTotalPaise);
+    final subtotalPaise = _items.fold<int>(
+      0,
+      (sum, i) => sum + i.lineTotalPaise,
+    );
     final discountPaise = _tryParseRupees(_discount.text);
     final interestPaise = _tryParseRupees(_interest.text);
-    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise).clamp(0, 1 << 62);
+    final grandTotalPaise = (subtotalPaise - discountPaise + interestPaise)
+        .clamp(0, 1 << 62);
     return PopScope(
       canPop: !_isDirty || _saving,
       onPopInvokedWithResult: (didPop, result) async {
@@ -9448,23 +10336,38 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: theme.colorScheme.primary,
-                          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+                          backgroundColor: theme.colorScheme.primary.withValues(
+                            alpha: 0.08,
+                          ),
                           side: BorderSide(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.35,
+                            ),
                             width: 1,
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                         ),
                         onPressed: _saving
                             ? null
-                            : () => setState(() => _items.add(_InvoiceItemDraft())),
-                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                            : () => setState(
+                                () => _items.add(_InvoiceItemDraft()),
+                              ),
+                        icon: const Icon(
+                          Icons.add_circle_outline_rounded,
+                          size: 18,
+                        ),
                         label: Text(
                           _tr(context, 'Add Another Item'),
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                          ),
                         ),
                       ),
                     ),
@@ -9478,21 +10381,35 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Discount (₹)'),
                       hintText: '0.00',
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.discount_outlined),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.discount_outlined,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -9516,21 +10433,35 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Extra charge (₹)'),
                       hintText: '0.00',
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.percent_rounded),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.percent_rounded,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -9553,21 +10484,35 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Notes'),
                       hintText: _tr(context, 'Add any additional notes...'),
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.description_outlined),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.description_outlined,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -9600,14 +10545,18 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      if (_paperReceiptImage != null && _paperReceiptImage!.isNotEmpty)
+                      if (_paperReceiptImage != null &&
+                          _paperReceiptImage!.isNotEmpty)
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.35),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.35,
+                              ),
                               width: 1,
                             ),
                           ),
@@ -9618,9 +10567,16 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                                 child: SizedBox(
                                   width: 48,
                                   height: 48,
-                                  child: _paperReceiptFile != null && _paperReceiptFile!.existsSync()
-                                      ? Image.file(_paperReceiptFile!, fit: BoxFit.cover)
-                                      : _buildReceiptThumbnail(_paperReceiptImage!),
+                                  child:
+                                      _paperReceiptFile != null &&
+                                          _paperReceiptFile!.existsSync()
+                                      ? Image.file(
+                                          _paperReceiptFile!,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : _buildReceiptThumbnail(
+                                          _paperReceiptImage!,
+                                        ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -9630,18 +10586,22 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                                   children: [
                                     Text(
                                       _tr(context, 'Receipt Attached'),
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: theme.colorScheme.primary,
+                                          ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       _tr(context, 'Tap to change or remove'),
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                        fontSize: 11,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            fontSize: 11,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -9650,11 +10610,17 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                                 visualDensity: VisualDensity.compact,
                                 icon: const Icon(Icons.edit_outlined, size: 20),
                                 tooltip: _tr(context, 'Change Photo'),
-                                onPressed: _saving ? null : () => _showPickOptionsSheet(context),
+                                onPressed: _saving
+                                    ? null
+                                    : () => _showPickOptionsSheet(context),
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error, size: 20),
+                                icon: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: theme.colorScheme.error,
+                                  size: 20,
+                                ),
                                 tooltip: _tr(context, 'Remove Receipt'),
                                 onPressed: _saving
                                     ? null
@@ -9675,21 +10641,35 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                               child: OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: theme.colorScheme.primary,
-                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  backgroundColor: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                                   side: BorderSide(
-                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4),
                                   ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                                icon: const Icon(
+                                  Icons.camera_alt_outlined,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   _tr(context, 'Take Photo'),
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                onPressed: _saving ? null : () => _pickReceipt(ImageSource.camera),
+                                onPressed: _saving
+                                    ? null
+                                    : () => _pickReceipt(ImageSource.camera),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -9697,21 +10677,35 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                               child: OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: theme.colorScheme.primary,
-                                  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                                  backgroundColor: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                                   side: BorderSide(
-                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4),
                                   ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                                icon: const Icon(
+                                  Icons.photo_library_outlined,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   _tr(context, 'Choose from Gallery'),
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                onPressed: _saving ? null : () => _pickReceipt(ImageSource.gallery),
+                                onPressed: _saving
+                                    ? null
+                                    : () => _pickReceipt(ImageSource.gallery),
                               ),
                             ),
                           ],
@@ -9721,9 +10715,14 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                   const SizedBox(height: 16),
 
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                      color: theme.colorScheme.primaryContainer.withValues(
+                        alpha: 0.35,
+                      ),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                         color: theme.colorScheme.primary.withValues(alpha: 0.3),
@@ -9774,8 +10773,13 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                             )
                           : const Icon(Icons.check_circle_rounded, size: 20),
                       label: Text(
-                        _saving ? _tr(context, 'Creating Invoice...') : _tr(context, 'Create Invoice'),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        _saving
+                            ? _tr(context, 'Creating Invoice...')
+                            : _tr(context, 'Create Invoice'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -9831,7 +10835,9 @@ class _InvoiceItemEditor extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.35,
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
@@ -9846,7 +10852,10 @@ class _InvoiceItemEditor extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
@@ -9896,21 +10905,34 @@ class _InvoiceItemEditor extends StatelessWidget {
               decoration: InputDecoration(
                 labelText: _tr(context, 'Item / Service Description *'),
                 hintText: _tr(context, 'Enter item or service description'),
-                prefixIcon: _buildCircularFieldIcon(context, icon: Icons.edit_note_rounded),
-                prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                prefixIcon: _buildCircularFieldIcon(
+                  context,
+                  icon: Icons.edit_note_rounded,
+                ),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 46,
+                  minHeight: 36,
+                ),
                 filled: true,
                 fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.4,
+                    ),
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.4,
+                    ),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
@@ -9931,25 +10953,42 @@ class _InvoiceItemEditor extends StatelessWidget {
                   flex: 2,
                   child: TextFormField(
                     controller: draft.quantity,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Qty *'),
                       hintText: '1',
-                      prefixIcon: _buildCircularFieldIcon(context, icon: Icons.tag_rounded),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIcon: _buildCircularFieldIcon(
+                        context,
+                        icon: Icons.tag_rounded,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      fillColor: theme.colorScheme.surface.withValues(
+                        alpha: 0.5,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -9969,25 +11008,39 @@ class _InvoiceItemEditor extends StatelessWidget {
                   flex: 3,
                   child: TextFormField(
                     controller: draft.unitPrice,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: InputDecoration(
                       labelText: _tr(context, 'Unit Price (₹) *'),
                       hintText: '0.00',
                       prefixIcon: _buildCircularFieldIcon(context, text: '₹'),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 46, minHeight: 36),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 46,
+                        minHeight: 36,
+                      ),
                       filled: true,
-                      fillColor: theme.colorScheme.surface.withValues(alpha: 0.5),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      fillColor: theme.colorScheme.surface.withValues(
+                        alpha: 0.5,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -10077,7 +11130,10 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
           builder: (ctx) => AlertDialog(
             title: Text(_tr(ctx, 'Contact permission is required')),
             content: Text(
-              _tr(ctx, 'Contact permission is permanently denied. Please allow it from App Settings.'),
+              _tr(
+                ctx,
+                'Contact permission is permanently denied. Please allow it from App Settings.',
+              ),
             ),
             actions: [
               TextButton(
@@ -10097,11 +11153,15 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
         return;
       }
 
-      if (status == PermissionStatus.denied || status == PermissionStatus.restricted) {
+      if (status == PermissionStatus.denied ||
+          status == PermissionStatus.restricted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _tr(context, 'Contact permission is needed to import customer from phonebook.'),
+              _tr(
+                context,
+                'Contact permission is needed to import customer from phonebook.',
+              ),
             ),
             duration: const Duration(seconds: 3),
           ),
@@ -10138,10 +11198,8 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
       } else {
         final selected = await showModalBottomSheet<String>(
           context: context,
-          builder: (ctx) => _SelectPhoneNumberSheet(
-            contactName: name,
-            phones: phones,
-          ),
+          builder: (ctx) =>
+              _SelectPhoneNumberSheet(contactName: name, phones: phones),
         );
         if (!mounted || selected == null) return;
         chosenNumber = selected;
@@ -10152,12 +11210,14 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
       // Check if this contact already exists as a OneBill customer
       if (normalized.isNotEmpty) {
         final db = ref.read(databaseProvider);
-        final existing = await (db.select(db.customers)
-              ..where((c) =>
-                  c.businessId.equals(widget.businessId) &
-                  c.phone.equals(normalized) &
-                  c.deletedAt.isNull()))
-            .getSingleOrNull();
+        final existing =
+            await (db.select(db.customers)..where(
+                  (c) =>
+                      c.businessId.equals(widget.businessId) &
+                      c.phone.equals(normalized) &
+                      c.deletedAt.isNull(),
+                ))
+                .getSingleOrNull();
 
         if (existing != null && mounted) {
           Navigator.pop(context);
@@ -10233,12 +11293,14 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
 
     try {
       final db = ref.read(databaseProvider);
-      final existing = await (db.select(db.customers)
-            ..where((c) =>
-                c.businessId.equals(widget.businessId) &
-                c.phone.equals(normalized) &
-                c.deletedAt.isNull()))
-          .getSingleOrNull();
+      final existing =
+          await (db.select(db.customers)..where(
+                (c) =>
+                    c.businessId.equals(widget.businessId) &
+                    c.phone.equals(normalized) &
+                    c.deletedAt.isNull(),
+              ))
+              .getSingleOrNull();
 
       if (existing != null) {
         if (mounted) {
@@ -10259,7 +11321,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
     });
 
     try {
-      await ref.read(customerRepositoryProvider).create(
+      await ref
+          .read(customerRepositoryProvider)
+          .create(
             businessId: widget.businessId,
             name: _name.text,
             phone: normalized,
@@ -10267,10 +11331,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
 
       if (_saveToPhoneContacts) {
         try {
-          await ref.read(contactServiceProvider).saveContactToPhone(
-                name: _name.text,
-                phone: normalized,
-              );
+          await ref
+              .read(contactServiceProvider)
+              .saveContactToPhone(name: _name.text, phone: normalized);
         } catch (_) {}
       }
 
@@ -10293,7 +11356,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   }
 
   bool get _isDirty =>
-      _name.text.trim().isNotEmpty || _phone.text.trim().isNotEmpty || _saveToPhoneContacts;
+      _name.text.trim().isNotEmpty ||
+      _phone.text.trim().isNotEmpty ||
+      _saveToPhoneContacts;
 
   @override
   Widget build(BuildContext context) {
@@ -10356,7 +11421,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                       child: Text(
                         _tr(context, 'OR'),
                         style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.7,
+                          ),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -10396,16 +11463,16 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                             ),
                           )
                         : _phoneValid
-                            ? const Icon(
-                                Icons.check_circle_rounded,
-                                color: Color(0xFF10B981),
-                              )
-                            : _phoneError != null
-                                ? const Icon(
-                                    Icons.error_outline_rounded,
-                                    color: Color(0xFFEF4444),
-                                  )
-                                : null,
+                        ? const Icon(
+                            Icons.check_circle_rounded,
+                            color: Color(0xFF10B981),
+                          )
+                        : _phoneError != null
+                        ? const Icon(
+                            Icons.error_outline_rounded,
+                            color: Color(0xFFEF4444),
+                          )
+                        : null,
                   ),
                   validator: _required,
                 ),
@@ -10415,7 +11482,9 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                     duration: const Duration(milliseconds: 300),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
+                      color: theme.colorScheme.errorContainer.withValues(
+                        alpha: 0.5,
+                      ),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: theme.colorScheme.error.withValues(alpha: 0.5),
@@ -10448,7 +11517,8 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                   value: _saveToPhoneContacts,
                   onChanged: (_saving || _verifyingPhone || _pickingContact)
                       ? null
-                      : (val) => setState(() => _saveToPhoneContacts = val ?? false),
+                      : (val) =>
+                            setState(() => _saveToPhoneContacts = val ?? false),
                   title: Text(
                     _tr(context, 'Save to phone contacts'),
                     style: theme.textTheme.bodyMedium,
@@ -10459,13 +11529,15 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                 ),
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: (_saving || _verifyingPhone || _pickingContact) ? null : _save,
+                  onPressed: (_saving || _verifyingPhone || _pickingContact)
+                      ? null
+                      : _save,
                   child: Text(
                     _verifyingPhone
                         ? _tr(context, 'Verifying number...')
                         : _saving
-                            ? _tr(context, 'Saving...')
-                            : _tr(context, 'Save customer'),
+                        ? _tr(context, 'Saving...')
+                        : _tr(context, 'Save customer'),
                   ),
                 ),
               ],
@@ -10530,7 +11602,8 @@ class _SelectPhoneNumberSheet extends StatelessWidget {
             const SizedBox(height: 16),
             const Divider(),
             ...phones.map((phone) {
-              final label = (phone.label.customLabel ?? phone.label.label.name).toUpperCase();
+              final label = (phone.label.customLabel ?? phone.label.label.name)
+                  .toUpperCase();
               return ListTile(
                 leading: const Icon(Icons.phone_outlined),
                 title: Text(
@@ -10632,8 +11705,8 @@ String? _nonNegativeAmountValidator(String? value) {
 
 String? _optionalNonNegativeAmountValidator(String? value) =>
     value == null || value.trim().isEmpty
-        ? null
-        : _nonNegativeAmountValidator(value);
+    ? null
+    : _nonNegativeAmountValidator(value);
 
 String? _quantityValidator(String? value) {
   if (value == null ||
@@ -10719,13 +11792,15 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
       maxChildSize: 0.95,
       builder: (context, scrollController) {
         return StreamBuilder<List<Invoice>>(
-          stream: (database.select(database.invoices)
-                ..where(
-                  (i) =>
-                      i.businessId.equals(businessId) & i.deletedAt.isNull(),
-                )
-                ..orderBy([(i) => OrderingTerm.desc(i.issuedAt)]))
-              .watch(),
+          stream:
+              (database.select(database.invoices)
+                    ..where(
+                      (i) =>
+                          i.businessId.equals(businessId) &
+                          i.deletedAt.isNull(),
+                    )
+                    ..orderBy([(i) => OrderingTerm.desc(i.issuedAt)]))
+                  .watch(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
@@ -10734,14 +11809,15 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
             final allInvoices = snapshot.data ?? [];
             final displayedInvoices = isOverdueOnly
                 ? allInvoices
-                    .where(
-                      (inv) =>
-                          invoiceRepo.status(inv) == InvoicePaymentStatus.overdue,
-                    )
-                    .toList()
+                      .where(
+                        (inv) =>
+                            invoiceRepo.status(inv) ==
+                            InvoicePaymentStatus.overdue,
+                      )
+                      .toList()
                 : allInvoices
-                    .where((inv) => invoiceRepo.balance(inv) > 0)
-                    .toList();
+                      .where((inv) => invoiceRepo.balance(inv) > 0)
+                      .toList();
 
             final totalAmountPaise = displayedInvoices.fold<int>(
               0,
@@ -10750,110 +11826,116 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
 
             final title = isOverdueOnly ? 'Overdue Payments' : 'Due Payments';
             final summaryLabel = isOverdueOnly ? 'Total Overdue' : 'Total Due';
-            final emptyTitle = isOverdueOnly ? 'No overdue invoices' : 'No due invoices';
+            final emptyTitle = isOverdueOnly
+                ? 'No overdue invoices'
+                : 'No due invoices';
 
             return SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
                 child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _tr(context, title),
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${displayedInvoices.length} ${displayedInvoices.length == 1 ? _tr(context, "invoice") : _tr(context, "invoices")}  •  ${_tr(context, summaryLabel)} ${_rupees(totalAmountPaise)}',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (displayedInvoices.isEmpty)
-                    Expanded(
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.check_circle_outline_rounded,
-                              size: 48,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _tr(context, emptyTitle),
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _tr(context, 'All customer payments are up to date.'),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: ListView.separated(
-                        controller: scrollController,
-                        itemCount: displayedInvoices.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final invoice = displayedInvoices[index];
-                          return _OverdueInvoiceCard(
-                            invoice: invoice,
-                            invoiceRepo: invoiceRepo,
-                            database: database,
-                          );
-                        },
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          _tr(context, summaryLabel),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          _rupees(totalAmountPaise),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.error,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _tr(context, title),
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${displayedInvoices.length} ${displayedInvoices.length == 1 ? _tr(context, "invoice") : _tr(context, "invoices")}  •  ${_tr(context, summaryLabel)} ${_rupees(totalAmountPaise)}',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    if (displayedInvoices.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.check_circle_outline_rounded,
+                                size: 48,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _tr(context, emptyTitle),
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _tr(
+                                  context,
+                                  'All customer payments are up to date.',
+                                ),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          controller: scrollController,
+                          itemCount: displayedInvoices.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final invoice = displayedInvoices[index];
+                            return _OverdueInvoiceCard(
+                              invoice: invoice,
+                              invoiceRepo: invoiceRepo,
+                              database: database,
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _tr(context, summaryLabel),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            _rupees(totalAmountPaise),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -10890,16 +11972,16 @@ class _OverdueInvoiceCard extends ConsumerWidget {
     }
 
     return StreamBuilder<Customer?>(
-      stream: (database.select(database.customers)
-            ..where((c) => c.id.equals(invoice.customerId)))
-          .watchSingleOrNull(),
+      stream: (database.select(
+        database.customers,
+      )..where((c) => c.id.equals(invoice.customerId))).watchSingleOrNull(),
       builder: (context, customerSnapshot) {
         final customerName = customerSnapshot.data?.name ?? 'Customer';
 
         return StreamBuilder<BusinessesData?>(
-          stream: (database.select(database.businesses)
-                ..where((b) => b.id.equals(invoice.businessId)))
-              .watchSingleOrNull(),
+          stream: (database.select(
+            database.businesses,
+          )..where((b) => b.id.equals(invoice.businessId))).watchSingleOrNull(),
           builder: (context, bizSnapshot) {
             final bizName = bizSnapshot.data?.name;
 
@@ -10963,8 +12045,8 @@ class _OverdueInvoiceCard extends ConsumerWidget {
                       dueAt == null
                           ? _tr(context, 'Unpaid')
                           : (daysOverdue > 0
-                              ? '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? _tr(context, "day") : _tr(context, "days")} ${_tr(context, "overdue")}'
-                              : '${_tr(context, "Due")} ${_date(dueAt)}'),
+                                ? '${_tr(context, "Due")} ${_date(dueAt)} • $daysOverdue ${daysOverdue == 1 ? _tr(context, "day") : _tr(context, "days")} ${_tr(context, "overdue")}'
+                                : '${_tr(context, "Due")} ${_date(dueAt)}'),
                       style: TextStyle(
                         fontSize: 12.5,
                         color: daysOverdue > 0
@@ -10984,4 +12066,3 @@ class _OverdueInvoiceCard extends ConsumerWidget {
     );
   }
 }
-

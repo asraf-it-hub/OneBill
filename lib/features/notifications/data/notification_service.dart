@@ -521,13 +521,38 @@ class NotificationService {
   Future<void> reconcileAllReminders() async {
     if (!_isAuthenticated()) return;
     try {
+      // Scope reminder reconciliation to the currently selected local account.
+      // The database is shared across sign-in cycles, so querying every
+      // non-deleted business can surface another account's old invoices in a
+      // newly created account.
+      final session = await (_db.select(_db.localSessions)
+            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
+            ..limit(1))
+          .getSingleOrNull();
+      var accountId = session?.accountId;
+      if (AppEnvironment.cloudConfigured) {
+        try {
+          accountId = Supabase.instance.client.auth.currentUser?.id ?? accountId;
+        } catch (_) {}
+      }
+      if (accountId == null || accountId.isEmpty) {
+        await _clearGroupedOverdueSummary();
+        return;
+      }
+      final resolvedAccountId = accountId;
+
       final activeBusinesses = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull()))
+            ..where((b) =>
+                b.accountId.equals(resolvedAccountId) & b.deletedAt.isNull()))
           .get();
-      if (activeBusinesses.isEmpty) return;
+      if (activeBusinesses.isEmpty) {
+        await _clearGroupedOverdueSummary();
+        return;
+      }
+      final businessIds = activeBusinesses.map((b) => b.id).toList();
 
       final allInvoices = await (_db.select(_db.invoices)
-            ..where((i) => i.deletedAt.isNull()))
+            ..where((i) => i.businessId.isIn(businessIds) & i.deletedAt.isNull()))
           .get();
 
       final overdueInvoices = <Invoice>[];
@@ -556,8 +581,9 @@ class NotificationService {
         final settings = await _repository.getSettings();
 
         if (overdueInvoices.isEmpty) {
+          await _plugin.cancel(groupNotifId);
+          await _repository.deleteNotification('grouped_overdue_invoices');
           if (settings.lastOverdueSignature != null) {
-            await _plugin.cancel(groupNotifId);
             await _repository.updateSettings(
               lastOverdueSignature: const Value(null),
             );
@@ -616,6 +642,7 @@ class NotificationService {
 
               await _repository.addNotification(
                 id: 'grouped_overdue_invoices',
+                businessId: primaryBizId,
                 category: NotificationCategories.paymentOverdue,
                 title: title,
                 body: body,
@@ -632,6 +659,17 @@ class NotificationService {
       } catch (_) {}
 
       await reconcileSummaries();
+    } catch (_) {}
+  }
+
+  Future<void> _clearGroupedOverdueSummary() async {
+    try {
+      await _plugin.cancel(_generateDeterministicId('grouped_overdue_invoices'));
+      await _repository.deleteNotification('grouped_overdue_invoices');
+      final settings = await _repository.getSettings();
+      if (settings.lastOverdueSignature != null) {
+        await _repository.updateSettings(lastOverdueSignature: const Value(null));
+      }
     } catch (_) {}
   }
 

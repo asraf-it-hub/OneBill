@@ -14,18 +14,21 @@ class SyncWorker {
 
   void listenToPendingOperations() {
     _autoSyncSubscription?.cancel();
-    _autoSyncSubscription = (_database.select(_database.syncOperations)
-          ..where((op) => op.status.equals('pending')))
-        .watch()
-        .listen((pendingOps) {
-      if (pendingOps.isNotEmpty && !_running) {
-        final businessIds =
-            pendingOps.map((op) => op.businessId).whereType<String>().toSet();
-        for (final bId in businessIds) {
-          syncBusiness(bId);
-        }
-      }
-    });
+    _autoSyncSubscription =
+        (_database.select(_database.syncOperations)
+              ..where((op) => op.status.equals('pending')))
+            .watch()
+            .listen((pendingOps) {
+              if (pendingOps.isNotEmpty && !_running) {
+                final businessIds = pendingOps
+                    .map((op) => op.businessId)
+                    .whereType<String>()
+                    .toSet();
+                for (final bId in businessIds) {
+                  syncBusiness(bId);
+                }
+              }
+            });
   }
 
   void dispose() {
@@ -42,9 +45,14 @@ class SyncWorker {
     // 0. Ensure strict account data isolation.
     // If the local database contains data belonging to a different user account,
     // clear local tables to prevent data mixing between accounts.
-    final existingSessions = await _database.select(_database.localSessions).get();
-    final existingBusinesses = await _database.select(_database.businesses).get();
-    final hasForeignAccountData = existingBusinesses.any((b) => b.accountId != user.id) ||
+    final existingSessions = await _database
+        .select(_database.localSessions)
+        .get();
+    final existingBusinesses = await _database
+        .select(_database.businesses)
+        .get();
+    final hasForeignAccountData =
+        existingBusinesses.any((b) => b.accountId != user.id) ||
         existingSessions.any((s) => s.accountId != user.id);
 
     if (hasForeignAccountData) {
@@ -64,36 +72,40 @@ class SyncWorker {
         );
 
     // 1. Inspect local database for businesses belonging to THIS user account.
-    final localBusinesses = await (_database.select(_database.businesses)
-          ..where((b) => b.accountId.equals(user.id) & b.deletedAt.isNull())
-          ..orderBy([(b) => OrderingTerm.asc(b.name)]))
-        .get();
+    final localBusinesses =
+        await (_database.select(_database.businesses)
+              ..where((b) => b.accountId.equals(user.id) & b.deletedAt.isNull())
+              ..orderBy([(b) => OrderingTerm.asc(b.name)]))
+            .get();
 
     if (localBusinesses.isNotEmpty) {
       final sessions = await _database.select(_database.localSessions).get();
       final currentSession = sessions.firstOrNull;
       final existingActiveId = currentSession?.activeBusinessId;
-      final bool hasValidActiveBusiness = existingActiveId != null &&
+      final bool hasValidActiveBusiness =
+          existingActiveId != null &&
           localBusinesses.any((b) => b.id == existingActiveId);
       final activeId = hasValidActiveBusiness
           ? existingActiveId
           : localBusinesses.first.id;
 
       if (sessions.isEmpty) {
-        await _database.into(_database.localSessions).insert(
-          LocalSessionsCompanion.insert(
-            accountId: Value(user.id),
-            activeBusinessId: Value(activeId),
-            localeCode: Value(localBusinesses.first.preferredLanguage),
-            updatedAt: now,
-          ),
-        );
+        await _database
+            .into(_database.localSessions)
+            .insert(
+              LocalSessionsCompanion.insert(
+                accountId: Value(user.id),
+                activeBusinessId: Value(activeId),
+                localeCode: Value(localBusinesses.first.preferredLanguage),
+                updatedAt: now,
+              ),
+            );
       } else {
         final keep = sessions.first;
         if (keep.accountId != user.id || keep.activeBusinessId != activeId) {
-          await (_database.update(_database.localSessions)
-                ..where((row) => row.id.equals(keep.id)))
-              .write(
+          await (_database.update(
+            _database.localSessions,
+          )..where((row) => row.id.equals(keep.id))).write(
             LocalSessionsCompanion(
               accountId: Value(user.id),
               activeBusinessId: Value(activeId),
@@ -199,7 +211,12 @@ class SyncWorker {
           return v?.toString();
         }
 
-        int getInt(Map<String, dynamic> r, String sKey, String cKey, [int def = 0]) {
+        int getInt(
+          Map<String, dynamic> r,
+          String sKey,
+          String cKey, [
+          int def = 0,
+        ]) {
           final v = r[sKey] ?? r[cKey];
           if (v is int) return v;
           if (v is num) return v.toInt();
@@ -210,7 +227,9 @@ class SyncWorker {
         DateTime getDate(Map<String, dynamic> r, String sKey, String cKey) {
           final v = r[sKey] ?? r[cKey];
           if (v is String && v.isNotEmpty) {
-            try { return DateTime.parse(v).toUtc(); } catch (_) {}
+            try {
+              return DateTime.parse(v).toUtc();
+            } catch (_) {}
           }
           return now;
         }
@@ -218,7 +237,9 @@ class SyncWorker {
         DateTime? getDateOpt(Map<String, dynamic> r, String sKey, String cKey) {
           final v = r[sKey] ?? r[cKey];
           if (v is String && v.isNotEmpty) {
-            try { return DateTime.parse(v).toUtc(); } catch (_) {}
+            try {
+              return DateTime.parse(v).toUtc();
+            } catch (_) {}
           }
           return null;
         }
@@ -226,26 +247,28 @@ class SyncWorker {
         for (final row in businesses) {
           final bId = getVal(row, 'id', 'id');
           if (bId == null) continue;
-          final existing = await (_database.select(_database.businesses)
-                ..where((b) => b.id.equals(bId)))
-              .getSingleOrNull();
+          final existing = await (_database.select(
+            _database.businesses,
+          )..where((b) => b.id.equals(bId))).getSingleOrNull();
 
-          final pendingDelete = await (_database.select(_database.syncOperations)
-                ..where(
-                  (op) =>
-                      op.entityType.equals('business') &
-                      op.entityId.equals(bId) &
-                      op.operationType.equals('BusinessDeleted'),
-                ))
-              .getSingleOrNull();
+          final pendingDelete =
+              await (_database.select(_database.syncOperations)..where(
+                    (op) =>
+                        op.entityType.equals('business') &
+                        op.entityId.equals(bId) &
+                        op.operationType.equals('BusinessDeleted'),
+                  ))
+                  .getSingleOrNull();
 
           final cloudDeletedAt = getDateOpt(row, 'deleted_at', 'deletedAt');
-          final isLocallyDeleted = existing?.deletedAt != null || pendingDelete != null;
+          final isLocallyDeleted =
+              existing?.deletedAt != null || pendingDelete != null;
           final effectiveDeletedAt = isLocallyDeleted
               ? (existing?.deletedAt ?? now)
               : cloudDeletedAt;
 
-          final langToUse = existing?.preferredLanguage ??
+          final langToUse =
+              existing?.preferredLanguage ??
               (getVal(row, 'preferred_language', 'preferredLanguage') ?? 'en');
           await _database
               .into(_database.businesses)
@@ -255,7 +278,9 @@ class SyncWorker {
                   accountId: user.id,
                   ownerName: getVal(row, 'owner_name', 'ownerName') ?? 'Owner',
                   name: getVal(row, 'name', 'name') ?? 'My Business',
-                  businessType: Value(getVal(row, 'business_type', 'businessType')),
+                  businessType: Value(
+                    getVal(row, 'business_type', 'businessType'),
+                  ),
                   phone: Value(getVal(row, 'phone', 'phone')),
                   email: Value(getVal(row, 'email', 'email')),
                   address: Value(getVal(row, 'address', 'address')),
@@ -264,10 +289,16 @@ class SyncWorker {
                   gstin: Value(getVal(row, 'gstin', 'gstin')),
                   upiId: Value(getVal(row, 'upi_id', 'upiId')),
                   upiName: Value(getVal(row, 'upi_name', 'upiName')),
-                  invoiceNotes: Value(getVal(row, 'invoice_notes', 'invoiceNotes')),
-                  termsAndConditions: Value(getVal(row, 'terms_and_conditions', 'termsAndConditions')),
+                  invoiceNotes: Value(
+                    getVal(row, 'invoice_notes', 'invoiceNotes'),
+                  ),
+                  termsAndConditions: Value(
+                    getVal(row, 'terms_and_conditions', 'termsAndConditions'),
+                  ),
                   logoImage: Value(getVal(row, 'logo_image', 'logoImage')),
-                  paymentQrImage: Value(getVal(row, 'payment_qr_image', 'paymentQrImage')),
+                  paymentQrImage: Value(
+                    getVal(row, 'payment_qr_image', 'paymentQrImage'),
+                  ),
                   preferredLanguage: Value(langToUse),
                   createdAt: getDate(row, 'created_at', 'createdAt'),
                   updatedAt: getDate(row, 'updated_at', 'updatedAt'),
@@ -275,28 +306,35 @@ class SyncWorker {
                 ),
               );
         }
-        final localActiveBusinesses = await (_database.select(_database.businesses)
-              ..where((b) => b.accountId.equals(user.id) & b.deletedAt.isNull())
-              ..orderBy([(b) => OrderingTerm.asc(b.name)]))
-            .get();
+        final localActiveBusinesses =
+            await (_database.select(_database.businesses)
+                  ..where(
+                    (b) => b.accountId.equals(user.id) & b.deletedAt.isNull(),
+                  )
+                  ..orderBy([(b) => OrderingTerm.asc(b.name)]))
+                .get();
         final businessIds = localActiveBusinesses.map((b) => b.id).toList();
 
         if (businessIds.isEmpty) {
-          final sessions = await _database.select(_database.localSessions).get();
+          final sessions = await _database
+              .select(_database.localSessions)
+              .get();
           if (sessions.isEmpty) {
-            await _database.into(_database.localSessions).insert(
-              LocalSessionsCompanion.insert(
-                accountId: Value(user.id),
-                activeBusinessId: const Value(null),
-                localeCode: const Value('en'),
-                updatedAt: now,
-              ),
-            );
+            await _database
+                .into(_database.localSessions)
+                .insert(
+                  LocalSessionsCompanion.insert(
+                    accountId: Value(user.id),
+                    activeBusinessId: const Value(null),
+                    localeCode: const Value('en'),
+                    updatedAt: now,
+                  ),
+                );
           } else {
             final keep = sessions.first;
-            await (_database.update(_database.localSessions)
-                  ..where((row) => row.id.equals(keep.id)))
-                .write(
+            await (_database.update(
+              _database.localSessions,
+            )..where((row) => row.id.equals(keep.id))).write(
               LocalSessionsCompanion(
                 accountId: Value(user.id),
                 activeBusinessId: const Value(null),
@@ -305,9 +343,9 @@ class SyncWorker {
             );
             if (sessions.length > 1) {
               final duplicateIds = sessions.skip(1).map((s) => s.id).toList();
-              await (_database.delete(_database.localSessions)
-                    ..where((row) => row.id.isIn(duplicateIds)))
-                  .go();
+              await (_database.delete(
+                _database.localSessions,
+              )..where((row) => row.id.isIn(duplicateIds))).go();
             }
           }
           return;
@@ -332,7 +370,9 @@ class SyncWorker {
                     notes: Value(getVal(row, 'notes', 'notes')),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
                   ),
                 );
           }
@@ -348,8 +388,13 @@ class SyncWorker {
             }
             final rawNotes = getVal(row, 'notes', 'notes');
             String? parsedNotes = rawNotes;
-            String? parsedReceipt = getVal(row, 'paper_receipt_image', 'paperReceiptImage');
-            if (rawNotes != null && rawNotes.contains('---ONEBILL_RECEIPT_IMAGE---')) {
+            String? parsedReceipt = getVal(
+              row,
+              'paper_receipt_image',
+              'paperReceiptImage',
+            );
+            if (rawNotes != null &&
+                rawNotes.contains('---ONEBILL_RECEIPT_IMAGE---')) {
               final parts = rawNotes.split('---ONEBILL_RECEIPT_IMAGE---');
               parsedNotes = parts[0].trim().isEmpty ? null : parts[0].trim();
               if (parts.length > 1 && parts[1].trim().isNotEmpty) {
@@ -363,38 +408,66 @@ class SyncWorker {
                     id: invId,
                     businessId: businessId,
                     customerId: custId,
-                    invoiceNumber: getVal(row, 'invoice_number', 'invoiceNumber') ?? 'INV-001',
+                    invoiceNumber:
+                        getVal(row, 'invoice_number', 'invoiceNumber') ??
+                        'INV-001',
                     issuedAt: getDate(row, 'issued_at', 'issuedAt'),
                     dueAt: Value(getDateOpt(row, 'due_at', 'dueAt')),
-                    subtotalPaise: getInt(row, 'subtotal_paise', 'subtotalPaise'),
-                    discountPaise: Value(getInt(row, 'discount_paise', 'discountPaise')),
-                    interestPaise: Value(getInt(row, 'interest_paise', 'interestPaise')),
+                    subtotalPaise: getInt(
+                      row,
+                      'subtotal_paise',
+                      'subtotalPaise',
+                    ),
+                    discountPaise: Value(
+                      getInt(row, 'discount_paise', 'discountPaise'),
+                    ),
+                    interestPaise: Value(
+                      getInt(row, 'interest_paise', 'interestPaise'),
+                    ),
                     paidPaise: Value(getInt(row, 'paid_paise', 'paidPaise')),
                     notes: Value(parsedNotes),
                     paperReceiptImage: Value(parsedReceipt),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
                   ),
                 );
           }
           final items = allItems.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId || getVal(r, 'invoice_id', 'invoiceId') != null,
+            (r) =>
+                getVal(r, 'business_id', 'businessId') == businessId ||
+                getVal(r, 'invoice_id', 'invoiceId') != null,
           );
           for (final row in items) {
             final itemId = getVal(row, 'id', 'id');
             final invId = getVal(row, 'invoice_id', 'invoiceId');
-            if (itemId == null || invId == null || invId.trim().isEmpty) continue;
+            if (itemId == null || invId == null || invId.trim().isEmpty)
+              continue;
             await _database
                 .into(_database.invoiceItems)
                 .insertOnConflictUpdate(
                   InvoiceItemsCompanion.insert(
                     id: itemId,
                     invoiceId: invId,
-                    description: getVal(row, 'description', 'description') ?? '',
-                    quantityMilliunits: getInt(row, 'quantity_milliunits', 'quantityMilliunits'),
-                    unitPricePaise: getInt(row, 'unit_price_paise', 'unitPricePaise'),
-                    lineTotalPaise: getInt(row, 'line_total_paise', 'lineTotalPaise'),
+                    description:
+                        getVal(row, 'description', 'description') ?? '',
+                    quantityMilliunits: getInt(
+                      row,
+                      'quantity_milliunits',
+                      'quantityMilliunits',
+                    ),
+                    unitPricePaise: getInt(
+                      row,
+                      'unit_price_paise',
+                      'unitPricePaise',
+                    ),
+                    lineTotalPaise: getInt(
+                      row,
+                      'line_total_paise',
+                      'lineTotalPaise',
+                    ),
                     sortOrder: getInt(row, 'sort_order', 'sortOrder'),
                   ),
                 );
@@ -418,7 +491,9 @@ class SyncWorker {
                     note: Value(getVal(row, 'note', 'note')),
                     receivedAt: getDate(row, 'received_at', 'receivedAt'),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
                   ),
                 );
           }
@@ -435,11 +510,15 @@ class SyncWorker {
                     id: incId,
                     businessId: businessId,
                     amountPaise: getInt(row, 'amount_paise', 'amountPaise'),
-                    description: Value(getVal(row, 'description', 'description')),
+                    description: Value(
+                      getVal(row, 'description', 'description'),
+                    ),
                     incomeDate: getDate(row, 'income_date', 'incomeDate'),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
                   ),
                 );
           }
@@ -457,11 +536,15 @@ class SyncWorker {
                     businessId: businessId,
                     amountPaise: getInt(row, 'amount_paise', 'amountPaise'),
                     category: getVal(row, 'category', 'category') ?? 'General',
-                    description: Value(getVal(row, 'description', 'description')),
+                    description: Value(
+                      getVal(row, 'description', 'description'),
+                    ),
                     expenseDate: getDate(row, 'expense_date', 'expenseDate'),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
-                    deletedAt: Value(getDateOpt(row, 'deleted_at', 'deletedAt')),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
                   ),
                 );
           }
@@ -470,8 +553,8 @@ class SyncWorker {
         final sessions = await _database.select(_database.localSessions).get();
         final currentSession = sessions.firstOrNull;
         final existingActiveId = currentSession?.activeBusinessId;
-        final hasValidActiveBusiness = existingActiveId != null &&
-            businessIds.contains(existingActiveId);
+        final hasValidActiveBusiness =
+            existingActiveId != null && businessIds.contains(existingActiveId);
         final targetActiveId = hasValidActiveBusiness
             ? existingActiveId
             : businessIds.first;
@@ -534,28 +617,15 @@ class SyncWorker {
     }
     if (session == null) return;
     final userId = session.user.id;
-    final unalignedBusinesses = await (_database.select(_database.businesses)
-          ..where((row) => row.accountId.equals(userId).not()))
-        .get();
-    if (unalignedBusinesses.isNotEmpty) {
-      final now = DateTime.now().toUtc();
-      await _database
-          .into(_database.userAccounts)
-          .insertOnConflictUpdate(
-            UserAccountsCompanion.insert(
-              id: userId,
-              displayName: session.user.email ?? 'Owner',
-              email: Value(session.user.email),
-              createdAt: now,
-              updatedAt: now,
-            ),
-          );
-      for (final ub in unalignedBusinesses) {
-        await (_database.update(_database.businesses)
-              ..where((row) => row.id.equals(ub.id)))
-            .write(BusinessesCompanion(accountId: Value(userId)));
-      }
-    }
+    // A sync call must never re-parent local businesses to the current user.
+    // That old repair path could upload another account's queue under this
+    // account after a sign-out/sign-in transition.
+    final ownedBusiness =
+        await (_database.select(_database.businesses)..where(
+              (row) => row.id.equals(businessId) & row.accountId.equals(userId),
+            ))
+            .getSingleOrNull();
+    if (ownedBusiness == null) return;
 
     _running = true;
     try {
@@ -565,7 +635,9 @@ class SyncWorker {
         final operations =
             await (_database.select(_database.syncOperations)
                   ..where(
-                    (operation) => operation.status.equals('pending'),
+                    (operation) =>
+                        operation.status.equals('pending') &
+                        operation.businessId.equals(businessId),
                   )
                   ..orderBy([
                     (operation) => OrderingTerm.asc(operation.createdAt),
@@ -591,132 +663,139 @@ class SyncWorker {
           }
         }
         if (payload.isEmpty) break;
-      bool edgeSucceeded = false;
-      FunctionResponse? result;
-      try {
-        result = await _client.functions.invoke(
-          'sync',
-          body: {'deviceId': deviceId, 'operations': payload},
-        );
-        if (result.status == 200 &&
-            result.data is Map &&
-            (result.data as Map).containsKey('acknowledgedOperationIds')) {
-          edgeSucceeded = true;
-        }
-      } on FunctionException catch (fe) {
-        if (fe.status == 401) {
-          try {
-            final refreshed = await _client.auth.refreshSession();
-            if (refreshed.session != null) {
-              result = await _client.functions.invoke(
-                'sync',
-                body: {
-                  'deviceId': refreshed.session!.user.id,
-                  'operations': payload,
-                },
-              );
-              if (result.status == 200 &&
-                  result.data is Map &&
-                  (result.data as Map).containsKey('acknowledgedOperationIds')) {
-                edgeSucceeded = true;
+        bool edgeSucceeded = false;
+        FunctionResponse? result;
+        try {
+          result = await _client.functions.invoke(
+            'sync',
+            body: {'deviceId': deviceId, 'operations': payload},
+          );
+          if (result.status == 200 &&
+              result.data is Map &&
+              (result.data as Map).containsKey('acknowledgedOperationIds')) {
+            edgeSucceeded = true;
+          }
+        } on FunctionException catch (fe) {
+          if (fe.status == 401) {
+            try {
+              final refreshed = await _client.auth.refreshSession();
+              if (refreshed.session != null) {
+                result = await _client.functions.invoke(
+                  'sync',
+                  body: {
+                    'deviceId': refreshed.session!.user.id,
+                    'operations': payload,
+                  },
+                );
+                if (result.status == 200 &&
+                    result.data is Map &&
+                    (result.data as Map).containsKey(
+                      'acknowledgedOperationIds',
+                    )) {
+                  edgeSucceeded = true;
+                }
               }
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
+            } catch (_) {}
+          }
+        } catch (_) {}
 
-      if (edgeSucceeded && result != null) {
-        final body = result.data is Map
-            ? Map<String, dynamic>.from(result.data as Map)
-            : <String, dynamic>{};
-        final acknowledged = (body['acknowledgedOperationIds'] as List? ?? [])
-            .whereType<String>()
-            .toSet();
-        final conflicts = (body['conflicts'] as List? ?? [])
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList();
-        final failed = (body['failed'] as List? ?? [])
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList();
-        for (final operation in buildableOperations) {
-          if (acknowledged.contains(operation.id)) {
-            await _markSynced(operation.id);
-          } else {
-            final conflict = conflicts.cast<Map<String, dynamic>?>().firstWhere(
-              (entry) => entry?['operationId'] == operation.id,
-              orElse: () => null,
-            );
-            final failure = failed.cast<Map<String, dynamic>?>().firstWhere(
-              (entry) => entry?['operationId'] == operation.id,
-              orElse: () => null,
-            );
-            final reason = (conflict?['reason'] ??
-                    failure?['reason'] ??
-                    'Sync was not acknowledged')
-                .toString();
-            if (operation.operationType == 'PaymentReversed') {
-              try {
-                final delAt = DateTime.now().toUtc().toIso8601String();
-                await _client.from('payments').update({
-                  'deleted_at': delAt,
-                }).eq('id', operation.entityId);
-              } catch (_) {}
-              await _markSynced(operation.id);
-              continue;
-            }
-            if (_isAlreadyApplied(operation.operationType, reason)) {
+        if (edgeSucceeded && result != null) {
+          final body = result.data is Map
+              ? Map<String, dynamic>.from(result.data as Map)
+              : <String, dynamic>{};
+          final acknowledged = (body['acknowledgedOperationIds'] as List? ?? [])
+              .whereType<String>()
+              .toSet();
+          final conflicts = (body['conflicts'] as List? ?? [])
+              .whereType<Map>()
+              .map((entry) => Map<String, dynamic>.from(entry))
+              .toList();
+          final failed = (body['failed'] as List? ?? [])
+              .whereType<Map>()
+              .map((entry) => Map<String, dynamic>.from(entry))
+              .toList();
+          for (final operation in buildableOperations) {
+            if (acknowledged.contains(operation.id)) {
               await _markSynced(operation.id);
             } else {
-              await _markFailed(operation.id, reason);
-            }
-          }
-        }
-      } else {
-        // Direct RPC fallback per operation when Edge Function is unavailable
-        final user = _client.auth.currentUser;
-        if (user != null) {
-          for (int i = 0; i < buildableOperations.length; i++) {
-            final operation = buildableOperations[i];
-            final opPayload = payload[i];
-            try {
-              final rpcRes = await _client.rpc(
-                'apply_sync_operation',
-                params: {
-                  'p_owner_id': user.id,
-                  'p_device_id': deviceId,
-                  'p_operation': opPayload,
-                },
+              final conflict = conflicts
+                  .cast<Map<String, dynamic>?>()
+                  .firstWhere(
+                    (entry) => entry?['operationId'] == operation.id,
+                    orElse: () => null,
+                  );
+              final failure = failed.cast<Map<String, dynamic>?>().firstWhere(
+                (entry) => entry?['operationId'] == operation.id,
+                orElse: () => null,
               );
-              if (rpcRes is Map && rpcRes['acknowledged'] == true) {
+              final reason =
+                  (conflict?['reason'] ??
+                          failure?['reason'] ??
+                          'Sync was not acknowledged')
+                      .toString();
+              if (operation.operationType == 'PaymentReversed') {
+                try {
+                  final delAt = DateTime.now().toUtc().toIso8601String();
+                  await _client
+                      .from('payments')
+                      .update({'deleted_at': delAt})
+                      .eq('id', operation.entityId);
+                } catch (_) {}
+                await _markSynced(operation.id);
+                continue;
+              }
+              if (_isAlreadyApplied(operation.operationType, reason)) {
                 await _markSynced(operation.id);
               } else {
-                final reason =
-                    (rpcRes is Map ? rpcRes['reason'] : null)?.toString() ??
-                        'Operation rejected by cloud RPC';
-                if (operation.operationType == 'PaymentReversed') {
-                  try {
-                    final delAt = DateTime.now().toUtc().toIso8601String();
-                    await _client.from('payments').update({
-                      'deleted_at': delAt,
-                    }).eq('id', operation.entityId);
-                  } catch (_) {}
-                  await _markSynced(operation.id);
-                  continue;
-                }
-                if (_isAlreadyApplied(operation.operationType, reason)) {
+                await _markFailed(operation.id, reason);
+              }
+            }
+          }
+        } else {
+          // Direct RPC fallback per operation when Edge Function is unavailable
+          final user = _client.auth.currentUser;
+          if (user != null) {
+            for (int i = 0; i < buildableOperations.length; i++) {
+              final operation = buildableOperations[i];
+              final opPayload = payload[i];
+              try {
+                final rpcRes = await _client.rpc(
+                  'apply_sync_operation',
+                  params: {
+                    'p_owner_id': user.id,
+                    'p_device_id': deviceId,
+                    'p_operation': opPayload,
+                  },
+                );
+                if (rpcRes is Map && rpcRes['acknowledged'] == true) {
                   await _markSynced(operation.id);
                 } else {
-                  await _markFailed(operation.id, reason);
+                  final reason =
+                      (rpcRes is Map ? rpcRes['reason'] : null)?.toString() ??
+                      'Operation rejected by cloud RPC';
+                  if (operation.operationType == 'PaymentReversed') {
+                    try {
+                      final delAt = DateTime.now().toUtc().toIso8601String();
+                      await _client
+                          .from('payments')
+                          .update({'deleted_at': delAt})
+                          .eq('id', operation.entityId);
+                    } catch (_) {}
+                    await _markSynced(operation.id);
+                    continue;
+                  }
+                  if (_isAlreadyApplied(operation.operationType, reason)) {
+                    await _markSynced(operation.id);
+                  } else {
+                    await _markFailed(operation.id, reason);
+                  }
                 }
+              } catch (error) {
+                // RPC failed due to network outage or permissions; keep pending to retry
               }
-            } catch (error) {
-              // RPC failed due to network outage or permissions; keep pending to retry
             }
           }
         }
-      }
       }
     } catch (error) {
       // Network outages, 503 errors, timeouts, or socket exceptions do NOT
@@ -726,7 +805,6 @@ class SyncWorker {
       _running = false;
     }
   }
-
 
   Future<void> retryFailedOperations([String? businessId]) async {
     await _requeueTransientFailures(businessId: businessId, force: true);
@@ -742,29 +820,34 @@ class SyncWorker {
     final cutoff = DateTime.now().toUtc().subtract(const Duration(minutes: 5));
     final query = _database.select(_database.syncOperations);
     if (force) {
-      query.where((operation) => operation.status.like('failed%'));
+      query.where(
+        (operation) =>
+            operation.status.isNotValue('pending') &
+            operation.status.isNotValue('synced'),
+      );
     } else {
       query.where(
         (operation) =>
-            operation.status.like('failed%') &
+            operation.status.isNotValue('pending') &
+            operation.status.isNotValue('synced') &
             operation.attemptCount.isSmallerThan(const Constant(10)) &
             (operation.lastAttemptAt.isNull() |
                 operation.lastAttemptAt.isSmallerThan(Variable(cutoff))),
       );
     }
     if (businessId != null && businessId.isNotEmpty) {
-      query.where((operation) =>
-          operation.businessId.equals(businessId) |
-          operation.businessId.isNull());
+      query.where((operation) => operation.businessId.equals(businessId));
     }
     final operations = await query.get();
     for (final operation in operations) {
-      await (_database.update(_database.syncOperations)
-            ..where((row) => row.id.equals(operation.id)))
-          .write(const SyncOperationsCompanion(
-            status: Value('pending'),
-            attemptCount: Value(0),
-          ));
+      await (_database.update(
+        _database.syncOperations,
+      )..where((row) => row.id.equals(operation.id))).write(
+        const SyncOperationsCompanion(
+          status: Value('pending'),
+          attemptCount: Value(0),
+        ),
+      );
     }
   }
 
@@ -794,19 +877,27 @@ class SyncWorker {
 
     switch (operation.operationType) {
       case 'BusinessCreated':
-        final b = await (database.select(database.businesses)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final b = await (database.select(
+          database.businesses,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (b != null) {
           payload = _businessPayload(b);
         } else if (operation.payloadJson.isNotEmpty) {
           try {
-            final raw = jsonDecode(operation.payloadJson) as Map<String, dynamic>;
+            final raw =
+                jsonDecode(operation.payloadJson) as Map<String, dynamic>;
             final lang = {'en', 'hi', 'te'}.contains(raw['preferredLanguage'])
                 ? raw['preferredLanguage'] as String
                 : 'en';
             payload = {
               'id': operation.entityId,
-              'name': (raw['name'] as String?)?.trim().isNotEmpty == true ? (raw['name'] as String).trim() : 'My Business',
-              'ownerName': (raw['ownerName'] as String?)?.trim().isNotEmpty == true ? (raw['ownerName'] as String).trim() : 'Owner',
+              'name': (raw['name'] as String?)?.trim().isNotEmpty == true
+                  ? (raw['name'] as String).trim()
+                  : 'My Business',
+              'ownerName':
+                  (raw['ownerName'] as String?)?.trim().isNotEmpty == true
+                  ? (raw['ownerName'] as String).trim()
+                  : 'Owner',
               'preferredLanguage': lang,
               'preferred_language': lang,
               'createdAt': operation.createdAt.toUtc().toIso8601String(),
@@ -817,16 +908,21 @@ class SyncWorker {
         break;
 
       case 'BusinessUpdated':
-        final b = await (database.select(database.businesses)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final b = await (database.select(
+          database.businesses,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (b != null) payload = {..._businessPayload(b), 'expectedVersion': 1};
         break;
 
       case 'BusinessDeleted':
-        final b = await (database.select(database.businesses)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final b = await (database.select(
+          database.businesses,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (b != null) {
           payload = {
             ..._businessPayload(b),
-            'deletedAt': (b.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+            'deletedAt': (b.deletedAt ?? DateTime.now().toUtc())
+                .toIso8601String(),
           };
         } else {
           payload = {
@@ -839,15 +935,21 @@ class SyncWorker {
       case 'CustomerCreated':
       case 'CustomerUpdated':
       case 'CustomerArchived':
-        final c = await (database.select(database.customers)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final c = await (database.select(
+          database.customers,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (c != null) payload = _customerPayload(c, expectedVersion: 1);
         break;
 
       case 'InvoiceCreated':
       case 'InvoiceUpdated':
-        final inv = await (database.select(database.invoices)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final inv = await (database.select(
+          database.invoices,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (inv != null) {
-          final items = await (database.select(database.invoiceItems)..where((e) => e.invoiceId.equals(entityId))).get();
+          final items = await (database.select(
+            database.invoiceItems,
+          )..where((e) => e.invoiceId.equals(entityId))).get();
           payload = _invoicePayload(inv, items);
         }
         break;
@@ -860,17 +962,23 @@ class SyncWorker {
         break;
 
       case 'PaymentRecorded':
-        final p = await (database.select(database.payments)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final p = await (database.select(
+          database.payments,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (p != null) payload = _paymentPayload(p);
         break;
 
       case 'PaymentReversed':
-        final p = await (database.select(database.payments)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final p = await (database.select(
+          database.payments,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (p != null) {
           payload = {
             ..._paymentPayload(p),
-            'reversedAt': (p.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
-            'deletedAt': (p.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+            'reversedAt': (p.deletedAt ?? DateTime.now().toUtc())
+                .toIso8601String(),
+            'deletedAt': (p.deletedAt ?? DateTime.now().toUtc())
+                .toIso8601String(),
           };
         } else if (operation.payloadJson.isNotEmpty) {
           try {
@@ -885,19 +993,25 @@ class SyncWorker {
       case 'IncomeCreated':
       case 'IncomeUpdated':
       case 'IncomeDeleted':
-        final inc = await (database.select(database.incomeEntries)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final inc = await (database.select(
+          database.incomeEntries,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (inc != null) payload = _incomePayload(inc);
         break;
 
       case 'ExpenseCreated':
       case 'ExpenseUpdated':
       case 'ExpenseDeleted':
-        final exp = await (database.select(database.expenses)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final exp = await (database.select(
+          database.expenses,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (exp != null) payload = _expensePayload(exp);
         break;
 
       case 'PaperReceiptCreated':
-        final r = await (database.select(database.paperReceipts)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final r = await (database.select(
+          database.paperReceipts,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (r != null) {
           payload = {
             'id': r.id,
@@ -912,12 +1026,15 @@ class SyncWorker {
         break;
 
       case 'PaperReceiptDeleted':
-        final r = await (database.select(database.paperReceipts)..where((e) => e.id.equals(entityId))).getSingleOrNull();
+        final r = await (database.select(
+          database.paperReceipts,
+        )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (r != null) {
           payload = {
             'id': r.id,
             'businessId': r.businessId,
-            'deletedAt': (r.deletedAt ?? DateTime.now().toUtc()).toIso8601String(),
+            'deletedAt': (r.deletedAt ?? DateTime.now().toUtc())
+                .toIso8601String(),
           };
         }
         break;
@@ -938,9 +1055,12 @@ class SyncWorker {
 
     return {
       'operationId': operation.id,
-      'businessId': (operation.businessId != null && operation.businessId!.isNotEmpty)
+      'businessId':
+          (operation.businessId != null && operation.businessId!.isNotEmpty)
           ? operation.businessId!
-          : (payload['businessId'] as String? ?? payload['id'] as String? ?? ''),
+          : (payload['businessId'] as String? ??
+                payload['id'] as String? ??
+                ''),
       'entityType': entityType,
       'entityId': entityId,
       'operationType': operation.operationType,
@@ -953,8 +1073,12 @@ class SyncWorker {
     final lang = {'en', 'hi', 'te'}.contains(business.preferredLanguage)
         ? business.preferredLanguage
         : 'en';
-    final name = business.name.trim().isEmpty ? 'My Business' : business.name.trim();
-    final ownerName = business.ownerName.trim().isEmpty ? 'Owner' : business.ownerName.trim();
+    final name = business.name.trim().isEmpty
+        ? 'My Business'
+        : business.name.trim();
+    final ownerName = business.ownerName.trim().isEmpty
+        ? 'Owner'
+        : business.ownerName.trim();
     return {
       'id': business.id,
       'name': name,
@@ -1001,7 +1125,8 @@ class SyncWorker {
     List<InvoiceItem> items,
   ) {
     String? cloudNotes = invoice.notes;
-    if (invoice.paperReceiptImage != null && invoice.paperReceiptImage!.trim().isNotEmpty) {
+    if (invoice.paperReceiptImage != null &&
+        invoice.paperReceiptImage!.trim().isNotEmpty) {
       const delimiter = '\n---ONEBILL_RECEIPT_IMAGE---\n';
       cloudNotes = (cloudNotes != null && cloudNotes.trim().isNotEmpty)
           ? '${cloudNotes.trim()}$delimiter${invoice.paperReceiptImage!.trim()}'
@@ -1025,18 +1150,22 @@ class SyncWorker {
         'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
         'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
       },
-    'items': items
-        .map(
-          (item) => {
-            'id': item.id,
-            'description': item.description.trim().isEmpty ? 'Item' : item.description.trim(),
-            'quantityMilliunits': item.quantityMilliunits <= 0 ? 1000 : item.quantityMilliunits,
-            'unitPricePaise': item.unitPricePaise,
-            'lineTotalPaise': item.lineTotalPaise,
-            'sortOrder': item.sortOrder,
-          },
-        )
-        .toList(),
+      'items': items
+          .map(
+            (item) => {
+              'id': item.id,
+              'description': item.description.trim().isEmpty
+                  ? 'Item'
+                  : item.description.trim(),
+              'quantityMilliunits': item.quantityMilliunits <= 0
+                  ? 1000
+                  : item.quantityMilliunits,
+              'unitPricePaise': item.unitPricePaise,
+              'lineTotalPaise': item.lineTotalPaise,
+              'sortOrder': item.sortOrder,
+            },
+          )
+          .toList(),
     };
   }
 
@@ -1086,9 +1215,9 @@ class SyncWorker {
       );
 
   Future<void> _markFailed(String id, String reason) async {
-    final existing = await (_database.select(_database.syncOperations)
-          ..where((op) => op.id.equals(id)))
-        .getSingleOrNull();
+    final existing = await (_database.select(
+      _database.syncOperations,
+    )..where((op) => op.id.equals(id))).getSingleOrNull();
     final nextCount = (existing?.attemptCount ?? 0) + 1;
     await (_database.update(
       _database.syncOperations,

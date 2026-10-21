@@ -29,7 +29,10 @@ class BusinessRepository {
     final activeUser = _currentUser;
     final effectiveId = activeUser?.id ?? accountId;
     return (_database.select(_database.businesses)
-          ..where((b) => (b.accountId.equals(effectiveId) | b.accountId.equals(accountId)) & b.deletedAt.isNull())
+          // Never broaden this query to include both the requested account and
+          // the current auth account. During account switching that can expose
+          // the previous account's businesses for one frame.
+          ..where((b) => b.accountId.equals(effectiveId) & b.deletedAt.isNull())
           ..orderBy([(b) => OrderingTerm.asc(b.name)]))
         .watch();
   }
@@ -72,15 +75,15 @@ class BusinessRepository {
               updatedAt: now,
             ),
           );
-      final existingSessions = await (_database.select(_database.localSessions)
-            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
-          .get();
+      final existingSessions = await (_database.select(
+        _database.localSessions,
+      )..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])).get();
 
       if (existingSessions.isNotEmpty) {
         final mainSession = existingSessions.first;
-        await (_database.update(_database.localSessions)
-              ..where((s) => s.id.equals(mainSession.id)))
-            .write(
+        await (_database.update(
+          _database.localSessions,
+        )..where((s) => s.id.equals(mainSession.id))).write(
           LocalSessionsCompanion(
             accountId: Value(effectiveAccountId),
             activeBusinessId: Value(businessId),
@@ -89,10 +92,13 @@ class BusinessRepository {
           ),
         );
         if (existingSessions.length > 1) {
-          final duplicateIds = existingSessions.skip(1).map((s) => s.id).toList();
-          await (_database.delete(_database.localSessions)
-                ..where((s) => s.id.isIn(duplicateIds)))
-              .go();
+          final duplicateIds = existingSessions
+              .skip(1)
+              .map((s) => s.id)
+              .toList();
+          await (_database.delete(
+            _database.localSessions,
+          )..where((s) => s.id.isIn(duplicateIds))).go();
         }
       } else {
         await _database
@@ -133,6 +139,16 @@ class BusinessRepository {
         await (_database.select(_database.businesses)
               ..where((b) => b.id.equals(businessId) & b.deletedAt.isNull()))
             .getSingle();
+    final session = await (_database.select(
+      _database.localSessions,
+    )..where((s) => s.id.equals(sessionId))).getSingleOrNull();
+    if (session == null || session.accountId != business.accountId) {
+      throw StateError('Business does not belong to the active account.');
+    }
+    final activeUser = _currentUser;
+    if (activeUser != null && activeUser.id != business.accountId) {
+      throw StateError('Business does not belong to the signed-in account.');
+    }
     await (_database.update(
       _database.localSessions,
     )..where((s) => s.id.equals(sessionId))).write(
@@ -157,11 +173,14 @@ class BusinessRepository {
     final activeUser = _currentUser;
     final effectiveAccountId = activeUser?.id ?? accountId;
     await _database.transaction(() async {
-      var account = await (_database.select(
-        _database.userAccounts,
-      )..where((entry) => entry.id.equals(effectiveAccountId))).getSingleOrNull();
+      var account =
+          await (_database.select(_database.userAccounts)
+                ..where((entry) => entry.id.equals(effectiveAccountId)))
+              .getSingleOrNull();
       if (account == null) {
-        await _database.into(_database.userAccounts).insertOnConflictUpdate(
+        await _database
+            .into(_database.userAccounts)
+            .insertOnConflictUpdate(
               UserAccountsCompanion.insert(
                 id: effectiveAccountId,
                 displayName: ownerName.trim(),
@@ -189,9 +208,11 @@ class BusinessRepository {
       final sessions = await _database.select(_database.localSessions).get();
       for (final s in sessions) {
         if (s.accountId != effectiveAccountId) {
-          await (_database.update(_database.localSessions)
-                ..where((row) => row.id.equals(s.id)))
-              .write(LocalSessionsCompanion(accountId: Value(effectiveAccountId)));
+          await (_database.update(
+            _database.localSessions,
+          )..where((row) => row.id.equals(s.id))).write(
+            LocalSessionsCompanion(accountId: Value(effectiveAccountId)),
+          );
         }
       }
       await _enqueue(
@@ -243,6 +264,10 @@ class BusinessRepository {
                     entry.id.equals(businessId) & entry.deletedAt.isNull(),
               ))
               .getSingle();
+      final activeUser = _currentUser;
+      if (activeUser != null && activeUser.id != business.accountId) {
+        throw StateError('Business does not belong to the signed-in account.');
+      }
       await (_database.update(
         _database.businesses,
       )..where((entry) => entry.id.equals(businessId))).write(
@@ -309,10 +334,17 @@ class BusinessRepository {
   }) async {
     final now = DateTime.now().toUtc();
     await _database.transaction(() async {
-      final business = await (_database.select(_database.businesses)
-            ..where((entry) => entry.id.equals(businessId) & entry.deletedAt.isNull()))
-          .getSingleOrNull();
+      final business =
+          await (_database.select(_database.businesses)..where(
+                (entry) =>
+                    entry.id.equals(businessId) & entry.deletedAt.isNull(),
+              ))
+              .getSingleOrNull();
       if (business == null) return;
+      final activeUser = _currentUser;
+      if (activeUser != null && activeUser.id != business.accountId) {
+        throw StateError('Business does not belong to the signed-in account.');
+      }
 
       await (_database.update(
         _database.businesses,
@@ -363,18 +395,15 @@ class BusinessRepository {
   Future<void> deleteBusiness({required String businessId}) async {
     final now = DateTime.now().toUtc();
     await _database.transaction(() async {
-      final business = await (_database.select(_database.businesses)
-            ..where((entry) => entry.id.equals(businessId)))
-          .getSingleOrNull();
+      final business = await (_database.select(
+        _database.businesses,
+      )..where((entry) => entry.id.equals(businessId))).getSingleOrNull();
       if (business == null) return;
 
-      await (_database.update(_database.businesses)
-            ..where((entry) => entry.id.equals(businessId)))
-          .write(
-        BusinessesCompanion(
-          deletedAt: Value(now),
-          updatedAt: Value(now),
-        ),
+      await (_database.update(
+        _database.businesses,
+      )..where((entry) => entry.id.equals(businessId))).write(
+        BusinessesCompanion(deletedAt: Value(now), updatedAt: Value(now)),
       );
 
       await _enqueue(
@@ -390,65 +419,62 @@ class BusinessRepository {
         now: now,
       );
 
-      // Find all remaining non-deleted businesses
-      final activeUser = _currentUser;
-      final effectiveId = activeUser?.id ?? business.accountId;
-      var remainingBusinesses = await (_database.select(_database.businesses)
-            ..where(
-              (b) =>
-                  (b.accountId.equals(business.accountId) |
-                      b.accountId.equals(effectiveId)) &
-                  b.id.equals(businessId).not() &
-                  b.deletedAt.isNull(),
-            )
-            ..orderBy([(b) => OrderingTerm.asc(b.name)]))
-          .get();
+      // Only select another business from the same account. Falling back to a
+      // different account would leak private data after a deletion.
+      final remainingBusinesses =
+          await (_database.select(_database.businesses)
+                ..where(
+                  (b) =>
+                      b.accountId.equals(business.accountId) &
+                      b.id.equals(businessId).not() &
+                      b.deletedAt.isNull(),
+                )
+                ..orderBy([(b) => OrderingTerm.asc(b.name)]))
+              .get();
 
-      if (remainingBusinesses.isEmpty) {
-        remainingBusinesses = await (_database.select(_database.businesses)
-              ..where((b) => b.id.equals(businessId).not() & b.deletedAt.isNull())
-              ..orderBy([(b) => OrderingTerm.asc(b.name)]))
-            .get();
-      }
+      final allSessions = await (_database.select(
+        _database.localSessions,
+      )..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])).get();
 
-      final allSessions = await (_database.select(_database.localSessions)
-            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
-          .get();
-
-      final String? nextId =
-          remainingBusinesses.isNotEmpty ? remainingBusinesses.first.id : null;
+      final String? nextId = remainingBusinesses.isNotEmpty
+          ? remainingBusinesses.first.id
+          : null;
       final String? nextLang = remainingBusinesses.isNotEmpty
           ? remainingBusinesses.first.preferredLanguage
           : null;
 
       if (allSessions.isNotEmpty) {
         final mainSession = allSessions.first;
-        await (_database.update(_database.localSessions)
-              ..where((s) => s.id.equals(mainSession.id)))
-            .write(
+        await (_database.update(
+          _database.localSessions,
+        )..where((s) => s.id.equals(mainSession.id))).write(
           LocalSessionsCompanion(
             accountId: Value(business.accountId),
             activeBusinessId: Value(nextId),
-            localeCode: nextLang != null ? Value(nextLang) : const Value.absent(),
+            localeCode: nextLang != null
+                ? Value(nextLang)
+                : const Value.absent(),
             updatedAt: Value(now),
           ),
         );
 
         if (allSessions.length > 1) {
           final duplicateIds = allSessions.skip(1).map((s) => s.id).toList();
-          await (_database.delete(_database.localSessions)
-                ..where((s) => s.id.isIn(duplicateIds)))
-              .go();
+          await (_database.delete(
+            _database.localSessions,
+          )..where((s) => s.id.isIn(duplicateIds))).go();
         }
       } else {
-        await _database.into(_database.localSessions).insert(
-          LocalSessionsCompanion.insert(
-            accountId: Value(business.accountId),
-            activeBusinessId: Value(nextId),
-            localeCode: Value(nextLang ?? 'en'),
-            updatedAt: now,
-          ),
-        );
+        await _database
+            .into(_database.localSessions)
+            .insert(
+              LocalSessionsCompanion.insert(
+                accountId: Value(business.accountId),
+                activeBusinessId: Value(nextId),
+                localeCode: Value(nextLang ?? 'en'),
+                updatedAt: now,
+              ),
+            );
       }
     });
   }
@@ -458,9 +484,9 @@ class BusinessRepository {
     required String languageCode,
   }) async {
     final now = DateTime.now().toUtc();
-    await (_database.update(_database.localSessions)
-          ..where((s) => s.id.equals(sessionId)))
-        .write(
+    await (_database.update(
+      _database.localSessions,
+    )..where((s) => s.id.equals(sessionId))).write(
       LocalSessionsCompanion(
         localeCode: Value(languageCode),
         updatedAt: Value(now),
@@ -469,7 +495,6 @@ class BusinessRepository {
   }
 
   String? _blankToNull(String? value) =>
-
       value == null || value.trim().isEmpty ? null : value.trim();
 
   Future<void> _enqueue({

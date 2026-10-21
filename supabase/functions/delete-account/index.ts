@@ -43,13 +43,16 @@ Deno.serve(async (request) => {
   });
 
   try {
-    // Call database cleanup RPC
-    const { data: rpcData, error: rpcError } = await admin.rpc('admin_delete_user_account', {
-      p_user_id: userId,
-    });
+    // Run the cleanup RPC through the verified user's client so auth.uid()
+    // remains the source of ownership. The service-role client must not be
+    // used for this call because it has no user JWT and could not safely bind
+    // the deletion to the verified account.
+    const { data: rpcData, error: rpcError } = await authClient.rpc(
+      'delete_user_account',
+    );
 
     if (rpcError) {
-      console.error('RPC admin_delete_user_account failed:', rpcError);
+      console.error('RPC delete_user_account failed:', rpcError);
       return reply({ error: `Backend data cleanup failed: ${rpcError.message}` }, 500);
     }
 

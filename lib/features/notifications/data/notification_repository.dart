@@ -93,6 +93,12 @@ class NotificationRepository {
     await query.go();
   }
 
+  Future<void> deleteNotification(String id) async {
+    await (_db.delete(_db.appNotifications)
+          ..where((tbl) => tbl.id.equals(id)))
+        .go();
+  }
+
   // Preferences & Settings
   Stream<Map<String, bool>> watchPreferences() {
     return _db.select(_db.notificationPreferences).watch().map((rows) {
