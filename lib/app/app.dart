@@ -2586,7 +2586,12 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         return;
       }
       if (mounted) {
-        final err = _tr(context, 'Incorrect PIN. Please try again.');
+        final remaining = await ref
+            .read(securityServiceProvider)
+            .pinLockRemaining();
+        final err = remaining != null
+            ? _tr(context, 'Too many incorrect PIN attempts. Try again later.')
+            : _tr(context, 'Incorrect PIN. Please try again.');
         setState(() => _unlockError = err);
         _lockPin.clear();
         ScaffoldMessenger.of(
@@ -3591,9 +3596,17 @@ class _ConfirmPinDialogState extends ConsumerState<_ConfirmPinDialog> {
       if (ok) {
         Navigator.pop(context, true);
       } else {
+        final remaining = await ref
+            .read(securityServiceProvider)
+            .pinLockRemaining();
         setState(() {
           _checking = false;
-          _error = _tr(context, 'Incorrect PIN. Please try again.');
+          _error = remaining != null
+              ? _tr(
+                  context,
+                  'Too many incorrect PIN attempts. Try again later.',
+                )
+              : _tr(context, 'Incorrect PIN. Please try again.');
           _pin.clear();
         });
       }
@@ -6200,10 +6213,12 @@ class _BusinessSettingsSheetState
     final security = ref.read(securityServiceProvider);
     final notifService = ref.read(notificationServiceProvider);
     final accountId = widget.business.accountId;
+    var backendDeleted = false;
 
     try {
       // 5. Call backend deletion
       await auth.deleteAccount();
+      backendDeleted = true;
 
       // 6. Backend confirmed deletion. Now perform complete local cleanup
       try {
@@ -6215,11 +6230,9 @@ class _BusinessSettingsSheetState
       try {
         await const FlutterSecureStorage().deleteAll();
       } catch (_) {}
-      try {
-        await db.deleteAccountData(accountId);
-      } catch (_) {
-        await db.clearAllTables();
-      }
+      // Remove only this account's local rows. Never fall back to clearing
+      // every account if a scoped cleanup fails.
+      await db.deleteAccountData(accountId);
       try {
         await auth.signOut();
       } catch (_) {}
@@ -6245,6 +6258,16 @@ class _BusinessSettingsSheetState
         ),
       );
     } catch (error) {
+      if (backendDeleted) {
+        // The cloud account is already gone; do not leave a stale authenticated
+        // session active if local cleanup encounters a recoverable failure.
+        try {
+          await auth.signOut();
+        } catch (_) {}
+        ref.read(isSigningOutProvider.notifier).state = true;
+        ref.invalidate(sessionProvider);
+        ref.invalidate(authSessionProvider);
+      }
       // Close progress dialog
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();

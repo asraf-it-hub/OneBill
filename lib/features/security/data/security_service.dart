@@ -11,6 +11,10 @@ class SecurityService {
   static const _pinSaltKey = 'onebill.app.pin.salt';
   static const _pinLengthKey = 'onebill.app.pin.length';
   static const _legacyPinKey = 'onebill.app.pin';
+  static const _kdfKey = 'onebill.app.pin.kdf';
+  static const _failedAttemptsKey = 'onebill.app.pin.failed-attempts';
+  static const _lockedUntilKey = 'onebill.app.pin.locked-until';
+  static const _kdfIterations = 120000;
   static const _biometricKey = 'onebill.app.biometric';
   static const _timeoutKey = 'onebill.app.lock.timeout';
   static const _backgroundKey = 'onebill.app.lock.background';
@@ -31,31 +35,116 @@ class SecurityService {
     await _storage.write(key: _pinSaltKey, value: salt);
     await _storage.write(
       key: _pinHashKey,
-      value: sha256.convert(utf8.encode('$salt:$pin')).toString(),
+      value: base64UrlEncode(
+        _pbkdf2(pin, base64Url.decode(salt), _kdfIterations),
+      ),
     );
+    await _storage.write(key: _kdfKey, value: 'pbkdf2-sha256-$_kdfIterations');
     await _storage.write(key: _pinLengthKey, value: pin.length.toString());
     await _storage.delete(key: _legacyPinKey);
+    await _resetPinFailures();
   }
 
   Future<void> clearPin() async {
     await _storage.delete(key: _pinHashKey);
     await _storage.delete(key: _pinSaltKey);
     await _storage.delete(key: _pinLengthKey);
+    await _storage.delete(key: _kdfKey);
+    await _storage.delete(key: _failedAttemptsKey);
+    await _storage.delete(key: _lockedUntilKey);
     await _storage.delete(key: _legacyPinKey);
   }
 
   Future<bool> verifyPin(String pin) async {
+    final lockedUntil = DateTime.tryParse(
+      await _storage.read(key: _lockedUntilKey) ?? '',
+    );
+    if (lockedUntil != null && lockedUntil.isAfter(DateTime.now().toUtc())) {
+      return false;
+    }
     final salt = await _storage.read(key: _pinSaltKey);
     final hash = await _storage.read(key: _pinHashKey);
     if (salt != null && hash != null) {
-      return sha256.convert(utf8.encode('$salt:$pin')).toString() == hash;
+      final kdf = await _storage.read(key: _kdfKey);
+      final valid = kdf == null
+          ? _constantTimeEquals(
+              sha256.convert(utf8.encode('$salt:$pin')).toString(),
+              hash,
+            )
+          : _constantTimeEquals(
+              base64UrlEncode(
+                _pbkdf2(pin, base64Url.decode(salt), _kdfIterations),
+              ),
+              hash,
+            );
+      if (valid) {
+        if (kdf == null) await setPin(pin);
+        await _resetPinFailures();
+        return true;
+      }
+      await _recordPinFailure();
+      return false;
     }
     final legacy = await _storage.read(key: _legacyPinKey);
     if (legacy != null && legacy == pin) {
       await setPin(pin);
       return true;
     }
+    await _recordPinFailure();
     return false;
+  }
+
+  Future<Duration?> pinLockRemaining() async {
+    final value = DateTime.tryParse(
+      await _storage.read(key: _lockedUntilKey) ?? '',
+    );
+    if (value == null) return null;
+    final remaining = value.difference(DateTime.now().toUtc());
+    return remaining.isNegative ? null : remaining;
+  }
+
+  Future<void> _recordPinFailure() async {
+    final attempts =
+        (int.tryParse(await _storage.read(key: _failedAttemptsKey) ?? '') ??
+            0) +
+        1;
+    await _storage.write(key: _failedAttemptsKey, value: attempts.toString());
+    final seconds = min(300, 2 << min(attempts - 1, 8));
+    await _storage.write(
+      key: _lockedUntilKey,
+      value: DateTime.now()
+          .toUtc()
+          .add(Duration(seconds: seconds))
+          .toIso8601String(),
+    );
+  }
+
+  Future<void> _resetPinFailures() async {
+    await _storage.delete(key: _failedAttemptsKey);
+    await _storage.delete(key: _lockedUntilKey);
+  }
+
+  List<int> _pbkdf2(String pin, List<int> salt, int iterations) {
+    final mac = Hmac(sha256, utf8.encode(pin));
+    final first = mac.convert([...salt, 0, 0, 0, 1]).bytes;
+    final output = List<int>.from(first);
+    var previous = first;
+    for (var i = 1; i < iterations; i++) {
+      previous = mac.convert(previous).bytes;
+      for (var j = 0; j < output.length; j++) {
+        output[j] ^= previous[j];
+      }
+    }
+    return output;
+  }
+
+  bool _constantTimeEquals(String a, String b) {
+    final aa = utf8.encode(a);
+    final bb = utf8.encode(b);
+    var diff = aa.length ^ bb.length;
+    final length = min(aa.length, bb.length);
+    for (var i = 0; i < length; i++) diff |= aa[i] ^ bb[i];
+    return diff == 0;
   }
 
   Future<int?> pinLength() async =>

@@ -12,7 +12,7 @@ class PaperReceiptRepository {
     this._database, {
     Future<Directory> Function()? baseDirectoryProvider,
   }) : _baseDirectoryProvider =
-            baseDirectoryProvider ?? getApplicationDocumentsDirectory;
+           baseDirectoryProvider ?? getApplicationDocumentsDirectory;
 
   final AppDatabase _database;
   final Future<Directory> Function() _baseDirectoryProvider;
@@ -35,11 +35,10 @@ class PaperReceiptRepository {
   Stream<int> watchReceiptCountForCustomer({
     required String businessId,
     required String customerId,
-  }) =>
-      watchReceiptsForCustomer(
-        businessId: businessId,
-        customerId: customerId,
-      ).map((list) => list.length);
+  }) => watchReceiptsForCustomer(
+    businessId: businessId,
+    customerId: customerId,
+  ).map((list) => list.length);
 
   Future<PaperReceipt> createReceipt({
     required String businessId,
@@ -80,29 +79,31 @@ class PaperReceiptRepository {
     await _database.into(_database.paperReceipts).insert(entry);
 
     // 2. Enqueue offline sync operation
-    await _database.into(_database.syncOperations).insert(
-      SyncOperationsCompanion.insert(
-        id: _uuid.v4(),
-        businessId: Value(businessId),
-        entityType: 'PaperReceipt',
-        entityId: receiptId,
-        operationType: 'PaperReceiptCreated',
-        payloadJson: jsonEncode({
-          'id': receiptId,
-          'businessId': businessId,
-          'customerId': customerId,
-          'receiptDate': effectiveDate.toIso8601String(),
-          'notes': notes?.trim(),
-          'createdAt': now.toIso8601String(),
-          'updatedAt': now.toIso8601String(),
-        }),
-        createdAt: now,
-      ),
-    );
+    await _database
+        .into(_database.syncOperations)
+        .insert(
+          SyncOperationsCompanion.insert(
+            id: _uuid.v4(),
+            businessId: Value(businessId),
+            entityType: 'PaperReceipt',
+            entityId: receiptId,
+            operationType: 'PaperReceiptCreated',
+            payloadJson: jsonEncode({
+              'id': receiptId,
+              'businessId': businessId,
+              'customerId': customerId,
+              'receiptDate': effectiveDate.toIso8601String(),
+              'notes': notes?.trim(),
+              'createdAt': now.toIso8601String(),
+              'updatedAt': now.toIso8601String(),
+            }),
+            createdAt: now,
+          ),
+        );
 
-    return (_database.select(_database.paperReceipts)
-          ..where((r) => r.id.equals(receiptId)))
-        .getSingle();
+    return (_database.select(
+      _database.paperReceipts,
+    )..where((r) => r.id.equals(receiptId))).getSingle();
   }
 
   Future<void> deleteReceipt({
@@ -110,36 +111,40 @@ class PaperReceiptRepository {
     required String receiptId,
   }) async {
     final now = DateTime.now().toUtc();
-    final receipt = await (_database.select(_database.paperReceipts)
-          ..where((r) => r.id.equals(receiptId) & r.businessId.equals(businessId)))
-        .getSingleOrNull();
+    final receipt =
+        await (_database.select(_database.paperReceipts)..where(
+              (r) => r.id.equals(receiptId) & r.businessId.equals(businessId),
+            ))
+            .getSingleOrNull();
 
     if (receipt == null) return;
 
     // Soft delete locally
-    await (_database.update(_database.paperReceipts)
-          ..where((r) => r.id.equals(receiptId)))
-        .write(PaperReceiptsCompanion(
-          deletedAt: Value(now),
-          updatedAt: Value(now),
-        ));
+    await (_database.update(
+      _database.paperReceipts,
+    )..where((r) => r.id.equals(receiptId))).write(
+      PaperReceiptsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+    );
 
     // Enqueue sync operation
-    await _database.into(_database.syncOperations).insert(
-      SyncOperationsCompanion.insert(
-        id: _uuid.v4(),
-        businessId: Value(businessId),
-        entityType: 'PaperReceipt',
-        entityId: receiptId,
-        operationType: 'PaperReceiptDeleted',
-        payloadJson: jsonEncode({
-          'id': receiptId,
-          'businessId': businessId,
-          'deletedAt': now.toIso8601String(),
-        }),
-        createdAt: now,
-      ),
-    );
+    await _database
+        .into(_database.syncOperations)
+        .insert(
+          SyncOperationsCompanion.insert(
+            id: _uuid.v4(),
+            businessId: Value(businessId),
+            entityType: 'PaperReceipt',
+            entityId: receiptId,
+            operationType: 'PaperReceiptDeleted',
+            payloadJson: jsonEncode({
+              'id': receiptId,
+              'businessId': businessId,
+              'storagePath': receipt.remoteImageUrl,
+              'deletedAt': now.toIso8601String(),
+            }),
+            createdAt: now,
+          ),
+        );
 
     // Optional: remove local image file
     try {

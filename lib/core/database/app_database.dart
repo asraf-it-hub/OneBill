@@ -280,10 +280,11 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(invoices, invoices.paperReceiptImage);
       }
       if (from < 12) {
-        await customStatement('DROP TABLE IF EXISTS inventory_movements;');
-        await customStatement('DROP TABLE IF EXISTS inventory_products;');
-        await customStatement('DROP TABLE IF EXISTS supplier_payments;');
-        await customStatement('DROP TABLE IF EXISTS suppliers;');
+        // Inventory and supplier features were removed from the product, but
+        // old installations may still contain user data in these legacy
+        // tables. Leave them untouched during upgrade: they are not exposed
+        // by the current schema or repositories, and preserving them avoids
+        // destructive data loss. Fresh databases never create these tables.
       }
     },
     beforeOpen: (details) async {
@@ -310,59 +311,55 @@ class AppDatabase extends _$AppDatabase {
     await customStatement('PRAGMA foreign_keys = OFF;');
     try {
       await transaction(() async {
-        final businessRows = await (select(businesses)
-              ..where((b) => b.accountId.equals(accountId)))
-            .get();
+        final businessRows = await (select(
+          businesses,
+        )..where((b) => b.accountId.equals(accountId))).get();
         final businessIds = businessRows.map((b) => b.id).toList();
 
         if (businessIds.isNotEmpty) {
-          final invoiceRows = await (select(invoices)
-                ..where((i) => i.businessId.isIn(businessIds)))
-              .get();
+          final invoiceRows = await (select(
+            invoices,
+          )..where((i) => i.businessId.isIn(businessIds))).get();
           final invoiceIds = invoiceRows.map((i) => i.id).toList();
           if (invoiceIds.isNotEmpty) {
-            await (delete(invoiceItems)
-                  ..where((it) => it.invoiceId.isIn(invoiceIds)))
-                .go();
+            await (delete(
+              invoiceItems,
+            )..where((it) => it.invoiceId.isIn(invoiceIds))).go();
           }
-          await (delete(payments)
-                ..where((p) => p.businessId.isIn(businessIds)))
-              .go();
-          await (delete(invoices)
-                ..where((i) => i.businessId.isIn(businessIds)))
-              .go();
-          await (delete(paperReceipts)
-                ..where((r) => r.businessId.isIn(businessIds)))
-              .go();
-          await (delete(customers)
-                ..where((c) => c.businessId.isIn(businessIds)))
-              .go();
-          await (delete(expenses)
-                ..where((e) => e.businessId.isIn(businessIds)))
-              .go();
-          await (delete(incomeEntries)
-                ..where((ie) => ie.businessId.isIn(businessIds)))
-              .go();
-          await (delete(syncOperations)
-                ..where((s) => s.businessId.isIn(businessIds)))
-              .go();
-          await (delete(appNotifications)
-                ..where((n) => n.businessId.isIn(businessIds)))
-              .go();
-          await (delete(invoiceSequences)
-                ..where((seq) => seq.businessId.isIn(businessIds)))
-              .go();
-          await (delete(businesses)
-                ..where((b) => b.id.isIn(businessIds)))
-              .go();
+          await (delete(
+            payments,
+          )..where((p) => p.businessId.isIn(businessIds))).go();
+          await (delete(
+            invoices,
+          )..where((i) => i.businessId.isIn(businessIds))).go();
+          await (delete(
+            paperReceipts,
+          )..where((r) => r.businessId.isIn(businessIds))).go();
+          await (delete(
+            customers,
+          )..where((c) => c.businessId.isIn(businessIds))).go();
+          await (delete(
+            expenses,
+          )..where((e) => e.businessId.isIn(businessIds))).go();
+          await (delete(
+            incomeEntries,
+          )..where((ie) => ie.businessId.isIn(businessIds))).go();
+          await (delete(
+            syncOperations,
+          )..where((s) => s.businessId.isIn(businessIds))).go();
+          await (delete(
+            appNotifications,
+          )..where((n) => n.businessId.isIn(businessIds))).go();
+          await (delete(
+            invoiceSequences,
+          )..where((seq) => seq.businessId.isIn(businessIds))).go();
+          await (delete(businesses)..where((b) => b.id.isIn(businessIds))).go();
         }
 
-        await (delete(localSessions)
-              ..where((s) => s.accountId.equals(accountId)))
-            .go();
-        await (delete(userAccounts)
-              ..where((u) => u.id.equals(accountId)))
-            .go();
+        await (delete(
+          localSessions,
+        )..where((s) => s.accountId.equals(accountId))).go();
+        await (delete(userAccounts)..where((u) => u.id.equals(accountId))).go();
 
         final remainingAccounts = await select(userAccounts).get();
         if (remainingAccounts.isEmpty) {
@@ -375,5 +372,3 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 }
-
-

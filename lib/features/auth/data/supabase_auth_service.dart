@@ -106,9 +106,7 @@ class SupabaseAuthService {
   }
 
   Future<void> updatePassword({required String newPassword}) async {
-    await _client.auth.updateUser(
-      UserAttributes(password: newPassword),
-    );
+    await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
   /// Native Android Google Sign-In with Supabase ID Token.
@@ -140,7 +138,9 @@ class SupabaseAuthService {
       }
 
       // ignore: avoid_print
-      print('DEBUG_AUTH: user=${googleUser.email}, idTokenLen=${idToken.length}, hasAccessToken=${accessToken != null}');
+      print(
+        'DEBUG_AUTH: user=${googleUser.email}, idTokenLen=${idToken.length}, hasAccessToken=${accessToken != null}',
+      );
 
       final response = await _client.auth.signInWithIdToken(
         provider: OAuthProvider.google,
@@ -170,8 +170,9 @@ class SupabaseAuthService {
     await _client.auth.signOut();
   }
 
-  /// Permanently deletes the authenticated user's account and all associated cloud data.
-  /// Calls the secure 'delete-account' Edge Function or falls back to 'delete_user_account' RPC.
+  /// Permanently deletes the authenticated user's account and all associated
+  /// cloud data through the verified Edge Function. The function performs the
+  /// ownership-bound RPC and private-file cleanup server-side.
   Future<void> deleteAccount() async {
     final session = currentSession;
     if (session == null) {
@@ -181,6 +182,13 @@ class SupabaseAuthService {
       );
     }
 
-    await _client.rpc('delete_user_account');
+    final response = await _client.functions.invoke('delete-account');
+    if (response.status < 200 || response.status >= 300) {
+      throw StateError('Account deletion could not be completed.');
+    }
+    final body = response.data;
+    if (body is Map && body['success'] != true) {
+      throw StateError('Account deletion could not be completed.');
+    }
   }
 }

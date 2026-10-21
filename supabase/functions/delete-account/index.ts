@@ -43,6 +43,44 @@ Deno.serve(async (request) => {
   });
 
   try {
+    // Remove private receipt objects owned by this account before deleting
+    // database rows. The prefix is derived from the verified JWT subject and
+    // can never be supplied by the client.
+    const { data: receiptObjects, error: listError } = await admin.storage
+      .from('paper-receipts')
+      .list(userId, { limit: 1000 });
+    if (listError) {
+      console.error('Receipt cleanup listing failed:', listError);
+      return reply({ error: 'Could not prepare account data for deletion.' }, 500);
+    }
+    const objectPaths: string[] = [];
+    for (const entry of receiptObjects ?? []) {
+      if (!entry.name) continue;
+      if (entry.id) {
+        objectPaths.push(`${userId}/${entry.name}`);
+        continue;
+      }
+      const { data: children, error: childError } = await admin.storage
+        .from('paper-receipts')
+        .list(`${userId}/${entry.name}`, { limit: 1000 });
+      if (childError) {
+        console.error('Receipt folder listing failed:', childError);
+        return reply({ error: 'Could not prepare account files for deletion.' }, 500);
+      }
+      for (const child of children ?? []) {
+        if (child.name) objectPaths.push(`${userId}/${entry.name}/${child.name}`);
+      }
+    }
+    if (objectPaths.length > 0) {
+      const { error: removeError } = await admin.storage
+        .from('paper-receipts')
+        .remove(objectPaths);
+      if (removeError) {
+        console.error('Receipt cleanup failed:', removeError);
+        return reply({ error: 'Could not remove account files.' }, 500);
+      }
+    }
+
     // Run the cleanup RPC through the verified user's client so auth.uid()
     // remains the source of ownership. The service-role client must not be
     // used for this call because it has no user JWT and could not safely bind
@@ -57,10 +95,12 @@ Deno.serve(async (request) => {
     }
 
     // Explicitly delete user via Supabase Auth Admin API if not already deleted by RPC
-    try {
-      await admin.auth.admin.deleteUser(userId);
-    } catch (authDeleteErr) {
-      console.log('Admin deleteUser note:', authDeleteErr);
+    const { error: authDeleteError } = await admin.auth.admin.deleteUser(userId);
+    // The deployed SQL RPC may already remove auth.users. A not-found result
+    // therefore confirms completion rather than indicating a partial failure.
+    if (authDeleteError && authDeleteError.status !== 404 && authDeleteError.code !== 'user_not_found') {
+      console.error('Admin deleteUser failed:', authDeleteError);
+      return reply({ error: 'Account data was cleaned up, but the login account could not be deleted. Please contact support.' }, 500);
     }
 
     return reply({

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:drift/drift.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/database/app_database.dart';
@@ -161,6 +163,7 @@ class SyncWorker {
               .from('expenses')
               .select()
               .eq('owner_id', user.id);
+          final receiptList = await _client.from('paper_receipts').select();
           rawSnapshot = {
             'businesses': bList,
             'customers': cList,
@@ -169,6 +172,7 @@ class SyncWorker {
             'payments': pList,
             'income_entries': ieList,
             'expenses': exList,
+            'paper_receipts': receiptList,
           };
         }
       } catch (_) {
@@ -189,6 +193,7 @@ class SyncWorker {
     final allPayments = _snapshotRows(snapshot, 'payments');
     final allIncome = _snapshotRows(snapshot, 'income_entries');
     final allExpenses = _snapshotRows(snapshot, 'expenses');
+    final allPaperReceipts = _snapshotRows(snapshot, 'paper_receipts');
     if (businesses.isEmpty) return;
 
     await _database.customStatement('PRAGMA foreign_keys = OFF;');
@@ -376,9 +381,15 @@ class SyncWorker {
                   ),
                 );
           }
-          final invoices = allInvoices.where(
-            (r) => getVal(r, 'business_id', 'businessId') == businessId,
-          );
+          final invoices = allInvoices
+              .where(
+                (r) => getVal(r, 'business_id', 'businessId') == businessId,
+              )
+              .toList();
+          final invoiceIds = invoices
+              .map((r) => getVal(r, 'id', 'id'))
+              .whereType<String>()
+              .toSet();
           for (final row in invoices) {
             final invId = getVal(row, 'id', 'id');
             if (invId == null) continue;
@@ -436,9 +447,7 @@ class SyncWorker {
                 );
           }
           final items = allItems.where(
-            (r) =>
-                getVal(r, 'business_id', 'businessId') == businessId ||
-                getVal(r, 'invoice_id', 'invoiceId') != null,
+            (r) => invoiceIds.contains(getVal(r, 'invoice_id', 'invoiceId')),
           );
           for (final row in items) {
             final itemId = getVal(row, 'id', 'id');
@@ -540,6 +549,71 @@ class SyncWorker {
                       getVal(row, 'description', 'description'),
                     ),
                     expenseDate: getDate(row, 'expense_date', 'expenseDate'),
+                    createdAt: getDate(row, 'created_at', 'createdAt'),
+                    updatedAt: getDate(row, 'updated_at', 'updatedAt'),
+                    deletedAt: Value(
+                      getDateOpt(row, 'deleted_at', 'deletedAt'),
+                    ),
+                  ),
+                );
+          }
+          final paperReceipts = allPaperReceipts.where(
+            (r) => getVal(r, 'business_id', 'businessId') == businessId,
+          );
+          final receiptDirectory = Directory(
+            '${(await getApplicationDocumentsDirectory()).path}/receipts',
+          );
+          await receiptDirectory.create(recursive: true);
+          for (final row in paperReceipts) {
+            final receiptId = getVal(row, 'id', 'id');
+            final customerId = getVal(row, 'customer_id', 'customerId');
+            if (receiptId == null || customerId == null) continue;
+            final customer =
+                await (_database.select(_database.customers)..where(
+                      (c) =>
+                          c.id.equals(customerId) &
+                          c.businessId.equals(businessId),
+                    ))
+                    .getSingleOrNull();
+            if (customer == null) {
+              continue;
+            }
+            final existing = await (_database.select(
+              _database.paperReceipts,
+            )..where((r) => r.id.equals(receiptId))).getSingleOrNull();
+            final pendingDelete =
+                await (_database.select(_database.syncOperations)..where(
+                      (op) =>
+                          op.entityId.equals(receiptId) &
+                          op.operationType.equals('PaperReceiptDeleted') &
+                          op.status.isNotValue('synced'),
+                    ))
+                    .getSingleOrNull();
+            if (pendingDelete != null || existing?.deletedAt != null) continue;
+            final storagePath = getVal(row, 'image_url', 'imageUrl');
+            final localPath = '${receiptDirectory.path}/$receiptId.jpg';
+            if (storagePath != null && storagePath.isNotEmpty) {
+              try {
+                final bytes = await _client.storage
+                    .from('paper-receipts')
+                    .download(storagePath);
+                await File(localPath).writeAsBytes(bytes, flush: true);
+              } catch (_) {
+                // Keep metadata and any existing local image if the network
+                // is temporarily unavailable; the next restore can retry.
+              }
+            }
+            await _database
+                .into(_database.paperReceipts)
+                .insertOnConflictUpdate(
+                  PaperReceiptsCompanion.insert(
+                    id: receiptId,
+                    businessId: businessId,
+                    customerId: customerId,
+                    imagePath: existing?.imagePath ?? localPath,
+                    remoteImageUrl: Value(storagePath),
+                    notes: Value(getVal(row, 'notes', 'notes')),
+                    receiptDate: getDate(row, 'receipt_date', 'receiptDate'),
                     createdAt: getDate(row, 'created_at', 'createdAt'),
                     updatedAt: getDate(row, 'updated_at', 'updatedAt'),
                     deletedAt: Value(
@@ -733,17 +807,6 @@ class SyncWorker {
                           failure?['reason'] ??
                           'Sync was not acknowledged')
                       .toString();
-              if (operation.operationType == 'PaymentReversed') {
-                try {
-                  final delAt = DateTime.now().toUtc().toIso8601String();
-                  await _client
-                      .from('payments')
-                      .update({'deleted_at': delAt})
-                      .eq('id', operation.entityId);
-                } catch (_) {}
-                await _markSynced(operation.id);
-                continue;
-              }
               if (_isAlreadyApplied(operation.operationType, reason)) {
                 await _markSynced(operation.id);
               } else {
@@ -773,17 +836,6 @@ class SyncWorker {
                   final reason =
                       (rpcRes is Map ? rpcRes['reason'] : null)?.toString() ??
                       'Operation rejected by cloud RPC';
-                  if (operation.operationType == 'PaymentReversed') {
-                    try {
-                      final delAt = DateTime.now().toUtc().toIso8601String();
-                      await _client
-                          .from('payments')
-                          .update({'deleted_at': delAt})
-                          .eq('id', operation.entityId);
-                    } catch (_) {}
-                    await _markSynced(operation.id);
-                    continue;
-                  }
                   if (_isAlreadyApplied(operation.operationType, reason)) {
                     await _markSynced(operation.id);
                   } else {
@@ -851,21 +903,13 @@ class SyncWorker {
     }
   }
 
-  bool _isAlreadyApplied(String opType, String reason) {
+  bool _isAlreadyApplied(String _, String reason) {
     final r = reason.toLowerCase();
     return r.contains('already exists') ||
         r.contains('duplicate key') ||
         r.contains('unique constraint') ||
         r.contains('idempotent') ||
-        r.contains('already applied') ||
-        (opType == 'PaymentReversed' &&
-            (r.contains('does not exist') ||
-                r.contains('updated_at') ||
-                r.contains('not found') ||
-                r.contains('not applied') ||
-                r.contains('already reversed') ||
-                r.contains('unsupported') ||
-                r.contains('rejected')));
+        r.contains('already applied');
   }
 
   Future<Map<String, Object?>?> _toPayload(SyncOperation operation) async {
@@ -1013,10 +1057,12 @@ class SyncWorker {
           database.paperReceipts,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
         if (r != null) {
+          final storagePath = await _uploadPaperReceiptImage(r);
           payload = {
             'id': r.id,
             'businessId': r.businessId,
             'customerId': r.customerId,
+            'storagePath': storagePath,
             'receiptDate': r.receiptDate.toUtc().toIso8601String(),
             'notes': r.notes,
             'createdAt': r.createdAt.toUtc().toIso8601String(),
@@ -1067,6 +1113,27 @@ class SyncWorker {
       'occurredAt': operation.createdAt.toUtc().toIso8601String(),
       'payload': payload,
     };
+  }
+
+  Future<String> _uploadPaperReceiptImage(PaperReceipt receipt) async {
+    final user = _client.auth.currentUser;
+    if (user == null) throw StateError('Not signed in for receipt upload');
+    final file = File(receipt.imagePath);
+    if (!await file.exists()) {
+      throw StateError('Receipt image is missing locally');
+    }
+    final path = '${user.id}/${receipt.businessId}/${receipt.id}.jpg';
+    await _client.storage
+        .from('paper-receipts')
+        .uploadBinary(
+          path,
+          await file.readAsBytes(),
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
+    return path;
   }
 
   Map<String, Object?> _businessPayload(BusinessesData business) {

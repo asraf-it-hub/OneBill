@@ -153,4 +153,43 @@ void main() {
       expect(sql, contains('apply_sync_operation_legacy'));
     },
   );
+
+  test('phase 2 migration covers receipt handlers and private restoration', () {
+    final sql = File(
+      'supabase/migrations/202610210002_phase2_sync_restoration.sql',
+    ).readAsStringSync();
+    expect(sql, contains("'PaperReceiptCreated'"));
+    expect(sql, contains("'PaperReceiptDeleted'"));
+    expect(sql, contains("'paper_receipts'"));
+    expect(sql, contains("bucket_id = 'paper-receipts'"));
+    expect(sql, contains('apply_sync_operation_phase1'));
+    expect(sql, contains('Operation belongs to another account'));
+  });
+
+  test('legacy inventory and supplier tables are not dropped on upgrade', () {
+    final source = File(
+      'lib/core/database/app_database.dart',
+    ).readAsStringSync();
+    expect(source, isNot(contains('DROP TABLE IF EXISTS inventory_')));
+    expect(source, isNot(contains('DROP TABLE IF EXISTS supplier_')));
+  });
+
+  test('phase 3 account deletion and PIN hardening are present', () {
+    final deletionSql = File(
+      'supabase/migrations/202610220001_phase3_account_reliability.sql',
+    ).readAsStringSync();
+    expect(
+      deletionSql,
+      contains(
+        'revoke execute on function public.delete_user_account() from anon',
+      ),
+    );
+
+    final security = File(
+      'lib/features/security/data/security_service.dart',
+    ).readAsStringSync();
+    expect(security, contains('pbkdf2-sha256'));
+    expect(security, contains('_failedAttemptsKey'));
+    expect(security, contains('pinLockRemaining'));
+  });
 }
