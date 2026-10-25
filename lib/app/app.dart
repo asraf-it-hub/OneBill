@@ -221,6 +221,13 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     // Listen to Supabase auth state changes for recovery events
     if (AppEnvironment.cloudConfigured) {
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        if (data.event == AuthChangeEvent.signedIn ||
+            data.event == AuthChangeEvent.initialSession) {
+          // Auth callbacks can arrive just after the sign-in form continues.
+          // Restore again once Supabase has committed the session so an old
+          // local business row cannot hide the current cloud profile.
+          unawaited(ref.read(syncWorkerProvider).restoreAccount());
+        }
         if (data.event == AuthChangeEvent.passwordRecovery) {
           if (mounted) {
             ref.read(passwordRecoveryErrorProvider.notifier).state = null;
@@ -5509,10 +5516,13 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
       }
       final records = snapshot.data!;
       if (records.isEmpty) {
-        return const _EmptyState(
+        return _EmptyState(
           icon: Icons.delete_sweep_outlined,
-          title: 'Recycle bin is empty',
-          message: 'Deleted customers and expenses will appear here.',
+          title: _tr(context, 'Recycle bin is empty'),
+          message: _tr(
+            context,
+            'Deleted customers and expenses will appear here.',
+          ),
         );
       }
       return Column(
@@ -5760,7 +5770,9 @@ class _SyncQueueSheet extends ConsumerWidget {
             height: 180,
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (error, _) => Text('Unable to load sync queue: $error'),
+          error: (error, _) => Text(
+            '${_tr(context, 'Unable to load sync queue')}: ${_cleanErrorMessage(error, _tr(context, 'Something went wrong'))}',
+          ),
           data: (items) => SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.65,
             child: Column(
@@ -5771,13 +5783,18 @@ class _SyncQueueSheet extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Local changes are safe. Failed operations can be retried when connectivity is available.',
+                Text(
+                  _tr(
+                    context,
+                    'Local changes are safe. Failed operations can be retried when connectivity is available.',
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Expanded(
                   child: items.isEmpty
-                      ? const Center(child: Text('No queued operations.'))
+                      ? Center(
+                          child: Text(_tr(context, 'No queued operations.')),
+                        )
                       : ListView.builder(
                           itemCount: items.length,
                           itemBuilder: (_, index) {
@@ -5799,7 +5816,7 @@ class _SyncQueueSheet extends ConsumerWidget {
                                   ? TextButton(
                                       onPressed: () =>
                                           _retry(context, ref, operation.id),
-                                      child: const Text('Retry'),
+                                      child: Text(_tr(context, 'Retry')),
                                     )
                                   : null,
                             );
@@ -7278,18 +7295,21 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove customer?'),
-        content: const Text(
-          'This safely removes the customer from your active list. Their invoices and payment records remain intact and no data is permanently deleted.',
+        title: Text(_tr(context, 'Remove customer?')),
+        content: Text(
+          _tr(
+            context,
+            'This safely removes the customer from your active list. Their invoices and payment records remain intact and no data is permanently deleted.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: Text(_tr(context, 'Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Remove'),
+            child: Text(_tr(context, 'Remove')),
           ),
         ],
       ),

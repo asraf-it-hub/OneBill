@@ -18,8 +18,7 @@ class BusinessProfileScreen extends ConsumerStatefulWidget {
       _BusinessProfileScreenState();
 }
 
-class _BusinessProfileScreenState
-    extends ConsumerState<BusinessProfileScreen> {
+class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _nameController;
@@ -40,6 +39,8 @@ class _BusinessProfileScreenState
 
   bool _isLoading = true;
   bool _isSaving = false;
+  String _initialSnapshot = '';
+  final Map<String, String?> _initialFields = <String, String?>{};
   String? _qrResolutionWarning;
 
   @override
@@ -57,6 +58,23 @@ class _BusinessProfileScreenState
     _upiNameController = TextEditingController();
     _invoiceNotesController = TextEditingController();
     _termsController = TextEditingController();
+
+    for (final controller in [
+      _nameController,
+      _ownerNameController,
+      _phoneController,
+      _emailController,
+      _addressController,
+      _websiteController,
+      _taglineController,
+      _gstinController,
+      _upiIdController,
+      _upiNameController,
+      _invoiceNotesController,
+      _termsController,
+    ]) {
+      controller.addListener(_onProfileChanged);
+    }
 
     _loadBusinessData();
   }
@@ -78,8 +96,8 @@ class _BusinessProfileScreenState
         _phoneController.text = business.phone ?? '';
         _emailController.text =
             (business.email != null && business.email!.trim().isNotEmpty)
-                ? business.email!
-                : (authEmail ?? '');
+            ? business.email!
+            : (authEmail ?? '');
         _addressController.text = business.address ?? '';
         _websiteController.text = business.website ?? '';
         _taglineController.text = business.tagline ?? '';
@@ -88,17 +106,19 @@ class _BusinessProfileScreenState
         _upiNameController.text = business.upiName ?? '';
         _invoiceNotesController.text =
             (business.invoiceNotes != null &&
-                    business.invoiceNotes!.trim().isNotEmpty)
-                ? business.invoiceNotes!
-                : 'Thank you for your business! Please reach out if you have any questions.';
+                business.invoiceNotes!.trim().isNotEmpty)
+            ? business.invoiceNotes!
+            : 'Thank you for your business! Please reach out if you have any questions.';
         _termsController.text =
             (business.termsAndConditions != null &&
-                    business.termsAndConditions!.trim().isNotEmpty)
-                ? business.termsAndConditions!
-                : '1. Goods once sold will not be taken back or exchanged.\n2. Payment is due as per agreed payment terms.\n3. E.&O.E.';
+                business.termsAndConditions!.trim().isNotEmpty)
+            ? business.termsAndConditions!
+            : '1. Goods once sold will not be taken back or exchanged.\n2. Payment is due as per agreed payment terms.\n3. E.&O.E.';
 
         _logoImagePath = business.logoImage;
         _paymentQrImagePath = business.paymentQrImage;
+        _captureInitialFields();
+        _initialSnapshot = _profileSnapshot();
 
         _isLoading = false;
       });
@@ -111,7 +131,51 @@ class _BusinessProfileScreenState
       _termsController.text =
           '1. Goods once sold will not be taken back or exchanged.\n2. Payment is due as per agreed payment terms.\n3. E.&O.E.';
       setState(() => _isLoading = false);
+      _captureInitialFields();
+      _initialSnapshot = _profileSnapshot();
     }
+  }
+
+  String _profileSnapshot() => jsonEncode([
+    _nameController.text,
+    _ownerNameController.text,
+    _phoneController.text,
+    _emailController.text,
+    _addressController.text,
+    _websiteController.text,
+    _taglineController.text,
+    _gstinController.text,
+    _upiIdController.text,
+    _upiNameController.text,
+    _invoiceNotesController.text,
+    _termsController.text,
+    _logoImagePath,
+    _paymentQrImagePath,
+  ]);
+
+  void _captureInitialFields() {
+    _initialFields
+      ..clear()
+      ..addAll({
+        'name': _nameController.text.trim(),
+        'owner_name': _ownerNameController.text.trim(),
+        'phone': _blankToNull(_phoneController.text),
+        'email': _blankToNull(_emailController.text),
+        'address': _blankToNull(_addressController.text),
+        'website': _blankToNull(_websiteController.text),
+        'tagline': _blankToNull(_taglineController.text),
+        'gstin': _blankToNull(_gstinController.text),
+        'upi_id': _blankToNull(_upiIdController.text),
+        'upi_name': _blankToNull(_upiNameController.text),
+        'invoice_notes': _blankToNull(_invoiceNotesController.text),
+        'terms_and_conditions': _blankToNull(_termsController.text),
+      });
+  }
+
+  bool get _hasChanges => !_isLoading && _profileSnapshot() != _initialSnapshot;
+
+  void _onProfileChanged() {
+    if (mounted) setState(() {});
   }
 
   int get _completedCount {
@@ -123,7 +187,9 @@ class _BusinessProfileScreenState
     if (_addressController.text.trim().isNotEmpty) count++;
     if (_logoImagePath != null && _logoImagePath!.trim().isNotEmpty) count++;
     if (_upiIdController.text.trim().isNotEmpty) count++;
-    if (_paymentQrImagePath != null && _paymentQrImagePath!.trim().isNotEmpty) count++;
+    if (_paymentQrImagePath != null && _paymentQrImagePath!.trim().isNotEmpty) {
+      count++;
+    }
     if (_gstinController.text.trim().isNotEmpty) count++;
     return count;
   }
@@ -180,7 +246,11 @@ class _BusinessProfileScreenState
     });
   }
 
-  Widget _buildImagePreview(String? pathOrBase64, IconData fallbackIcon, double iconSize) {
+  Widget _buildImagePreview(
+    String? pathOrBase64,
+    IconData fallbackIcon,
+    double iconSize,
+  ) {
     if (pathOrBase64 == null || pathOrBase64.trim().isEmpty) {
       return Icon(
         fallbackIcon,
@@ -191,7 +261,9 @@ class _BusinessProfileScreenState
     final trimmed = pathOrBase64.trim();
     if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
       try {
-        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final base64Data = trimmed.contains(',')
+            ? trimmed.split(',').last
+            : trimmed;
         final bytes = base64Decode(base64Data);
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
@@ -241,11 +313,16 @@ class _BusinessProfileScreenState
         paymentQrImage: _paymentQrImagePath,
       );
 
-      ref.read(syncWorkerProvider).syncBusiness(widget.businessId);
+      // Wait for the queued profile update to be processed when online so a
+      // user can safely clear local app data immediately after saving.
+      await ref.read(syncWorkerProvider).syncBusiness(widget.businessId);
+      await _verifyCloudProfileIfSignedIn();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Business profile updated successfully')),
+          const SnackBar(
+            content: Text('Business profile updated successfully'),
+          ),
         );
         Navigator.pop(context);
       }
@@ -258,6 +335,71 @@ class _BusinessProfileScreenState
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<void> _verifyCloudProfileIfSignedIn() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    // The businesses table is intentionally not directly selectable by the
+    // client. Use the existing owner-scoped security-definer snapshot RPC so
+    // verification does not require weakening RLS policies. If the device is
+    // offline, leave the update queued locally for the normal retry worker.
+    dynamic snapshot;
+    try {
+      snapshot = await Supabase.instance.client.rpc('get_sync_snapshot');
+    } catch (_) {
+      return;
+    }
+    final rows = snapshot is Map
+        ? (snapshot['businesses'] as List? ?? const [])
+        : const [];
+    final row = rows
+        .whereType<Map>()
+        .map((value) => Map<String, dynamic>.from(value))
+        .where((value) => value['id']?.toString() == widget.businessId)
+        .firstOrNull;
+    if (row == null) {
+      throw StateError('Business profile was not found in cloud storage.');
+    }
+    final expected = <String, String?>{
+      'name': _nameController.text.trim(),
+      'owner_name': _ownerNameController.text.trim(),
+      'phone': _blankToNull(_phoneController.text),
+      'email': _blankToNull(_emailController.text),
+      'address': _blankToNull(_addressController.text),
+      'website': _blankToNull(_websiteController.text),
+      'tagline': _blankToNull(_taglineController.text),
+      'gstin': _blankToNull(_gstinController.text),
+      'upi_id': _blankToNull(_upiIdController.text),
+      'upi_name': _blankToNull(_upiNameController.text),
+      'invoice_notes': _blankToNull(_invoiceNotesController.text),
+      'terms_and_conditions': _blankToNull(_termsController.text),
+    };
+    for (final entry in expected.entries) {
+      // Only validate values changed in this edit. Older deployments may not
+      // return every optional profile column, and untouched values must not
+      // prevent an otherwise valid save.
+      if (entry.value == _initialFields[entry.key]) continue;
+      final actual = (row[entry.key] as String?)?.trim();
+      // The email field is prefilled from the authenticated login email when
+      // the business profile itself has no email. That display fallback is
+      // not a business-profile value and must not fail verification.
+      if (entry.key == 'email' &&
+          actual == null &&
+          entry.value == user.email?.trim()) {
+        continue;
+      }
+      if (actual != entry.value) {
+        throw StateError(
+          'Cloud profile verification failed for ${entry.key}. Please retry while online.',
+        );
+      }
+    }
+  }
+
+  String? _blankToNull(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   @override
@@ -276,7 +418,7 @@ class _BusinessProfileScreenState
         title: Text(tr(context, 'Business Profile')),
         actions: [
           TextButton(
-            onPressed: _isSaving ? null : _saveProfile,
+            onPressed: _isSaving || !_hasChanges ? null : _saveProfile,
             child: Text(
               _isSaving ? tr(context, 'Saving...') : tr(context, 'Save'),
               style: const TextStyle(fontWeight: FontWeight.bold),
@@ -289,494 +431,517 @@ class _BusinessProfileScreenState
         child: Form(
           key: _formKey,
           child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          children: [
-            _buildProgressCard(theme),
-            const SizedBox(height: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            children: [
+              _buildProgressCard(theme),
+              const SizedBox(height: 16),
 
-            _buildSectionHeader(
-              theme,
-              'Business Identity',
-              Icons.storefront_outlined,
-            ),
-            const SizedBox(height: 12),
-
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
+              _buildSectionHeader(
+                theme,
+                'Business Identity',
+                Icons.storefront_outlined,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tr(context, 'Business Logo'),
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr(context, 'Business Logo'),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      tr(context, 'Appears at the top of your PDF invoices'),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 2),
+                      Text(
+                        tr(context, 'Appears at the top of your PDF invoices'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Container(
-                          width: 76,
-                          height: 76,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: theme.colorScheme.outlineVariant,
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Container(
+                            width: 76,
+                            height: 76,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: _buildImagePreview(
+                              _logoImagePath,
+                              Icons.add_photo_alternate_outlined,
+                              32,
                             ),
                           ),
-                          child: _buildImagePreview(
-                            _logoImagePath,
-                            Icons.add_photo_alternate_outlined,
-                            32,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () => _pickImage(isLogo: true),
-                                icon: const Icon(Icons.upload_outlined, size: 18),
-                                label: Text(
-                                  _logoImagePath == null
-                                      ? tr(context, 'Upload Logo')
-                                      : tr(context, 'Change Logo'),
-                                ),
-                              ),
-                              if (_logoImagePath != null) ...[
-                                const SizedBox(height: 4),
-                                TextButton(
-                                  onPressed: () =>
-                                      setState(() => _logoImagePath = null),
-                                  child: Text(
-                                    tr(context, 'Remove Logo'),
-                                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () => _pickImage(isLogo: true),
+                                  icon: const Icon(
+                                    Icons.upload_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    _logoImagePath == null
+                                        ? tr(context, 'Upload Logo')
+                                        : tr(context, 'Change Logo'),
                                   ),
                                 ),
+                                if (_logoImagePath != null) ...[
+                                  const SizedBox(height: 4),
+                                  TextButton(
+                                    onPressed: () =>
+                                        setState(() => _logoImagePath = null),
+                                    child: Text(
+                                      tr(context, 'Remove Logo'),
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldBlock(
+                        title: 'Business Name *',
+                        subtitle: 'Primary business name shown on invoices',
+                        child: TextFormField(
+                          controller: _nameController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Acme Enterprises',
+                            prefixIcon: Icon(Icons.store_outlined),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Business name is required'
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Owner Name *',
+                        subtitle: 'Your name as business owner',
+                        child: TextFormField(
+                          controller: _ownerNameController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Ramesh Kumar',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Owner name is required'
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Business Tagline (Optional)',
+                        subtitle: 'Appears under your business name',
+                        child: TextFormField(
+                          controller: _taglineController,
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Quality Hardware & Tools',
+                            prefixIcon: Icon(Icons.subtitles_outlined),
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 20),
 
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
+              _buildSectionHeader(
+                theme,
+                'Contact & Address',
+                Icons.contact_mail_outlined,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldBlock(
-                      title: 'Business Name *',
-                      subtitle: 'Primary business name shown on invoices',
-                      child: TextFormField(
-                        controller: _nameController,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Acme Enterprises',
-                          prefixIcon: Icon(Icons.store_outlined),
-                        ),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty)
-                                ? 'Business name is required'
-                                : null,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Owner Name *',
-                      subtitle: 'Your name as business owner',
-                      child: TextFormField(
-                        controller: _ownerNameController,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Ramesh Kumar',
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty)
-                                ? 'Owner name is required'
-                                : null,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Business Tagline (Optional)',
-                      subtitle: 'Appears under your business name',
-                      child: TextFormField(
-                        controller: _taglineController,
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Quality Hardware & Tools',
-                          prefixIcon: Icon(Icons.subtitles_outlined),
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldBlock(
+                        title: 'Phone Number',
+                        subtitle: 'Primary contact phone number',
+                        child: TextFormField(
+                          controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. 9876543210',
+                            prefixIcon: Icon(Icons.phone_outlined),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Email Address (Optional)',
+                        subtitle:
+                            'Pre-filled with login email; editable anytime',
+                        child: TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. owner@example.com',
+                            prefixIcon: Icon(Icons.email_outlined),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Business Address (Optional)',
+                        subtitle:
+                            'Physical business location shown on invoices',
+                        child: TextFormField(
+                          controller: _addressController,
+                          maxLines: 2,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Shop #4, Main Road, Hyderabad',
+                            prefixIcon: Icon(Icons.location_on_outlined),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Website (Optional)',
+                        subtitle: 'Your shop or business website',
+                        child: TextFormField(
+                          controller: _websiteController,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. www.mybusiness.com',
+                            prefixIcon: Icon(Icons.language_outlined),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            _buildSectionHeader(
-              theme,
-              'Contact & Address',
-              Icons.contact_mail_outlined,
-            ),
-            const SizedBox(height: 12),
-
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
+              _buildSectionHeader(
+                theme,
+                'Tax & Registration',
+                Icons.badge_outlined,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldBlock(
-                      title: 'Phone Number',
-                      subtitle: 'Primary contact phone number',
-                      child: TextFormField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. 9876543210',
-                          prefixIcon: Icon(Icons.phone_outlined),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Email Address (Optional)',
-                      subtitle: 'Pre-filled with login email; editable anytime',
-                      child: TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. owner@example.com',
-                          prefixIcon: Icon(Icons.email_outlined),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Business Address (Optional)',
-                      subtitle: 'Physical business location shown on invoices',
-                      child: TextFormField(
-                        controller: _addressController,
-                        maxLines: 2,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Shop #4, Main Road, Hyderabad',
-                          prefixIcon: Icon(Icons.location_on_outlined),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Website (Optional)',
-                      subtitle: 'Your shop or business website',
-                      child: TextFormField(
-                        controller: _websiteController,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. www.mybusiness.com',
-                          prefixIcon: Icon(Icons.language_outlined),
-                        ),
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
                 ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            _buildSectionHeader(
-              theme,
-              'Tax & Registration',
-              Icons.badge_outlined,
-            ),
-            const SizedBox(height: 12),
-
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: _buildFieldBlock(
-                  title: 'GSTIN (Optional)',
-                  subtitle: '15-digit GST Identification Number',
-                  child: TextFormField(
-                    controller: _gstinController,
-                    textCapitalization: TextCapitalization.characters,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. 36AAAAA0000A1Z5',
-                      prefixIcon: Icon(Icons.receipt_outlined),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _buildFieldBlock(
+                    title: 'GSTIN (Optional)',
+                    subtitle: '15-digit GST Identification Number',
+                    child: TextFormField(
+                      controller: _gstinController,
+                      textCapitalization: TextCapitalization.characters,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        hintText: 'e.g. 36AAAAA0000A1Z5',
+                        prefixIcon: Icon(Icons.receipt_outlined),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            _buildSectionHeader(
-              theme,
-              'Payment Details',
-              Icons.qr_code_scanner_outlined,
-            ),
-            const SizedBox(height: 12),
-
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
+              _buildSectionHeader(
+                theme,
+                'Payment Details',
+                Icons.qr_code_scanner_outlined,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tr(context, 'UPI Payment QR Code'),
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr(context, 'UPI Payment QR Code'),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      tr(context, 'Upload your UPI QR code for customers to scan on invoices.'),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 2),
+                      Text(
+                        tr(
+                          context,
+                          'Upload your UPI QR code for customers to scan on invoices.',
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Container(
-                          width: 90,
-                          height: 90,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: theme.colorScheme.outlineVariant,
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Container(
+                            width: 90,
+                            height: 90,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: _buildImagePreview(
+                              _paymentQrImagePath,
+                              Icons.qr_code_2_outlined,
+                              38,
                             ),
                           ),
-                          child: _buildImagePreview(
-                            _paymentQrImagePath,
-                            Icons.qr_code_2_outlined,
-                            38,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () => _pickImage(isLogo: false),
-                                icon: const Icon(
-                                  Icons.upload_outlined,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  _paymentQrImagePath == null
-                                      ? tr(context, 'Upload QR')
-                                      : tr(context, 'Change QR'),
-                                ),
-                              ),
-                              if (_paymentQrImagePath != null) ...[
-                                const SizedBox(height: 4),
-                                TextButton(
-                                  onPressed: () => setState(() {
-                                    _paymentQrImagePath = null;
-                                    _qrResolutionWarning = null;
-                                  }),
-                                  child: Text(
-                                    tr(context, 'Remove QR'),
-                                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () => _pickImage(isLogo: false),
+                                  icon: const Icon(
+                                    Icons.upload_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    _paymentQrImagePath == null
+                                        ? tr(context, 'Upload QR')
+                                        : tr(context, 'Change QR'),
                                   ),
                                 ),
+                                if (_paymentQrImagePath != null) ...[
+                                  const SizedBox(height: 4),
+                                  TextButton(
+                                    onPressed: () => setState(() {
+                                      _paymentQrImagePath = null;
+                                      _qrResolutionWarning = null;
+                                    }),
+                                    child: Text(
+                                      tr(context, 'Remove QR'),
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_qrResolutionWarning != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.amber,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _qrResolutionWarning!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         ),
                       ],
-                    ),
-                    if (_qrResolutionWarning != null) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.amber.shade300),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldBlock(
+                        title: 'UPI ID (Optional)',
+                        subtitle: 'Shown on invoices for direct UPI payments',
+                        child: TextFormField(
+                          controller: _upiIdController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. 9010094034@ybl or business@upi',
+                            prefixIcon: Icon(
+                              Icons.account_balance_wallet_outlined,
+                            ),
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.amber,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _qrResolutionWarning!,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ),
-                          ],
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFieldBlock(
+                        title: 'Account Holder Name (as in UPI)',
+                        subtitle:
+                            'Verified name registered in UPI for customer verification',
+                        child: TextFormField(
+                          controller: _upiNameController,
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Ramesh Kumar',
+                            prefixIcon: Icon(Icons.badge_outlined),
+                          ),
                         ),
                       ),
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 20),
 
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
+              _buildSectionHeader(
+                theme,
+                'Invoice Terms & Notes',
+                Icons.description_outlined,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldBlock(
-                      title: 'UPI ID (Optional)',
-                      subtitle: 'Shown on invoices for direct UPI payments',
-                      child: TextFormField(
-                        controller: _upiIdController,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. 9010094034@ybl or business@upi',
-                          prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                        ),
+              const SizedBox(height: 12),
+
+              // Notes & Terms block styled with distinct theme contrast
+              Card(
+                elevation: 0,
+                color: theme.colorScheme.surfaceContainerHighest.withOpacity(
+                  0.3,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildStyledPolicyBlock(
+                        theme: theme,
+                        title: 'Default Invoice Notes',
+                        badgeText: 'DEFAULT NOTE PREVIEW',
+                        controller: _invoiceNotesController,
+                        maxLines: 2,
+                        hintText: 'e.g. Thank you for your business!',
+                        icon: Icons.note_alt_outlined,
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildFieldBlock(
-                      title: 'Account Holder Name (as in UPI)',
-                      subtitle: 'Verified name registered in UPI for customer verification',
-                      child: TextFormField(
-                        controller: _upiNameController,
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Ramesh Kumar',
-                          prefixIcon: Icon(Icons.badge_outlined),
-                        ),
+                      const SizedBox(height: 20),
+                      _buildStyledPolicyBlock(
+                        theme: theme,
+                        title: 'Terms & Conditions',
+                        badgeText: 'POLICY PREVIEW',
+                        controller: _termsController,
+                        maxLines: 3,
+                        hintText:
+                            'e.g. Goods once sold will not be taken back.',
+                        icon: Icons.gavel_outlined,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 28),
 
-            _buildSectionHeader(
-              theme,
-              'Invoice Terms & Notes',
-              Icons.description_outlined,
-            ),
-            const SizedBox(height: 12),
-
-            // Notes & Terms block styled with distinct theme contrast
-            Card(
-              elevation: 0,
-              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildStyledPolicyBlock(
-                      theme: theme,
-                      title: 'Default Invoice Notes',
-                      badgeText: 'DEFAULT NOTE PREVIEW',
-                      controller: _invoiceNotesController,
-                      maxLines: 2,
-                      hintText: 'e.g. Thank you for your business!',
-                      icon: Icons.note_alt_outlined,
+              SizedBox(
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: _isSaving || !_hasChanges ? null : _saveProfile,
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: Text(
+                    _isSaving
+                        ? tr(context, 'Saving Profile...')
+                        : tr(context, 'Save Business Profile'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 20),
-                    _buildStyledPolicyBlock(
-                      theme: theme,
-                      title: 'Terms & Conditions',
-                      badgeText: 'POLICY PREVIEW',
-                      controller: _termsController,
-                      maxLines: 3,
-                      hintText: 'e.g. Goods once sold will not be taken back.',
-                      icon: Icons.gavel_outlined,
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 28),
+              const SizedBox(height: 36),
 
-            SizedBox(
-              height: 48,
-              child: FilledButton.icon(
-                onPressed: _isSaving ? null : _saveProfile,
-                icon: const Icon(Icons.check_circle_outline),
-                label: Text(
-                  _isSaving ? tr(context, 'Saving Profile...') : tr(context, 'Save Business Profile'),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            const SizedBox(height: 36),
-
-            _buildDangerZoneSection(theme),
-            const SizedBox(height: 32),
-          ],
+              _buildDangerZoneSection(theme),
+              const SizedBox(height: 32),
+            ],
           ),
         ),
       ),
@@ -796,7 +961,11 @@ class _BusinessProfileScreenState
         children: [
           Row(
             children: [
-              const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: Color(0xFFDC2626),
+                size: 24,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -812,7 +981,10 @@ class _BusinessProfileScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            tr(context, 'Permanently delete this business and remove all invoices, customers, expenses, and cloud sync records. This action is irreversible.'),
+            tr(
+              context,
+              'Permanently delete this business and remove all invoices, customers, expenses, and cloud sync records. This action is irreversible.',
+            ),
             style: const TextStyle(
               fontSize: 12.5,
               color: Color(0xFF7F1D1D),
@@ -823,7 +995,9 @@ class _BusinessProfileScreenState
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _isSaving ? null : () => _confirmAndDeleteBusiness(theme),
+              onPressed: _isSaving
+                  ? null
+                  : () => _confirmAndDeleteBusiness(theme),
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFFDC2626),
                 side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
@@ -835,7 +1009,10 @@ class _BusinessProfileScreenState
               icon: const Icon(Icons.delete_forever, size: 20),
               label: Text(
                 tr(context, 'Delete'),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
             ),
           ),
@@ -868,7 +1045,9 @@ class _BusinessProfileScreenState
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${tr(context, "Business deleted:")} $businessName'),
+              content: Text(
+                '${tr(context, "Business deleted:")} $businessName',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -895,7 +1074,6 @@ class _BusinessProfileScreenState
       }
     }
   }
-
 
   Widget _buildFieldBlock({
     required String title,
@@ -995,7 +1173,10 @@ class _BusinessProfileScreenState
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+              borderSide: BorderSide(
+                color: theme.colorScheme.primary,
+                width: 1.5,
+              ),
             ),
           ),
         ),
@@ -1038,7 +1219,10 @@ class _BusinessProfileScreenState
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(20),
@@ -1085,10 +1269,7 @@ class _BusinessProfileScreenState
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Divider(
-            color: theme.colorScheme.outlineVariant,
-            thickness: 1,
-          ),
+          child: Divider(color: theme.colorScheme.outlineVariant, thickness: 1),
         ),
       ],
     );

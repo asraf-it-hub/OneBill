@@ -109,14 +109,18 @@ class SecurityService {
             0) +
         1;
     await _storage.write(key: _failedAttemptsKey, value: attempts.toString());
-    final seconds = min(300, 2 << min(attempts - 1, 8));
-    await _storage.write(
-      key: _lockedUntilKey,
-      value: DateTime.now()
-          .toUtc()
-          .add(Duration(seconds: seconds))
-          .toIso8601String(),
-    );
+    // Do not label a single typo as an attack. Begin progressive throttling
+    // only after three consecutive failures.
+    if (attempts >= 3) {
+      final seconds = min(300, 2 << min(attempts - 3, 8));
+      await _storage.write(
+        key: _lockedUntilKey,
+        value: DateTime.now()
+            .toUtc()
+            .add(Duration(seconds: seconds))
+            .toIso8601String(),
+      );
+    }
   }
 
   Future<void> _resetPinFailures() async {

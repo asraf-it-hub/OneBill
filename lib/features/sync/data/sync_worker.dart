@@ -12,6 +12,11 @@ class SyncWorker {
   final AppDatabase _database;
   final SupabaseClient _client;
   bool _running = false;
+  // Serialize sync requests.  The profile screen waits for this future; the
+  // previous implementation returned immediately when an automatic sync was
+  // already running, which could show "sync successful" while the newly
+  // queued profile update was still only local.
+  Future<void> _syncChain = Future<void>.value();
   StreamSubscription? _autoSyncSubscription;
 
   void listenToPendingOperations() {
@@ -42,6 +47,8 @@ class SyncWorker {
     if (user == null) return;
 
     final now = DateTime.now().toUtc();
+    // Retry queued failures when the app starts, preserving the existing
+    // offline-first behavior.
     await _requeueTransientFailures(force: true);
 
     // 0. Ensure strict account data isolation.
@@ -163,7 +170,14 @@ class SyncWorker {
               .from('expenses')
               .select()
               .eq('owner_id', user.id);
-          final receiptList = await _client.from('paper_receipts').select();
+          List<dynamic> receiptList = const [];
+          try {
+            receiptList = await _client.from('paper_receipts').select();
+          } catch (_) {
+            // Paper-receipt restoration is optional for older deployments.
+            // Never discard core account/business restoration because that
+            // table or its storage policy is not deployed yet.
+          }
           rawSnapshot = {
             'businesses': bList,
             'customers': cList,
@@ -182,11 +196,34 @@ class SyncWorker {
 
     if (rawSnapshot == null || rawSnapshot is! Map) return;
     final snapshot = Map<String, dynamic>.from(rawSnapshot);
-    final businesses = List<Map<String, dynamic>>.from(
+    var businesses = List<Map<String, dynamic>>.from(
       (snapshot['businesses'] as List? ?? []).map(
         (r) => Map<String, dynamic>.from(r as Map),
       ),
     );
+
+    // Refresh business profiles directly from the owner-scoped table. Older
+    // deployed snapshot RPCs may omit newer profile fields or return a stale
+    // shape even though the cloud row is current. This query is still bound
+    // to the authenticated owner and is merged only by business ID.
+    try {
+      final cloudBusinesses = await _client
+          .from('businesses')
+          .select()
+          .eq('owner_id', user.id);
+      final merged = <String, Map<String, dynamic>>{
+        for (final row in businesses)
+          if (row['id'] != null) row['id'].toString(): row,
+      };
+      for (final row in cloudBusinesses) {
+        final mapped = Map<String, dynamic>.from(row as Map);
+        final id = mapped['id']?.toString();
+        if (id != null) merged[id] = mapped;
+      }
+      businesses = merged.values.toList();
+    } catch (_) {
+      // Keep the snapshot result when the direct refresh is unavailable.
+    }
     final allCustomers = _snapshotRows(snapshot, 'customers');
     final allInvoices = _snapshotRows(snapshot, 'invoices');
     final allItems = _snapshotRows(snapshot, 'invoice_items');
@@ -264,6 +301,26 @@ class SyncWorker {
                         op.operationType.equals('BusinessDeleted'),
                   ))
                   .getSingleOrNull();
+
+          // Never let a stale cloud snapshot overwrite a newer local profile
+          // that is still queued for upload. This is especially important on
+          // sign-out/sign-in: restoration must not make an offline edit look
+          // lost while its operation is pending or failed.
+          final pendingProfileUpdate =
+              existing != null &&
+              await (_database.select(_database.syncOperations)..where(
+                        (op) =>
+                            op.entityId.equals(bId) &
+                            op.entityType.equals('business') &
+                            (op.operationType.equals('BusinessUpdated') |
+                                op.operationType.equals(
+                                  'BusinessProfileUpdated',
+                                )) &
+                            op.status.isNotValue('synced'),
+                      ))
+                      .getSingleOrNull() !=
+                  null;
+          if (pendingProfileUpdate) continue;
 
           final cloudDeletedAt = getDateOpt(row, 'deleted_at', 'deletedAt');
           final isLocallyDeleted =
@@ -681,6 +738,18 @@ class SyncWorker {
   );
 
   Future<void> syncBusiness(String businessId) async {
+    final previous = _syncChain;
+    final done = Completer<void>();
+    _syncChain = done.future;
+    try {
+      await previous;
+      await _syncBusinessNow(businessId);
+    } finally {
+      if (!done.isCompleted) done.complete();
+    }
+  }
+
+  Future<void> _syncBusinessNow(String businessId) async {
     if (_running) return;
     var session = _client.auth.currentSession;
     if (session == null || session.isExpired) {
@@ -703,6 +772,8 @@ class SyncWorker {
 
     _running = true;
     try {
+      // Automatic sync honours retry back-off. Explicit retryFailedOperations
+      // performs the force requeue before calling this method.
       await _requeueTransientFailures(businessId: businessId, force: true);
       int processedBatches = 0;
       while (processedBatches < 20) {
@@ -952,6 +1023,7 @@ class SyncWorker {
         break;
 
       case 'BusinessUpdated':
+      case 'BusinessProfileUpdated':
         final b = await (database.select(
           database.businesses,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();

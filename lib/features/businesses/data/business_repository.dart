@@ -302,7 +302,7 @@ class BusinessRepository {
         businessId: businessId,
         entityType: 'business',
         entityId: businessId,
-        operationType: 'BusinessUpdated',
+        operationType: 'BusinessProfileUpdated',
         payload: {
           'id': businessId,
           'name': name.trim(),
@@ -366,7 +366,7 @@ class BusinessRepository {
         businessId: businessId,
         entityType: 'business',
         entityId: businessId,
-        operationType: 'BusinessUpdated',
+        operationType: 'BusinessProfileUpdated',
         payload: {
           'id': businessId,
           'name': business.name,
