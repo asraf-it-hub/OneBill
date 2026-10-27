@@ -6166,6 +6166,17 @@ class $AppNotificationsTable extends AppNotifications
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _accountIdMeta = const VerificationMeta(
+    'accountId',
+  );
+  @override
+  late final GeneratedColumn<String> accountId = GeneratedColumn<String>(
+    'account_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _businessIdMeta = const VerificationMeta(
     'businessId',
   );
@@ -6292,6 +6303,7 @@ class $AppNotificationsTable extends AppNotifications
   @override
   List<GeneratedColumn> get $columns => [
     id,
+    accountId,
     businessId,
     category,
     title,
@@ -6320,6 +6332,12 @@ class $AppNotificationsTable extends AppNotifications
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     } else if (isInserting) {
       context.missing(_idMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(
+        _accountIdMeta,
+        accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta),
+      );
     }
     if (data.containsKey('business_id')) {
       context.handle(
@@ -6414,6 +6432,10 @@ class $AppNotificationsTable extends AppNotifications
         DriftSqlType.string,
         data['${effectivePrefix}id'],
       )!,
+      accountId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}account_id'],
+      ),
       businessId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}business_id'],
@@ -6469,6 +6491,7 @@ class $AppNotificationsTable extends AppNotifications
 
 class AppNotification extends DataClass implements Insertable<AppNotification> {
   final String id;
+  final String? accountId;
   final String? businessId;
   final String category;
   final String title;
@@ -6482,6 +6505,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   final String? payloadJson;
   const AppNotification({
     required this.id,
+    this.accountId,
     this.businessId,
     required this.category,
     required this.title,
@@ -6498,6 +6522,9 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
+    if (!nullToAbsent || accountId != null) {
+      map['account_id'] = Variable<String>(accountId);
+    }
     if (!nullToAbsent || businessId != null) {
       map['business_id'] = Variable<String>(businessId);
     }
@@ -6525,6 +6552,9 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   AppNotificationsCompanion toCompanion(bool nullToAbsent) {
     return AppNotificationsCompanion(
       id: Value(id),
+      accountId: accountId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(accountId),
       businessId: businessId == null && nullToAbsent
           ? const Value.absent()
           : Value(businessId),
@@ -6556,6 +6586,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return AppNotification(
       id: serializer.fromJson<String>(json['id']),
+      accountId: serializer.fromJson<String?>(json['accountId']),
       businessId: serializer.fromJson<String?>(json['businessId']),
       category: serializer.fromJson<String>(json['category']),
       title: serializer.fromJson<String>(json['title']),
@@ -6574,6 +6605,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
+      'accountId': serializer.toJson<String?>(accountId),
       'businessId': serializer.toJson<String?>(businessId),
       'category': serializer.toJson<String>(category),
       'title': serializer.toJson<String>(title),
@@ -6590,6 +6622,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
 
   AppNotification copyWith({
     String? id,
+    Value<String?> accountId = const Value.absent(),
     Value<String?> businessId = const Value.absent(),
     String? category,
     String? title,
@@ -6603,6 +6636,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
     Value<String?> payloadJson = const Value.absent(),
   }) => AppNotification(
     id: id ?? this.id,
+    accountId: accountId.present ? accountId.value : this.accountId,
     businessId: businessId.present ? businessId.value : this.businessId,
     category: category ?? this.category,
     title: title ?? this.title,
@@ -6618,6 +6652,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   AppNotification copyWithCompanion(AppNotificationsCompanion data) {
     return AppNotification(
       id: data.id.present ? data.id.value : this.id,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
       businessId: data.businessId.present
           ? data.businessId.value
           : this.businessId,
@@ -6644,6 +6679,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   String toString() {
     return (StringBuffer('AppNotification(')
           ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
           ..write('businessId: $businessId, ')
           ..write('category: $category, ')
           ..write('title: $title, ')
@@ -6662,6 +6698,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
   @override
   int get hashCode => Object.hash(
     id,
+    accountId,
     businessId,
     category,
     title,
@@ -6679,6 +6716,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
       identical(this, other) ||
       (other is AppNotification &&
           other.id == this.id &&
+          other.accountId == this.accountId &&
           other.businessId == this.businessId &&
           other.category == this.category &&
           other.title == this.title &&
@@ -6694,6 +6732,7 @@ class AppNotification extends DataClass implements Insertable<AppNotification> {
 
 class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   final Value<String> id;
+  final Value<String?> accountId;
   final Value<String?> businessId;
   final Value<String> category;
   final Value<String> title;
@@ -6708,6 +6747,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   final Value<int> rowid;
   const AppNotificationsCompanion({
     this.id = const Value.absent(),
+    this.accountId = const Value.absent(),
     this.businessId = const Value.absent(),
     this.category = const Value.absent(),
     this.title = const Value.absent(),
@@ -6723,6 +6763,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   });
   AppNotificationsCompanion.insert({
     required String id,
+    this.accountId = const Value.absent(),
     this.businessId = const Value.absent(),
     required String category,
     required String title,
@@ -6742,6 +6783,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
        createdAt = Value(createdAt);
   static Insertable<AppNotification> custom({
     Expression<String>? id,
+    Expression<String>? accountId,
     Expression<String>? businessId,
     Expression<String>? category,
     Expression<String>? title,
@@ -6757,6 +6799,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (accountId != null) 'account_id': accountId,
       if (businessId != null) 'business_id': businessId,
       if (category != null) 'category': category,
       if (title != null) 'title': title,
@@ -6774,6 +6817,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
 
   AppNotificationsCompanion copyWith({
     Value<String>? id,
+    Value<String?>? accountId,
     Value<String?>? businessId,
     Value<String>? category,
     Value<String>? title,
@@ -6789,6 +6833,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   }) {
     return AppNotificationsCompanion(
       id: id ?? this.id,
+      accountId: accountId ?? this.accountId,
       businessId: businessId ?? this.businessId,
       category: category ?? this.category,
       title: title ?? this.title,
@@ -6809,6 +6854,9 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<String>(id.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<String>(accountId.value);
     }
     if (businessId.present) {
       map['business_id'] = Variable<String>(businessId.value);
@@ -6853,6 +6901,7 @@ class AppNotificationsCompanion extends UpdateCompanion<AppNotification> {
   String toString() {
     return (StringBuffer('AppNotificationsCompanion(')
           ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
           ..write('businessId: $businessId, ')
           ..write('category: $category, ')
           ..write('title: $title, ')
@@ -7204,7 +7253,7 @@ class $NotificationSettingsTable extends NotificationSettings
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
-    defaultValue: const Constant('22:00'),
+    defaultValue: const Constant('00:00'),
   );
   static const VerificationMeta _quietHoursEndMeta = const VerificationMeta(
     'quietHoursEnd',
@@ -14186,6 +14235,7 @@ typedef $$SyncOperationsTableProcessedTableManager =
 typedef $$AppNotificationsTableCreateCompanionBuilder =
     AppNotificationsCompanion Function({
       required String id,
+      Value<String?> accountId,
       Value<String?> businessId,
       required String category,
       required String title,
@@ -14202,6 +14252,7 @@ typedef $$AppNotificationsTableCreateCompanionBuilder =
 typedef $$AppNotificationsTableUpdateCompanionBuilder =
     AppNotificationsCompanion Function({
       Value<String> id,
+      Value<String?> accountId,
       Value<String?> businessId,
       Value<String> category,
       Value<String> title,
@@ -14227,6 +14278,11 @@ class $$AppNotificationsTableFilterComposer
   });
   ColumnFilters<String> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get accountId => $composableBuilder(
+    column: $table.accountId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -14300,6 +14356,11 @@ class $$AppNotificationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get accountId => $composableBuilder(
+    column: $table.accountId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get businessId => $composableBuilder(
     column: $table.businessId,
     builder: (column) => ColumnOrderings(column),
@@ -14367,6 +14428,9 @@ class $$AppNotificationsTableAnnotationComposer
   });
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get accountId =>
+      $composableBuilder(column: $table.accountId, builder: (column) => column);
 
   GeneratedColumn<String> get businessId => $composableBuilder(
     column: $table.businessId,
@@ -14448,6 +14512,7 @@ class $$AppNotificationsTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
+                Value<String?> accountId = const Value.absent(),
                 Value<String?> businessId = const Value.absent(),
                 Value<String> category = const Value.absent(),
                 Value<String> title = const Value.absent(),
@@ -14462,6 +14527,7 @@ class $$AppNotificationsTableTableManager
                 Value<int> rowid = const Value.absent(),
               }) => AppNotificationsCompanion(
                 id: id,
+                accountId: accountId,
                 businessId: businessId,
                 category: category,
                 title: title,
@@ -14478,6 +14544,7 @@ class $$AppNotificationsTableTableManager
           createCompanionCallback:
               ({
                 required String id,
+                Value<String?> accountId = const Value.absent(),
                 Value<String?> businessId = const Value.absent(),
                 required String category,
                 required String title,
@@ -14492,6 +14559,7 @@ class $$AppNotificationsTableTableManager
                 Value<int> rowid = const Value.absent(),
               }) => AppNotificationsCompanion.insert(
                 id: id,
+                accountId: accountId,
                 businessId: businessId,
                 category: category,
                 title: title,

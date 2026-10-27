@@ -2470,13 +2470,6 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               action == 'view_customer' ||
               action == 'view_customers')) {
         _openCustomerDetails(customerId, businessId);
-      } else if (action == NotificationActionKeys.retrySync ||
-          action == 'retry_sync') {
-        _syncNow();
-        _openSyncSheet();
-      } else if (action == NotificationActionKeys.viewSync ||
-          action == 'view_sync') {
-        _openSyncSheet();
       } else if (action == NotificationActionKeys.viewSummary ||
           action == 'view_summary' ||
           action == 'view_reports') {
@@ -2513,6 +2506,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     }
     if (state == AppLifecycleState.resumed) {
       _syncNow();
+      // Rebuild reminder and summary schedules from the latest local invoice
+      // and payment state whenever the app returns from the background.
+      // This is account-scoped inside NotificationService and does not block
+      // the app-lock flow.
+      unawaited(_refreshNotificationsOnResume());
       security.shouldLockOnResume().then((shouldLock) {
         if (shouldLock &&
             mounted &&
@@ -2521,6 +2519,15 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
           _checkAppLock(lockIfEnabled: true);
         }
       });
+    }
+  }
+
+  Future<void> _refreshNotificationsOnResume() async {
+    try {
+      await ref.read(notificationServiceProvider).reconcileAllReminders();
+    } catch (error) {
+      // Notification failures must never prevent the app from resuming.
+      debugPrint('OneBill notification refresh failed: ${error.runtimeType}');
     }
   }
 

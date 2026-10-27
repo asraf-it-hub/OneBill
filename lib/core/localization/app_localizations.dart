@@ -65,6 +65,14 @@ final Map<String, Map<String, String>> appTranslations = {
   },
   'Not now': {'hi': 'अभी नहीं', 'te': 'ఇప్పుడు కాదు'},
   'Go to Settings': {'hi': 'सेटिंग्स पर जाएं', 'te': 'సెట్టింగ్‌లకు వెళ్లండి'},
+  'Reminder scheduled for tomorrow': {
+    'hi': 'कल के लिए अनुस्मारक निर्धारित किया गया',
+    'te': 'రేపటి కోసం రిమైండర్ షెడ్యూల్ చేయబడింది',
+  },
+  'Reminder scheduled': {
+    'hi': 'अनुस्मारक निर्धारित किया गया',
+    'te': 'రిమైండర్ షెడ్యూల్ చేయబడింది',
+  },
   'Password reset instructions have been sent to your email address.': {
     'hi': 'पासवर्ड रीसेट निर्देश आपके ईमेल पते पर भेज दिए गए हैं।',
     'te': 'పాస్‌వర్డ్ రీసెట్ సూచనలు మీ ఇమెయిల్ చిరునామాకు పంపబడ్డాయి.',

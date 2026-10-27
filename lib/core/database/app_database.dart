@@ -153,6 +153,8 @@ class SyncOperations extends Table {
 
 class AppNotifications extends Table {
   TextColumn get id => text()();
+  // Nullable for legacy rows whose account cannot be determined safely.
+  TextColumn get accountId => text().nullable()();
   TextColumn get businessId => text().nullable()();
   TextColumn get category => text()();
   TextColumn get title => text()();
@@ -182,7 +184,7 @@ class NotificationSettings extends Table {
   BoolColumn get quietHoursEnabled =>
       boolean().withDefault(const Constant(true))();
   TextColumn get quietHoursStart =>
-      text().withDefault(const Constant('22:00'))();
+      text().withDefault(const Constant('00:00'))();
   TextColumn get quietHoursEnd => text().withDefault(const Constant('07:00'))();
   IntColumn get retentionDays => integer().withDefault(const Constant(365))();
   BoolColumn get permissionRequested =>
@@ -240,7 +242,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'onebill'));
   AppDatabase.forTesting(super.executor);
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 15;
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
@@ -285,6 +287,35 @@ class AppDatabase extends _$AppDatabase {
         // tables. Leave them untouched during upgrade: they are not exposed
         // by the current schema or repositories, and preserving them avoids
         // destructive data loss. Fresh databases never create these tables.
+      }
+      if (from < 13) {
+        await m.addColumn(appNotifications, appNotifications.accountId);
+        // Recover ownership only where the notification already references a
+        // business with an unambiguous local account. Global/ambiguous legacy
+        // rows remain NULL and are hidden from signed-in accounts.
+        await customStatement('''
+          UPDATE app_notifications
+          SET account_id = (
+            SELECT account_id FROM businesses
+            WHERE businesses.id = app_notifications.business_id
+          )
+          WHERE account_id IS NULL AND business_id IS NOT NULL
+        ''');
+      }
+      if (from < 14) {
+        // 22:00 was the old built-in default. Move only rows that still have
+        // that exact default; user-selected times are preserved.
+        await customStatement(
+          "UPDATE notification_settings SET quiet_hours_start = '12:00' WHERE quiet_hours_start = '22:00'",
+        );
+      }
+      if (from < 15) {
+        // The previous built-in defaults were 22:00 and then 12:00 noon.
+        // Move only those known defaults to the requested midnight start;
+        // preserve any other owner-selected time.
+        await customStatement(
+          "UPDATE notification_settings SET quiet_hours_start = '00:00' WHERE quiet_hours_start IN ('22:00', '12:00')",
+        );
       }
     },
     beforeOpen: (details) async {

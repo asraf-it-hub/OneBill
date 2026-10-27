@@ -106,8 +106,9 @@ class _NotificationCenterSheetState
 
   @override
   Widget build(BuildContext context) {
-    final notificationsAsync =
-        ref.watch(notificationListProvider(widget.businessId));
+    final notificationsAsync = ref.watch(
+      notificationListProvider(widget.businessId),
+    );
     final repo = ref.read(notificationRepositoryProvider);
     final theme = Theme.of(context);
 
@@ -146,7 +147,10 @@ class _NotificationCenterSheetState
                       builder: (ctx) => AlertDialog(
                         title: Text(tr(context, 'Clear all notifications?')),
                         content: Text(
-                          tr(context, 'This will remove all notification history stored on this device.'),
+                          tr(
+                            context,
+                            'This will remove all notification history stored on this device.',
+                          ),
                         ),
                         actions: [
                           TextButton(
@@ -162,7 +166,8 @@ class _NotificationCenterSheetState
                     );
                     if (confirm == true) {
                       await repo.clearAllNotifications(
-                          businessId: widget.businessId);
+                        businessId: widget.businessId,
+                      );
                     }
                   },
                 ),
@@ -203,8 +208,7 @@ class _NotificationCenterSheetState
           const Divider(height: 1),
           Expanded(
             child: notificationsAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, _) => Center(child: Text('Error: $err')),
               data: (list) {
                 final filtered = _showOnlyUnread
@@ -230,7 +234,10 @@ class _NotificationCenterSheetState
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          tr(context, 'Important reminders and activity will appear here.'),
+                          tr(
+                            context,
+                            'Important reminders and activity will appear here.',
+                          ),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -247,28 +254,9 @@ class _NotificationCenterSheetState
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = filtered[index];
-                    String? invoiceId;
-                    try {
-                      if (item.payloadJson != null) {
-                        final data =
-                            jsonDecode(item.payloadJson!) as Map<String, dynamic>;
-                        invoiceId = data['invoiceId'] as String?;
-                      }
-                    } catch (_) {}
-                    invoiceId ??=
-                        (item.entityType == 'invoice' ? item.entityId : null);
-
-                    final isSnoozeable = invoiceId != null &&
-                        (item.category == NotificationCategories.invoiceDueSoon ||
-                            item.category == NotificationCategories.invoiceDueToday ||
-                            item.category == NotificationCategories.paymentOverdue ||
-                            item.category == NotificationCategories.paymentReminder);
-
                     return _NotificationTile(
                       notification: item,
-                      onSnooze: isSnoozeable
-                          ? () => showSnoozeBottomSheet(context, ref, invoiceId!)
-                          : null,
+                      onSnooze: null,
                       onTap: () async {
                         await repo.markAsHandled(item.id);
                         if (context.mounted) {
@@ -308,8 +296,11 @@ class _NotificationCenterSheetState
           notification.entityType == 'invoice' ||
           data['invoiceId'] != null) {
         Navigator.pop(context);
-        final invoiceId = (data['invoiceId'] as String?) ??
-            (notification.entityType == 'invoice' ? notification.entityId : null);
+        final invoiceId =
+            (data['invoiceId'] as String?) ??
+            (notification.entityType == 'invoice'
+                ? notification.entityId
+                : null);
         if (invoiceId != null && widget.onOpenInvoice != null) {
           widget.onOpenInvoice!(
             invoiceId,
@@ -321,19 +312,16 @@ class _NotificationCenterSheetState
           notification.entityType == 'customer' ||
           data['customerId'] != null) {
         Navigator.pop(context);
-        final customerId = (data['customerId'] as String?) ??
-            (notification.entityType == 'customer' ? notification.entityId : null);
+        final customerId =
+            (data['customerId'] as String?) ??
+            (notification.entityType == 'customer'
+                ? notification.entityId
+                : null);
         if (customerId != null && widget.onOpenCustomer != null) {
           widget.onOpenCustomer!(
             customerId,
             (data['businessId'] as String?) ?? notification.businessId,
           );
-        }
-      } else if (action == NotificationActionKeys.viewSync ||
-          notification.category == NotificationCategories.syncFailed) {
-        Navigator.pop(context);
-        if (widget.onOpenSync != null) {
-          widget.onOpenSync!();
         }
       } else if (action == NotificationActionKeys.viewSummary ||
           action == 'view_summary' ||
@@ -401,9 +389,9 @@ Future<void> showSnoozeBottomSheet(
                 const SizedBox(width: 8),
                 Text(
                   tr(context, 'Remind me later'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -422,8 +410,9 @@ Future<void> showSnoozeBottomSheet(
               title: Text(
                 tr(context, opt.title),
                 style: TextStyle(
-                  fontWeight:
-                      opt.isDefault ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: opt.isDefault
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                 ),
               ),
               onTap: () async {
@@ -457,8 +446,9 @@ Future<void> showSnoozeBottomSheet(
                 initialTime: const TimeOfDay(hour: 9, minute: 0),
                 builder: (context, child) {
                   return MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(alwaysUse24HourFormat: false),
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(alwaysUse24HourFormat: false),
                     child: Localizations.override(
                       context: context,
                       locale: const Locale('en', 'US'),
@@ -580,20 +570,26 @@ class _NotificationTile extends StatelessWidget {
   (IconData, Color) _categoryIconAndColor(String category) {
     return switch (category) {
       NotificationCategories.paymentReceived ||
-      NotificationCategories.partialPayment =>
-        (Icons.payment_rounded, const Color(0xFF10B981)),
+      NotificationCategories.partialPayment => (
+        Icons.payment_rounded,
+        const Color(0xFF10B981),
+      ),
       NotificationCategories.invoiceOverdue ||
-      NotificationCategories.paymentOverdue =>
-        (Icons.warning_amber_rounded, const Color(0xFFEF4444)),
+      NotificationCategories.paymentOverdue => (
+        Icons.warning_amber_rounded,
+        const Color(0xFFEF4444),
+      ),
       NotificationCategories.invoiceDueSoon ||
       NotificationCategories.invoiceDueToday ||
-      NotificationCategories.paymentReminder =>
-        (Icons.event_note_rounded, const Color(0xFFF59E0B)),
-      NotificationCategories.syncFailed =>
-        (Icons.sync_problem_rounded, const Color(0xFFEF4444)),
+      NotificationCategories.paymentReminder => (
+        Icons.event_note_rounded,
+        const Color(0xFFF59E0B),
+      ),
       NotificationCategories.weeklySummary ||
-      NotificationCategories.dailySummary =>
-        (Icons.analytics_rounded, const Color(0xFF3B82F6)),
+      NotificationCategories.dailySummary => (
+        Icons.analytics_rounded,
+        const Color(0xFF3B82F6),
+      ),
       _ => (Icons.notifications_rounded, const Color(0xFF126E5D)),
     };
   }
@@ -624,9 +620,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
     final quietHoursEnabled = settings?.quietHoursEnabled ?? true;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(tr(context, 'Notification Settings')),
-      ),
+      appBar: AppBar(title: Text(tr(context, 'Notification Settings'))),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
@@ -635,9 +629,16 @@ class NotificationSettingsScreen extends ConsumerWidget {
               tr(context, 'Master Control'),
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(tr(context, 'Enable or disable all app notifications')),
+            subtitle: Text(
+              tr(context, 'Enable or disable all app notifications'),
+            ),
             value: masterEnabled,
-            onChanged: (val) => repo.updateSettings(masterEnabled: val),
+            onChanged: (val) async {
+              await repo.updateSettings(masterEnabled: val);
+              await ref
+                  .read(notificationServiceProvider)
+                  .reconcileAllReminders();
+            },
           ),
           const Divider(),
           SwitchListTile(
@@ -665,8 +666,9 @@ class NotificationSettingsScreen extends ConsumerWidget {
               margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color:
-                    theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                color: theme.colorScheme.surfaceContainerHighest.withOpacity(
+                  0.4,
+                ),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: theme.colorScheme.outlineVariant.withOpacity(0.5),
@@ -687,7 +689,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   Row(
                     children: [
                       Text(
-                        _formatTimeStr(settings?.quietHoursStart ?? '22:00'),
+                        _formatTimeStr(settings?.quietHoursStart ?? '00:00'),
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
@@ -718,13 +720,13 @@ class NotificationSettingsScreen extends ConsumerWidget {
                         child: OutlinedButton.icon(
                           icon: const Icon(Icons.bedtime_outlined, size: 16),
                           label: Text(
-                            '${tr(context, 'Start')}: ${_formatTimeStr(settings?.quietHoursStart ?? '22:00')}',
+                            '${tr(context, 'Start')}: ${_formatTimeStr(settings?.quietHoursStart ?? '00:00')}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           onPressed: masterEnabled
                               ? () async {
                                   final currentParts =
-                                      (settings?.quietHoursStart ?? '22:00')
+                                      (settings?.quietHoursStart ?? '00:00')
                                           .split(':')
                                           .map(int.parse)
                                           .toList();
@@ -736,8 +738,9 @@ class NotificationSettingsScreen extends ConsumerWidget {
                                     ),
                                     builder: (context, child) {
                                       return MediaQuery(
-                                        data: MediaQuery.of(context)
-                                            .copyWith(alwaysUse24HourFormat: false),
+                                        data: MediaQuery.of(context).copyWith(
+                                          alwaysUse24HourFormat: false,
+                                        ),
                                         child: Localizations.override(
                                           context: context,
                                           locale: const Locale('en', 'US'),
@@ -750,7 +753,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                                     final formatted =
                                         '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
                                     await repo.updateSettings(
-                                        quietHoursStart: formatted);
+                                      quietHoursStart: formatted,
+                                    );
                                     ref
                                         .read(notificationServiceProvider)
                                         .reconcileAllReminders();
@@ -782,8 +786,9 @@ class NotificationSettingsScreen extends ConsumerWidget {
                                     ),
                                     builder: (context, child) {
                                       return MediaQuery(
-                                        data: MediaQuery.of(context)
-                                            .copyWith(alwaysUse24HourFormat: false),
+                                        data: MediaQuery.of(context).copyWith(
+                                          alwaysUse24HourFormat: false,
+                                        ),
                                         child: Localizations.override(
                                           context: context,
                                           locale: const Locale('en', 'US'),
@@ -796,7 +801,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                                     final formatted =
                                         '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
                                     await repo.updateSettings(
-                                        quietHoursEnd: formatted);
+                                      quietHoursEnd: formatted,
+                                    );
                                     ref
                                         .read(notificationServiceProvider)
                                         .reconcileAllReminders();
@@ -869,14 +875,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
             masterEnabled,
             NotificationCategories.paymentReceived,
           ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.paymentReminder,
-          ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -912,22 +910,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
             masterEnabled,
             NotificationCategories.monthlySummary,
           ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.importantAlerts,
-          ),
-          ..._buildCategorySwitch(
-            context,
-            ref,
-            repo,
-            prefs,
-            masterEnabled,
-            NotificationCategories.announcements,
-          ),
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -945,8 +927,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color:
-                        theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withOpacity(0.4),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: theme.colorScheme.outlineVariant.withOpacity(0.6),
@@ -963,10 +945,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                               'assets/OneBillLogo.png',
                               width: 18,
                               height: 18,
-                              errorBuilder: (_, __, ___) => const Icon(
-                                Icons.receipt_long,
-                                size: 18,
-                              ),
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.receipt_long, size: 18),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1019,7 +999,10 @@ class NotificationSettingsScreen extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        tr(context, 'All summary alerts and due reminders are active.'),
+                        tr(
+                          context,
+                          'All summary alerts and due reminders are active.',
+                        ),
                         style: TextStyle(
                           fontSize: 12,
                           color: theme.colorScheme.onSurfaceVariant,
@@ -1061,13 +1044,22 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     final testTitle = tr(context, 'OneBill Notifications');
-                    final testBody = tr(context, 'Notification system is working properly.');
+                    final testBody = tr(
+                      context,
+                      'Notification system is working properly.',
+                    );
                     final testAction = tr(context, 'View Status');
-                    final grantedMsg = tr(context, 'Test notification sent to phone banner & lock screen!');
-                    final deniedMsg = tr(context, 'Test notification recorded in Notification Center (Permission needed for status bar).');
+                    final grantedMsg = tr(
+                      context,
+                      'Test notification sent to phone banner & lock screen!',
+                    );
+                    final deniedMsg = tr(
+                      context,
+                      'Test notification recorded in Notification Center (Permission needed for status bar).',
+                    );
 
-                    final granted =
-                        await service.requestPermissionWithExplainer(context);
+                    final granted = await service
+                        .requestPermissionWithExplainer(context);
                     await service.showTestNotification(
                       title: testTitle,
                       body: testBody,
@@ -1089,12 +1081,18 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
+                    final activeBizId = ref
+                        .read(sessionProvider)
+                        .valueOrNull
+                        ?.activeBusinessId;
                     await service.showTestDailySummary(businessId: activeBizId);
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,
-                        tr(context, 'Daily summary test notification triggered!'),
+                        tr(
+                          context,
+                          'Daily summary test notification triggered!',
+                        ),
                       );
                     }
                   },
@@ -1106,12 +1104,20 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
-                    await service.showTestWeeklySummary(businessId: activeBizId);
+                    final activeBizId = ref
+                        .read(sessionProvider)
+                        .valueOrNull
+                        ?.activeBusinessId;
+                    await service.showTestWeeklySummary(
+                      businessId: activeBizId,
+                    );
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,
-                        tr(context, 'Weekly summary test notification triggered!'),
+                        tr(
+                          context,
+                          'Weekly summary test notification triggered!',
+                        ),
                       );
                     }
                   },
@@ -1123,12 +1129,20 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   onPressed: () async {
                     final service = ref.read(notificationServiceProvider);
                     await service.requestPermissionWithExplainer(context);
-                    final activeBizId = ref.read(sessionProvider).valueOrNull?.activeBusinessId;
-                    await service.showTestMonthlySummary(businessId: activeBizId);
+                    final activeBizId = ref
+                        .read(sessionProvider)
+                        .valueOrNull
+                        ?.activeBusinessId;
+                    await service.showTestMonthlySummary(
+                      businessId: activeBizId,
+                    );
                     if (context.mounted) {
                       AppToast.showSuccess(
                         context,
-                        tr(context, 'Monthly performance test notification triggered!'),
+                        tr(
+                          context,
+                          'Monthly performance test notification triggered!',
+                        ),
                       );
                     }
                   },

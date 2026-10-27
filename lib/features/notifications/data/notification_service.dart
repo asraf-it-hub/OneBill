@@ -22,11 +22,17 @@ class NotificationService {
 
   NotificationService(this._db, this._repository);
 
+  void _logNotificationError(String operation, Object error) {
+    // Log only the exception type, never invoice/customer/authentication data.
+    debugPrint('OneBill notification $operation failed: ${error.runtimeType}');
+  }
+
   bool _isAuthenticated() {
     if (!AppEnvironment.cloudConfigured) return true;
     try {
       return Supabase.instance.client.auth.currentSession != null;
-    } catch (_) {
+    } catch (error) {
+      _logNotificationError('authentication check', error);
       return false;
     }
   }
@@ -34,24 +40,29 @@ class NotificationService {
   Future<String> _getLanguageCode([String? businessId]) async {
     try {
       if (businessId != null && businessId.isNotEmpty) {
-        final biz = await (_db.select(_db.businesses)
-              ..where((b) => b.id.equals(businessId)))
-            .getSingleOrNull();
-        if (biz?.preferredLanguage != null && biz!.preferredLanguage.isNotEmpty) {
+        final biz = await (_db.select(
+          _db.businesses,
+        )..where((b) => b.id.equals(businessId))).getSingleOrNull();
+        if (biz?.preferredLanguage != null &&
+            biz!.preferredLanguage.isNotEmpty) {
           return biz.preferredLanguage;
         }
       }
-      final active = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull())
-            ..limit(1))
-          .getSingleOrNull();
+      final active =
+          await (_db.select(_db.businesses)
+                ..where((b) => b.deletedAt.isNull())
+                ..limit(1))
+              .getSingleOrNull();
       return active?.preferredLanguage ?? 'en';
-    } catch (_) {
+    } catch (error) {
+      _logNotificationError('language lookup', error);
       return 'en';
     }
   }
 
-  Future<void> init({void Function(String payload, String? actionId)? onSelect}) async {
+  Future<void> init({
+    void Function(String payload, String? actionId)? onSelect,
+  }) async {
     if (_initialized) return;
     onNotificationSelect = onSelect;
     tz.initializeTimeZones();
@@ -63,9 +74,13 @@ class NotificationService {
           break;
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('timezone initialization', error);
+    }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const initSettings = InitializationSettings(android: androidSettings);
 
     await _plugin.initialize(
@@ -80,7 +95,9 @@ class NotificationService {
             if (invoiceId != null) {
               snoozeInvoiceReminder(invoiceId);
             }
-          } catch (_) {}
+          } catch (error) {
+            _logNotificationError('notification action handling', error);
+          }
         }
         if (payload != null && onNotificationSelect != null) {
           onNotificationSelect!(payload, actionId);
@@ -117,18 +134,33 @@ class NotificationService {
     );
   }
 
+  Future<AndroidScheduleMode> _scheduleMode() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final exactAllowed = await android?.canScheduleExactNotifications() ?? true;
+    return exactAllowed
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
+  }
+
   Future<NotificationAppLaunchDetails?> getLaunchDetails() =>
       _plugin.getNotificationAppLaunchDetails();
 
   Future<void> cancelAll() async {
     try {
       await _plugin.cancelAll();
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('cancel all', error);
+    }
   }
 
   Future<void> _createNotificationChannels() async {
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidImpl == null) return;
 
     await androidImpl.createNotificationChannel(
@@ -164,15 +196,6 @@ class NotificationService {
 
     await androidImpl.createNotificationChannel(
       const AndroidNotificationChannel(
-        NotificationChannels.sync,
-        'Sync & Backup',
-        description: 'Notifications for cloud sync operations and status',
-        importance: Importance.defaultImportance,
-      ),
-    );
-
-    await androidImpl.createNotificationChannel(
-      const AndroidNotificationChannel(
         NotificationChannels.alerts,
         'Important OneBill Alerts',
         description: 'Critical system and business security alerts',
@@ -184,8 +207,10 @@ class NotificationService {
   }
 
   Future<bool> checkPermission() async {
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     return await androidImpl?.areNotificationsEnabled() ?? false;
   }
 
@@ -198,25 +223,30 @@ class NotificationService {
       final shouldOpenSettings = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Notifications are Disabled'),
-          content: const Text(
-            'To receive reminders for due invoices and payment alerts, please enable notifications in your phone Settings.',
+          title: Text(tr(ctx, 'Notifications are Disabled')),
+          content: Text(
+            tr(
+              ctx,
+              'To receive reminders for due invoices and payment alerts, please enable notifications in your phone Settings.',
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Not now'),
+              child: Text(tr(ctx, 'Not now')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Go to Settings'),
+              child: Text(tr(ctx, 'Go to Settings')),
             ),
           ],
         ),
       );
       if (shouldOpenSettings == true) {
-        final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+        final androidImpl = _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         await androidImpl?.requestNotificationsPermission();
       }
       return false;
@@ -227,18 +257,21 @@ class NotificationService {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Stay Updated with OneBill'),
-        content: const Text(
-          'Stay on top of your business with reminders for invoices, payments and important activity.',
+        title: Text(tr(ctx, 'Stay Updated with OneBill')),
+        content: Text(
+          tr(
+            ctx,
+            'Stay on top of your business with reminders for invoices, payments and important activity.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Not now'),
+            child: Text(tr(ctx, 'Not now')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Enable Notifications'),
+            child: Text(tr(ctx, 'Enable Notifications')),
           ),
         ],
       ),
@@ -247,8 +280,10 @@ class NotificationService {
     await _repository.updateSettings(permissionRequested: true);
 
     if (proceed == true) {
-      final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final androidImpl = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       final result = await androidImpl?.requestNotificationsPermission();
       return result ?? false;
     }
@@ -263,9 +298,9 @@ class NotificationService {
   Future<void> reconcileInvoice(String invoiceId) async {
     if (!_isAuthenticated()) return;
     try {
-      final invoice = await (_db.select(_db.invoices)
-            ..where((i) => i.id.equals(invoiceId)))
-          .getSingleOrNull();
+      final invoice = await (_db.select(
+        _db.invoices,
+      )..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
 
       if (invoice == null || invoice.deletedAt != null) {
         await cancelInvoiceReminders(invoiceId);
@@ -291,12 +326,12 @@ class NotificationService {
       final dueAt = invoice.dueAt;
       if (dueAt == null) return;
 
-      final customer = await (_db.select(_db.customers)
-            ..where((c) => c.id.equals(invoice.customerId)))
-          .getSingleOrNull();
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final customer = await (_db.select(
+        _db.customers,
+      )..where((c) => c.id.equals(invoice.customerId))).getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
 
       final customerName = customer?.name ?? 'Customer';
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
@@ -304,48 +339,67 @@ class NotificationService {
           : '';
       final lang = await _getLanguageCode(invoice.businessId);
 
-      final steps = <({int stepIndex, String categoryKey, DateTime scheduleDate, String title, String body})>[
-        (
-          stepIndex: 0,
-          categoryKey: NotificationCategories.invoiceDueSoon,
-          scheduleDate: dueAt.subtract(const Duration(days: 7)),
-          title: '$bizPrefix${trLang('Invoice due in 7 days', lang)}',
-          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
-        ),
-        (
-          stepIndex: 1,
-          categoryKey: NotificationCategories.invoiceDueSoon,
-          scheduleDate: dueAt.subtract(const Duration(days: 1)),
-          title: '$bizPrefix${trLang('Invoice due tomorrow', lang)}',
-          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
-        ),
-        (
-          stepIndex: 2,
-          categoryKey: NotificationCategories.invoiceDueToday,
-          scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day, 9, 0),
-          title: '$bizPrefix${trLang('Invoice due today', lang)}',
-          body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
-        ),
-        for (var day = 1; day <= 7; day++)
-          (
-            stepIndex: 2 + day,
-            categoryKey: NotificationCategories.invoiceOverdue,
-            scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day + day, 9, 0),
-            title: day == 1
-                ? '$bizPrefix${trLang('Payment overdue (1 day)', lang)}'
-                : '$bizPrefix${trLang('Payment overdue', lang)} ($day days)',
-            body: '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
-          ),
-      ];
+      final steps =
+          <
+            ({
+              int stepIndex,
+              String categoryKey,
+              DateTime scheduleDate,
+              String title,
+              String body,
+            })
+          >[
+            (
+              stepIndex: 0,
+              categoryKey: NotificationCategories.invoiceDueSoon,
+              scheduleDate: dueAt.subtract(const Duration(days: 7)),
+              title: '$bizPrefix${trLang('Invoice due in 7 days', lang)}',
+              body:
+                  '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
+            ),
+            (
+              stepIndex: 1,
+              categoryKey: NotificationCategories.invoiceDueSoon,
+              scheduleDate: dueAt.subtract(const Duration(days: 1)),
+              title: '$bizPrefix${trLang('Invoice due tomorrow', lang)}',
+              body:
+                  '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
+            ),
+            (
+              stepIndex: 2,
+              categoryKey: NotificationCategories.invoiceDueToday,
+              scheduleDate: DateTime(dueAt.year, dueAt.month, dueAt.day, 9, 0),
+              title: '$bizPrefix${trLang('Invoice due today', lang)}',
+              body:
+                  '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
+            ),
+            for (var day = 1; day <= 7; day++)
+              (
+                stepIndex: 2 + day,
+                categoryKey: NotificationCategories.invoiceOverdue,
+                scheduleDate: DateTime(
+                  dueAt.year,
+                  dueAt.month,
+                  dueAt.day + day,
+                  9,
+                  0,
+                ),
+                title: day == 1
+                    ? '$bizPrefix${trLang('Payment overdue (1 day)', lang)}'
+                    : '$bizPrefix${trLang('Payment overdue', lang)} ($day days)',
+                body:
+                    '$customerName · ${_rupees(remainingPaise)} · ${trLang('Invoice', lang)} #${invoice.invoiceNumber}',
+              ),
+          ];
 
       final now = DateTime.now();
 
       for (final step in steps) {
-        final notifId = _generateDeterministicId('${invoiceId}_step_${step.stepIndex}');
+        final notifId = _generateDeterministicId(
+          '${invoiceId}_step_${step.stepIndex}',
+        );
 
-        final isOverdue = step.categoryKey == NotificationCategories.invoiceOverdue;
-        final isEnabled = prefs[step.categoryKey] == true ||
-            (isOverdue && prefs[NotificationCategories.paymentOverdue] == true);
+        final isEnabled = prefs[step.categoryKey] == true;
         if (!isEnabled) {
           await _plugin.cancel(notifId);
           continue;
@@ -388,25 +442,22 @@ class NotificationService {
                   trLang('View Invoice', lang),
                   showsUserInterface: true,
                 ),
-                AndroidNotificationAction(
-                  NotificationActionKeys.remindLater,
-                  trLang('Remind Tomorrow', lang),
-                  showsUserInterface: false,
-                ),
               ],
             ),
           ),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          androidScheduleMode: await _scheduleMode(),
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
           payload: payload,
         );
       }
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('notification operation', error);
+    }
   }
 
   Future<void> cancelInvoiceReminders(String invoiceId) async {
-    for (var stepIndex = 0; stepIndex < 6; stepIndex++) {
+    for (var stepIndex = 0; stepIndex < 10; stepIndex++) {
       final notifId = _generateDeterministicId('${invoiceId}_step_$stepIndex');
       await _plugin.cancel(notifId);
     }
@@ -414,12 +465,28 @@ class NotificationService {
     await _plugin.cancel(snoozeId);
   }
 
-  DateTime _adjustForQuietHours(DateTime target, String startStr, String endStr) {
+  DateTime _adjustForQuietHours(
+    DateTime target,
+    String startStr,
+    String endStr,
+  ) {
     try {
       final startParts = startStr.split(':').map(int.parse).toList();
       final endParts = endStr.split(':').map(int.parse).toList();
-      final start = DateTime(target.year, target.month, target.day, startParts[0], startParts[1]);
-      var end = DateTime(target.year, target.month, target.day, endParts[0], endParts[1]);
+      final start = DateTime(
+        target.year,
+        target.month,
+        target.day,
+        startParts[0],
+        startParts[1],
+      );
+      var end = DateTime(
+        target.year,
+        target.month,
+        target.day,
+        endParts[0],
+        endParts[1],
+      );
 
       if (end.isBefore(start)) {
         if (target.isAfter(start) || target.isBefore(end)) {
@@ -433,15 +500,26 @@ class NotificationService {
           return end.add(const Duration(minutes: 5));
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('notification operation', error);
+    }
     return target;
   }
 
-  Future<void> snoozeInvoiceReminder(String invoiceId, [DateTime? targetDate]) async {
+  Future<void> snoozeInvoiceReminder(
+    String invoiceId, [
+    DateTime? targetDate,
+  ]) async {
     try {
-      final invoice = await (_db.select(_db.invoices)
-            ..where((i) => i.id.equals(invoiceId)))
-          .getSingleOrNull();
+      final settings = await _repository.getSettings();
+      final prefs = await _repository.getPreferences();
+      if (!settings.masterEnabled ||
+          prefs[NotificationCategories.paymentReminder] != true) {
+        return;
+      }
+      final invoice = await (_db.select(
+        _db.invoices,
+      )..where((i) => i.id.equals(invoiceId))).getSingleOrNull();
       if (invoice == null || invoice.deletedAt != null) return;
 
       final totalPaise =
@@ -449,18 +527,19 @@ class NotificationService {
       final remainingPaise = totalPaise - invoice.paidPaise;
       if (remainingPaise <= 0) return;
 
-      final customer = await (_db.select(_db.customers)
-            ..where((c) => c.id.equals(invoice.customerId)))
-          .getSingleOrNull();
+      final customer = await (_db.select(
+        _db.customers,
+      )..where((c) => c.id.equals(invoice.customerId))).getSingleOrNull();
 
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      final snoozeTarget = targetDate ??
+      final snoozeTarget =
+          targetDate ??
           DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
       final notifId = _generateDeterministicId('${invoiceId}_snooze');
 
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
           ? '${business.name.trim()} · '
           : '';
@@ -491,18 +570,19 @@ class NotificationService {
             ],
           ),
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: await _scheduleMode(),
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: payload,
       );
 
-      final isTomorrow = snoozeTarget.day == tomorrow.day &&
+      final isTomorrow =
+          snoozeTarget.day == tomorrow.day &&
           snoozeTarget.month == tomorrow.month &&
           snoozeTarget.year == tomorrow.year;
       final title = isTomorrow
-          ? 'Reminder scheduled for tomorrow'
-          : 'Reminder scheduled';
+          ? trLang('Reminder scheduled for tomorrow', lang)
+          : trLang('Reminder scheduled', lang);
 
       await _repository.addNotification(
         id: 'snooze_${DateTime.now().millisecondsSinceEpoch}',
@@ -515,7 +595,9 @@ class NotificationService {
         scheduledAt: snoozeTarget,
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('notification operation', error);
+    }
   }
 
   Future<void> reconcileAllReminders() async {
@@ -525,15 +607,19 @@ class NotificationService {
       // The database is shared across sign-in cycles, so querying every
       // non-deleted business can surface another account's old invoices in a
       // newly created account.
-      final session = await (_db.select(_db.localSessions)
-            ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
-            ..limit(1))
-          .getSingleOrNull();
+      final session =
+          await (_db.select(_db.localSessions)
+                ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
+                ..limit(1))
+              .getSingleOrNull();
       var accountId = session?.accountId;
       if (AppEnvironment.cloudConfigured) {
         try {
-          accountId = Supabase.instance.client.auth.currentUser?.id ?? accountId;
-        } catch (_) {}
+          accountId =
+              Supabase.instance.client.auth.currentUser?.id ?? accountId;
+        } catch (error) {
+          _logNotificationError('account resolution', error);
+        }
       }
       if (accountId == null || accountId.isEmpty) {
         await _clearGroupedOverdueSummary();
@@ -541,19 +627,41 @@ class NotificationService {
       }
       final resolvedAccountId = accountId;
 
-      final activeBusinesses = await (_db.select(_db.businesses)
-            ..where((b) =>
-                b.accountId.equals(resolvedAccountId) & b.deletedAt.isNull()))
-          .get();
+      final activeBusinesses =
+          await (_db.select(_db.businesses)..where(
+                (b) =>
+                    b.accountId.equals(resolvedAccountId) &
+                    b.deletedAt.isNull(),
+              ))
+              .get();
+      final settings = await _repository.getSettings();
+      if (!settings.masterEnabled) {
+        for (final business in activeBusinesses) {
+          final invoices =
+              await (_db.select(_db.invoices)..where(
+                    (i) =>
+                        i.businessId.equals(business.id) & i.deletedAt.isNull(),
+                  ))
+                  .get();
+          for (final invoice in invoices) {
+            await cancelInvoiceReminders(invoice.id);
+          }
+        }
+        await _clearGroupedOverdueSummary();
+        await reconcileSummaries();
+        return;
+      }
       if (activeBusinesses.isEmpty) {
         await _clearGroupedOverdueSummary();
         return;
       }
       final businessIds = activeBusinesses.map((b) => b.id).toList();
 
-      final allInvoices = await (_db.select(_db.invoices)
-            ..where((i) => i.businessId.isIn(businessIds) & i.deletedAt.isNull()))
-          .get();
+      final allInvoices =
+          await (_db.select(_db.invoices)..where(
+                (i) => i.businessId.isIn(businessIds) & i.deletedAt.isNull(),
+              ))
+              .get();
 
       final overdueInvoices = <Invoice>[];
       var totalOverduePaise = 0;
@@ -562,7 +670,9 @@ class NotificationService {
 
       for (final invoice in allInvoices) {
         final totalPaise =
-            invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
+            invoice.subtotalPaise +
+            invoice.interestPaise -
+            invoice.discountPaise;
         final remainingPaise = totalPaise - invoice.paidPaise;
         final dueAt = invoice.dueAt?.toLocal();
 
@@ -577,7 +687,9 @@ class NotificationService {
       }
 
       try {
-        final groupNotifId = _generateDeterministicId('grouped_overdue_invoices');
+        final groupNotifId = _generateDeterministicId(
+          'grouped_overdue_invoices',
+        );
         final settings = await _repository.getSettings();
 
         if (overdueInvoices.isEmpty) {
@@ -590,7 +702,7 @@ class NotificationService {
           }
         } else {
           final prefs = await _repository.getPreferences();
-          if (prefs[NotificationCategories.paymentOverdue] == true &&
+          if (prefs[NotificationCategories.invoiceOverdue] == true &&
               settings.masterEnabled) {
             overdueInvoices.sort((a, b) => a.id.compareTo(b.id));
             final overdueIds = overdueInvoices.map((i) => i.id).join(',');
@@ -598,23 +710,29 @@ class NotificationService {
                 '${overdueInvoices.length}:$totalOverduePaise:$overdueIds';
 
             if (settings.lastOverdueSignature != currentSignature) {
-              final overdueBizIds = overdueInvoices.map((i) => i.businessId).toSet();
+              final overdueBizIds = overdueInvoices
+                  .map((i) => i.businessId)
+                  .toSet();
               String bizPrefix = '';
               String? primaryBizId;
               if (overdueBizIds.length == 1) {
                 primaryBizId = overdueBizIds.first;
-                final b = await (_db.select(_db.businesses)
-                      ..where((x) => x.id.equals(primaryBizId!)))
-                    .getSingleOrNull();
+                final b = await (_db.select(
+                  _db.businesses,
+                )..where((x) => x.id.equals(primaryBizId!))).getSingleOrNull();
                 if (b != null && b.name.trim().isNotEmpty) {
                   bizPrefix = '${b.name.trim()} · ';
                 }
               }
               final lang = await _getLanguageCode(primaryBizId);
               final overdueCount = overdueInvoices.length;
-              final invoiceWord = overdueCount == 1 ? trLang('invoice', lang) : trLang('invoices', lang);
-              final title = '$bizPrefix$overdueCount $invoiceWord ${trLang('overdue', lang)}';
-              final body = '${trLang('Total Due', lang)}: ${_rupees(totalOverduePaise)}';
+              final invoiceWord = overdueCount == 1
+                  ? trLang('invoice', lang)
+                  : trLang('invoices', lang);
+              final title =
+                  '$bizPrefix$overdueCount $invoiceWord ${trLang('overdue', lang)}';
+              final body =
+                  '${trLang('Total Due', lang)}: ${_rupees(totalOverduePaise)}';
               final payload = jsonEncode({
                 'action': 'view_overdue',
                 if (primaryBizId != null) 'businessId': primaryBizId,
@@ -656,32 +774,70 @@ class NotificationService {
             }
           }
         }
-      } catch (_) {}
+      } catch (error) {
+        _logNotificationError('overdue summary', error);
+      }
 
       await reconcileSummaries();
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('reminder reconciliation', error);
+    }
   }
 
   Future<void> _clearGroupedOverdueSummary() async {
     try {
-      await _plugin.cancel(_generateDeterministicId('grouped_overdue_invoices'));
+      await _plugin.cancel(
+        _generateDeterministicId('grouped_overdue_invoices'),
+      );
       await _repository.deleteNotification('grouped_overdue_invoices');
       final settings = await _repository.getSettings();
       if (settings.lastOverdueSignature != null) {
-        await _repository.updateSettings(lastOverdueSignature: const Value(null));
+        await _repository.updateSettings(
+          lastOverdueSignature: const Value(null),
+        );
       }
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('notification cleanup', error);
+    }
   }
 
   Future<void> reconcileSummaries() async {
     try {
       final settings = await _repository.getSettings();
-      if (!settings.masterEnabled) return;
-
       final prefs = await _repository.getPreferences();
-      final businesses = await (_db.select(_db.businesses)
-            ..where((b) => b.deletedAt.isNull()))
-          .get();
+      final session =
+          await (_db.select(_db.localSessions)
+                ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
+                ..limit(1))
+              .getSingleOrNull();
+      var accountId = session?.accountId;
+      if (AppEnvironment.cloudConfigured) {
+        accountId = Supabase.instance.client.auth.currentUser?.id ?? accountId;
+      }
+      if (accountId == null || accountId.isEmpty) return;
+
+      // A user may own several businesses. Keep all of that user's businesses,
+      // but never schedule summaries for another account left in local storage.
+      final businesses =
+          await (_db.select(_db.businesses)..where(
+                (b) => b.accountId.equals(accountId!) & b.deletedAt.isNull(),
+              ))
+              .get();
+
+      if (!settings.masterEnabled) {
+        for (final business in businesses) {
+          await _plugin.cancel(
+            _generateDeterministicId('${business.id}_daily_summary'),
+          );
+          await _plugin.cancel(
+            _generateDeterministicId('${business.id}_weekly_summary'),
+          );
+          await _plugin.cancel(
+            _generateDeterministicId('${business.id}_monthly_summary'),
+          );
+        }
+        return;
+      }
 
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
@@ -690,45 +846,79 @@ class NotificationService {
 
       for (final business in businesses) {
         final lang = await _getLanguageCode(business.id);
-        final bizPrefix = business.name.trim().isNotEmpty ? '${business.name.trim()} · ' : '';
+        final bizPrefix = business.name.trim().isNotEmpty
+            ? '${business.name.trim()} · '
+            : '';
 
-        final bizInvoices = await (_db.select(_db.invoices)
-              ..where((i) => i.businessId.equals(business.id) & i.deletedAt.isNull()))
-            .get();
+        final bizInvoices =
+            await (_db.select(_db.invoices)..where(
+                  (i) =>
+                      i.businessId.equals(business.id) & i.deletedAt.isNull(),
+                ))
+                .get();
 
-        final bizPayments = await (_db.select(_db.payments)
-              ..where((p) => p.businessId.equals(business.id)))
-            .get();
+        final bizPayments = await (_db.select(
+          _db.payments,
+        )..where((p) => p.businessId.equals(business.id))).get();
 
-        final dailyNotifId = _generateDeterministicId('${business.id}_daily_summary');
-        final weeklyNotifId = _generateDeterministicId('${business.id}_weekly_summary');
-        final monthlyNotifId = _generateDeterministicId('${business.id}_monthly_summary');
+        final dailyNotifId = _generateDeterministicId(
+          '${business.id}_daily_summary',
+        );
+        final weeklyNotifId = _generateDeterministicId(
+          '${business.id}_weekly_summary',
+        );
+        final monthlyNotifId = _generateDeterministicId(
+          '${business.id}_monthly_summary',
+        );
+
+        final todayPayments = bizPayments.where((p) {
+          final dt = p.createdAt.toLocal();
+          return dt.year == now.year &&
+              dt.month == now.month &&
+              dt.day == now.day;
+        }).toList();
+        final todayInvoices = bizInvoices.where((i) {
+          final dt = i.createdAt.toLocal();
+          return dt.year == now.year &&
+              dt.month == now.month &&
+              dt.day == now.day;
+        }).toList();
+        final weekPayments = bizPayments
+            .where((p) => !p.createdAt.toLocal().isBefore(weekStart))
+            .toList();
+        final weekInvoices = bizInvoices
+            .where((i) => !i.createdAt.toLocal().isBefore(weekStart))
+            .toList();
+        final monthPayments = bizPayments
+            .where((p) => !p.createdAt.toLocal().isBefore(monthStart))
+            .toList();
+        final monthInvoices = bizInvoices
+            .where((i) => !i.createdAt.toLocal().isBefore(monthStart))
+            .toList();
 
         // 1. Daily summary
         if (prefs[NotificationCategories.dailySummary] == true) {
-          final todayPayments = bizPayments.where((p) {
-            final dt = p.createdAt.toLocal();
-            return dt.year == now.year && dt.month == now.month && dt.day == now.day;
-          }).toList();
-          final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-          final todayInvoices = bizInvoices.where((i) {
-            final dt = i.createdAt.toLocal();
-            return dt.year == now.year && dt.month == now.month && dt.day == now.day;
-          }).toList();
-
+          final todayCollectedPaise = todayPayments.fold<int>(
+            0,
+            (sum, p) => sum + p.amountPaise,
+          );
           final title = '${bizPrefix}${trLang('Daily Summary', lang)}';
           final body = lang == 'te'
               ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
               : lang == 'hi'
-                  ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
-                  : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
+              ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
+              : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
 
           var target = DateTime(now.year, now.month, now.day, 20, 0); // 8:00 PM
           if (target.isBefore(now)) {
             target = target.add(const Duration(days: 1));
           }
           if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+            target = _adjustForQuietHours(
+              target,
+              settings.quietHoursStart,
+              settings.quietHoursEnd,
+            );
           }
 
           final payload = jsonEncode({
@@ -755,7 +945,7 @@ class NotificationService {
                 ],
               ),
             ),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            androidScheduleMode: await _scheduleMode(),
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
             matchDateTimeComponents: DateTimeComponents.time,
@@ -767,24 +957,34 @@ class NotificationService {
 
         // 2. Weekly summary
         if (prefs[NotificationCategories.weeklySummary] == true) {
-          final weekPayments = bizPayments.where((p) => p.createdAt.isAfter(weekStart)).toList();
-          final weekCollectedPaise = weekPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-          final weekInvoices = bizInvoices.where((i) => i.createdAt.isAfter(weekStart)).toList();
-
+          final weekCollectedPaise = weekPayments.fold<int>(
+            0,
+            (sum, p) => sum + p.amountPaise,
+          );
           final title = '${bizPrefix}${trLang('Weekly Summary', lang)}';
           final body = lang == 'te'
               ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
               : lang == 'hi'
-                  ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
-                  : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} invoices';
+              ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
+              : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} invoices';
 
           var daysUntilSunday = (DateTime.sunday - now.weekday) % 7;
           if (daysUntilSunday == 0 && now.hour >= 20) {
             daysUntilSunday = 7;
           }
-          var target = DateTime(now.year, now.month, now.day + daysUntilSunday, 20, 0);
+          var target = DateTime(
+            now.year,
+            now.month,
+            now.day + daysUntilSunday,
+            20,
+            0,
+          );
           if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+            target = _adjustForQuietHours(
+              target,
+              settings.quietHoursStart,
+              settings.quietHoursEnd,
+            );
           }
 
           final payload = jsonEncode({
@@ -811,7 +1011,7 @@ class NotificationService {
                 ],
               ),
             ),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            androidScheduleMode: await _scheduleMode(),
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
             matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
@@ -823,22 +1023,26 @@ class NotificationService {
 
         // 3. Monthly summary
         if (prefs[NotificationCategories.monthlySummary] == true) {
-          final monthPayments = bizPayments.where((p) => p.createdAt.isAfter(monthStart)).toList();
-          final monthCollectedPaise = monthPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-          final monthInvoices = bizInvoices.where((i) => i.createdAt.isAfter(monthStart)).toList();
-
+          final monthCollectedPaise = monthPayments.fold<int>(
+            0,
+            (sum, p) => sum + p.amountPaise,
+          );
           final title = '${bizPrefix}${trLang('Monthly Performance', lang)}';
           final body = lang == 'te'
               ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
               : lang == 'hi'
-                  ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
-                  : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} invoices';
+              ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
+              : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} invoices';
 
           final nextMonth = now.month == 12 ? 1 : now.month + 1;
           final nextYear = now.month == 12 ? now.year + 1 : now.year;
           var target = DateTime(nextYear, nextMonth, 1, 9, 0);
           if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(target, settings.quietHoursStart, settings.quietHoursEnd);
+            target = _adjustForQuietHours(
+              target,
+              settings.quietHoursStart,
+              settings.quietHoursEnd,
+            );
           }
 
           final payload = jsonEncode({
@@ -865,7 +1069,7 @@ class NotificationService {
                 ],
               ),
             ),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            androidScheduleMode: await _scheduleMode(),
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
             matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
@@ -875,7 +1079,9 @@ class NotificationService {
           await _plugin.cancel(monthlyNotifId);
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('summary reconciliation', error);
+    }
   }
 
   Future<void> notifyPaymentRecorded({
@@ -886,13 +1092,14 @@ class NotificationService {
     String? langCode,
   }) async {
     try {
+      if (!(await _repository.getSettings()).masterEnabled) return;
       await reconcileInvoice(invoice.id);
       await reconcileSummaries();
 
       final prefs = await _repository.getPreferences();
-      final category = isFullyPaid
-          ? NotificationCategories.paymentReceived
-          : NotificationCategories.partialPayment;
+      // One user-facing payment setting controls both partial and completed
+      // payments. The message still distinguishes the remaining balance.
+      const category = NotificationCategories.paymentReceived;
 
       if (prefs[category] != true) return;
 
@@ -902,9 +1109,9 @@ class NotificationService {
       final remainingPaise = totalPaise - invoice.paidPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
           ? '${business.name.trim()} · '
           : '';
@@ -958,11 +1165,18 @@ class NotificationService {
         entityId: payment.id,
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('payment notification', error);
+    }
   }
 
-  Future<void> notifyInvoiceCreated(Invoice invoice, Customer? customer, [String? langCode]) async {
+  Future<void> notifyInvoiceCreated(
+    Invoice invoice,
+    Customer? customer, [
+    String? langCode,
+  ]) async {
     try {
+      if (!(await _repository.getSettings()).masterEnabled) return;
       await reconcileInvoice(invoice.id);
       await reconcileSummaries();
 
@@ -974,15 +1188,16 @@ class NotificationService {
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
           ? '${business.name.trim()} · '
           : '';
 
       final title = '$bizPrefix${trLang('Invoice created', lang)}';
-      final body = '${trLang('Invoice', lang)} #${invoice.invoiceNumber} · $customerName · ${_rupees(totalPaise)}';
+      final body =
+          '${trLang('Invoice', lang)} #${invoice.invoiceNumber} · $customerName · ${_rupees(totalPaise)}';
 
       final payload = jsonEncode({
         'action': NotificationActionKeys.viewInvoice,
@@ -1028,11 +1243,18 @@ class NotificationService {
         entityId: invoice.id,
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('invoice notification', error);
+    }
   }
 
-  Future<void> notifyInvoiceSentShared(Invoice invoice, Customer? customer, [String? langCode]) async {
+  Future<void> notifyInvoiceSentShared(
+    Invoice invoice,
+    Customer? customer, [
+    String? langCode,
+  ]) async {
     try {
+      if (!(await _repository.getSettings()).masterEnabled) return;
       final prefs = await _repository.getPreferences();
       if (prefs[NotificationCategories.invoiceSentShared] == false) return;
 
@@ -1041,9 +1263,9 @@ class NotificationService {
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
           ? '${business.name.trim()} · '
           : '';
@@ -1092,11 +1314,18 @@ class NotificationService {
         entityId: invoice.id,
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('share notification', error);
+    }
   }
 
-  Future<void> notifyPaperReceiptShared(Invoice invoice, Customer? customer, [String? langCode]) async {
+  Future<void> notifyPaperReceiptShared(
+    Invoice invoice,
+    Customer? customer, [
+    String? langCode,
+  ]) async {
     try {
+      if (!(await _repository.getSettings()).masterEnabled) return;
       final prefs = await _repository.getPreferences();
       if (prefs[NotificationCategories.invoiceSentShared] == false) return;
 
@@ -1105,9 +1334,9 @@ class NotificationService {
           invoice.subtotalPaise + invoice.interestPaise - invoice.discountPaise;
       final customerName = customer?.name ?? trLang('Customer', lang);
 
-      final business = await (_db.select(_db.businesses)
-            ..where((b) => b.id.equals(invoice.businessId)))
-          .getSingleOrNull();
+      final business = await (_db.select(
+        _db.businesses,
+      )..where((b) => b.id.equals(invoice.businessId))).getSingleOrNull();
       final bizPrefix = (business != null && business.name.trim().isNotEmpty)
           ? '${business.name.trim()} · '
           : '';
@@ -1156,56 +1385,9 @@ class NotificationService {
         entityId: invoice.id,
         payloadJson: payload,
       );
-    } catch (_) {}
-  }
-
-  Future<void> notifySyncFailed(String userFriendlyMessage) async {
-    try {
-      final prefs = await _repository.getPreferences();
-      if (prefs[NotificationCategories.syncFailed] != true) return;
-
-      final lang = await _getLanguageCode();
-      final title = trLang('Sync failed', lang);
-      final body = userFriendlyMessage;
-
-      final payload = jsonEncode({'action': NotificationActionKeys.viewSync});
-      final notifId = _generateDeterministicId('sync_failed_${DateTime.now().hour}');
-
-      await _plugin.show(
-        notifId,
-        title,
-        body,
-        NotificationDetails(
-          android: _buildAndroidDetails(
-            channelId: NotificationChannels.sync,
-            channelName: 'Sync & Backup',
-            importance: Importance.high,
-            actions: [
-              AndroidNotificationAction(
-                NotificationActionKeys.retrySync,
-                trLang('Retry Sync', lang),
-                showsUserInterface: true,
-              ),
-              AndroidNotificationAction(
-                NotificationActionKeys.viewSync,
-                trLang('View Status', lang),
-                showsUserInterface: true,
-              ),
-            ],
-          ),
-        ),
-        payload: payload,
-      );
-
-      await _repository.addNotification(
-        id: 'sync_fail_${DateTime.now().millisecondsSinceEpoch}',
-        category: NotificationCategories.syncFailed,
-        title: title,
-        body: body,
-        entityType: 'sync',
-        payloadJson: payload,
-      );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('paper receipt notification', error);
+    }
   }
 
   Future<void> showTestNotification({
@@ -1216,9 +1398,12 @@ class NotificationService {
     try {
       final lang = await _getLanguageCode();
       final notifTitle = title ?? trLang('OneBill Notifications', lang);
-      final notifBody = body ?? trLang('Notification system is working properly.', lang);
+      final notifBody =
+          body ?? trLang('Notification system is working properly.', lang);
       final notifAction = actionLabel ?? trLang('Open OneBill', lang);
-      final notifId = _generateDeterministicId('test_${DateTime.now().millisecondsSinceEpoch}');
+      final notifId = _generateDeterministicId(
+        'test_${DateTime.now().millisecondsSinceEpoch}',
+      );
 
       await _plugin.show(
         notifId,
@@ -1246,56 +1431,85 @@ class NotificationService {
         title: notifTitle,
         body: notifBody,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('test notification', error);
+    }
   }
 
-  Future<void> showTestDailySummary({String? langCode, String? businessId}) async {
+  Future<void> showTestDailySummary({
+    String? langCode,
+    String? businessId,
+  }) async {
     try {
       String? bizId = businessId;
       if (bizId == null) {
-        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        final session = await (_db.select(
+          _db.localSessions,
+        )..limit(1)).getSingleOrNull();
         bizId = session?.activeBusinessId;
       }
       final active = bizId != null
-          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
-          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
+          ? await (_db.select(
+              _db.businesses,
+            )..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)
+                  ..where((b) => b.deletedAt.isNull())
+                  ..limit(1))
+                .getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
       final effectiveBizId = active?.id;
 
       final now = DateTime.now();
 
       final bizInvoices = effectiveBizId != null
-          ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
-              .get()
+          ? await (_db.select(_db.invoices)..where(
+                  (i) =>
+                      i.businessId.equals(effectiveBizId) &
+                      i.deletedAt.isNull(),
+                ))
+                .get()
           : <Invoice>[];
 
       final bizPayments = effectiveBizId != null
-          ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(effectiveBizId)))
-              .get()
+          ? await (_db.select(
+              _db.payments,
+            )..where((p) => p.businessId.equals(effectiveBizId))).get()
           : <Payment>[];
 
       final todayPayments = bizPayments.where((p) {
         final dt = p.createdAt.toLocal();
-        return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+        return dt.year == now.year &&
+            dt.month == now.month &&
+            dt.day == now.day;
       }).toList();
-      final todayCollectedPaise = todayPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
+      final todayCollectedPaise = todayPayments.fold<int>(
+        0,
+        (sum, p) => sum + p.amountPaise,
+      );
       final todayInvoices = bizInvoices.where((i) {
         final dt = i.createdAt.toLocal();
-        return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+        return dt.year == now.year &&
+            dt.month == now.month &&
+            dt.day == now.day;
       }).toList();
 
-      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty)
+          ? '${active.name.trim()} · '
+          : '';
       final title = '$bizPrefix${trLang('Daily Summary', lang)}';
       final body = lang == 'te'
           ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
           : lang == 'hi'
-              ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
-              : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
+          ? 'आज एकत्रित राशि ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} चालान बनाए गए'
+          : 'Collected ${_rupees(todayCollectedPaise)} today · ${todayInvoices.length} ${todayInvoices.length == 1 ? 'invoice' : 'invoices'} created';
 
-      final notifId = _generateDeterministicId('test_daily_${DateTime.now().millisecondsSinceEpoch}');
-      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+      final notifId = _generateDeterministicId(
+        'test_daily_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final payload = jsonEncode({
+        'action': 'view_summary',
+        if (bizId != null) 'businessId': bizId,
+      });
 
       await _plugin.show(
         notifId,
@@ -1325,52 +1539,85 @@ class NotificationService {
         entityType: 'summary',
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('daily summary test', error);
+    }
   }
 
-  Future<void> showTestWeeklySummary({String? langCode, String? businessId}) async {
+  Future<void> showTestWeeklySummary({
+    String? langCode,
+    String? businessId,
+  }) async {
     try {
       String? bizId = businessId;
       if (bizId == null) {
-        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        final session = await (_db.select(
+          _db.localSessions,
+        )..limit(1)).getSingleOrNull();
         bizId = session?.activeBusinessId;
       }
       final active = bizId != null
-          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
-          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
+          ? await (_db.select(
+              _db.businesses,
+            )..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)
+                  ..where((b) => b.deletedAt.isNull())
+                  ..limit(1))
+                .getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
       final effectiveBizId = active?.id;
 
       final now = DateTime.now();
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
-      final weekStartDate = DateTime(weekStart.year, weekStart.month, weekStart.day);
+      final weekStartDate = DateTime(
+        weekStart.year,
+        weekStart.month,
+        weekStart.day,
+      );
 
       final bizInvoices = effectiveBizId != null
-          ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
-              .get()
+          ? await (_db.select(_db.invoices)..where(
+                  (i) =>
+                      i.businessId.equals(effectiveBizId) &
+                      i.deletedAt.isNull(),
+                ))
+                .get()
           : <Invoice>[];
 
       final bizPayments = effectiveBizId != null
-          ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(effectiveBizId)))
-              .get()
+          ? await (_db.select(
+              _db.payments,
+            )..where((p) => p.businessId.equals(effectiveBizId))).get()
           : <Payment>[];
 
-      final weekPayments = bizPayments.where((p) => p.createdAt.isAfter(weekStartDate)).toList();
-      final weekCollectedPaise = weekPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-      final weekInvoices = bizInvoices.where((i) => i.createdAt.isAfter(weekStartDate)).toList();
+      final weekPayments = bizPayments
+          .where((p) => p.createdAt.isAfter(weekStartDate))
+          .toList();
+      final weekCollectedPaise = weekPayments.fold<int>(
+        0,
+        (sum, p) => sum + p.amountPaise,
+      );
+      final weekInvoices = bizInvoices
+          .where((i) => i.createdAt.isAfter(weekStartDate))
+          .toList();
 
-      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty)
+          ? '${active.name.trim()} · '
+          : '';
       final title = '$bizPrefix${trLang('Weekly Summary', lang)}';
       final body = lang == 'te'
           ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'
-              ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
-              : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ${weekInvoices.length == 1 ? 'invoice' : 'invoices'}';
+          ? 'इस सप्ताह का संग्रह: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} चालान'
+          : 'Week collections: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ${weekInvoices.length == 1 ? 'invoice' : 'invoices'}';
 
-      final notifId = _generateDeterministicId('test_weekly_${DateTime.now().millisecondsSinceEpoch}');
-      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+      final notifId = _generateDeterministicId(
+        'test_weekly_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final payload = jsonEncode({
+        'action': 'view_summary',
+        if (bizId != null) 'businessId': bizId,
+      });
 
       await _plugin.show(
         notifId,
@@ -1400,19 +1647,31 @@ class NotificationService {
         entityType: 'summary',
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('weekly summary test', error);
+    }
   }
 
-  Future<void> showTestMonthlySummary({String? langCode, String? businessId}) async {
+  Future<void> showTestMonthlySummary({
+    String? langCode,
+    String? businessId,
+  }) async {
     try {
       String? bizId = businessId;
       if (bizId == null) {
-        final session = await (_db.select(_db.localSessions)..limit(1)).getSingleOrNull();
+        final session = await (_db.select(
+          _db.localSessions,
+        )..limit(1)).getSingleOrNull();
         bizId = session?.activeBusinessId;
       }
       final active = bizId != null
-          ? await (_db.select(_db.businesses)..where((b) => b.id.equals(bizId!))).getSingleOrNull()
-          : await (_db.select(_db.businesses)..where((b) => b.deletedAt.isNull())..limit(1)).getSingleOrNull();
+          ? await (_db.select(
+              _db.businesses,
+            )..where((b) => b.id.equals(bizId!))).getSingleOrNull()
+          : await (_db.select(_db.businesses)
+                  ..where((b) => b.deletedAt.isNull())
+                  ..limit(1))
+                .getSingleOrNull();
       final lang = langCode ?? await _getLanguageCode(active?.id);
       final effectiveBizId = active?.id;
 
@@ -1420,31 +1679,48 @@ class NotificationService {
       final monthStart = DateTime(now.year, now.month, 1);
 
       final bizInvoices = effectiveBizId != null
-          ? await (_db.select(_db.invoices)
-                ..where((i) => i.businessId.equals(effectiveBizId) & i.deletedAt.isNull()))
-              .get()
+          ? await (_db.select(_db.invoices)..where(
+                  (i) =>
+                      i.businessId.equals(effectiveBizId) &
+                      i.deletedAt.isNull(),
+                ))
+                .get()
           : <Invoice>[];
 
       final bizPayments = effectiveBizId != null
-          ? await (_db.select(_db.payments)
-                ..where((p) => p.businessId.equals(effectiveBizId)))
-              .get()
+          ? await (_db.select(
+              _db.payments,
+            )..where((p) => p.businessId.equals(effectiveBizId))).get()
           : <Payment>[];
 
-      final monthPayments = bizPayments.where((p) => p.createdAt.isAfter(monthStart)).toList();
-      final monthCollectedPaise = monthPayments.fold<int>(0, (sum, p) => sum + p.amountPaise);
-      final monthInvoices = bizInvoices.where((i) => i.createdAt.isAfter(monthStart)).toList();
+      final monthPayments = bizPayments
+          .where((p) => p.createdAt.isAfter(monthStart))
+          .toList();
+      final monthCollectedPaise = monthPayments.fold<int>(
+        0,
+        (sum, p) => sum + p.amountPaise,
+      );
+      final monthInvoices = bizInvoices
+          .where((i) => i.createdAt.isAfter(monthStart))
+          .toList();
 
-      final bizPrefix = (active != null && active.name.trim().isNotEmpty) ? '${active.name.trim()} · ' : '';
+      final bizPrefix = (active != null && active.name.trim().isNotEmpty)
+          ? '${active.name.trim()} · '
+          : '';
       final title = '$bizPrefix${trLang('Monthly Performance', lang)}';
       final body = lang == 'te'
           ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
           : lang == 'hi'
-              ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
-              : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ${monthInvoices.length == 1 ? 'invoice' : 'invoices'}';
+          ? 'इस महीने का संग्रह: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} चालान'
+          : 'Month collections: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ${monthInvoices.length == 1 ? 'invoice' : 'invoices'}';
 
-      final notifId = _generateDeterministicId('test_monthly_${DateTime.now().millisecondsSinceEpoch}');
-      final payload = jsonEncode({'action': 'view_summary', if (bizId != null) 'businessId': bizId});
+      final notifId = _generateDeterministicId(
+        'test_monthly_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final payload = jsonEncode({
+        'action': 'view_summary',
+        if (bizId != null) 'businessId': bizId,
+      });
 
       await _plugin.show(
         notifId,
@@ -1474,7 +1750,9 @@ class NotificationService {
         entityType: 'summary',
         payloadJson: payload,
       );
-    } catch (_) {}
+    } catch (error) {
+      _logNotificationError('monthly summary test', error);
+    }
   }
 
   String _rupees(int paise) {

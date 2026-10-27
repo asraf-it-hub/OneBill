@@ -847,7 +847,7 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
                           controller: _upiIdController,
                           onChanged: (_) => setState(() {}),
                           decoration: const InputDecoration(
-                            hintText: 'e.g. 9010094034@ybl or business@upi',
+                            hintText: 'e.g. demo.business@upi',
                             prefixIcon: Icon(
                               Icons.account_balance_wallet_outlined,
                             ),
