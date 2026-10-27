@@ -1246,9 +1246,11 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withOpacity(0.4),
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.colorScheme.error.withOpacity(0.3)),
+        border: Border.all(
+          color: theme.colorScheme.error.withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1272,7 +1274,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
           Text(
             _tr(context, err.message),
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onErrorContainer.withOpacity(0.9),
+              color: theme.colorScheme.onErrorContainer.withValues(alpha: 0.9),
               fontSize: 13,
               height: 1.35,
             ),
@@ -1848,13 +1850,15 @@ class _LanguageChoiceCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: BoxDecoration(
             color: isSelected
-                ? primary.withOpacity(0.12)
-                : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                ? primary.withValues(alpha: 0.12)
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.4,
+                  ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected
                   ? primary
-                  : theme.colorScheme.outlineVariant.withOpacity(0.5),
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -1886,7 +1890,7 @@ class _LanguageChoiceCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   color: isSelected
-                      ? primary.withOpacity(0.85)
+                      ? primary.withValues(alpha: 0.85)
                       : theme.colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -2015,7 +2019,9 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withOpacity(0.25),
+                    color: theme.colorScheme.primaryContainer.withValues(
+                      alpha: 0.25,
+                    ),
                     shape: BoxShape.circle,
                   ),
                   child: SizedBox(
@@ -2063,8 +2069,8 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer.withOpacity(
-                            0.25,
+                          color: theme.colorScheme.primaryContainer.withValues(
+                            alpha: 0.25,
                           ),
                           shape: BoxShape.circle,
                         ),
@@ -2101,8 +2107,8 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer.withOpacity(
-                            0.7,
+                          color: theme.colorScheme.errorContainer.withValues(
+                            alpha: 0.7,
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -2576,8 +2582,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     if (_isSigningOut ||
         !_locked ||
         _checkingPin ||
-        ref.read(isSigningOutProvider))
+        ref.read(isSigningOutProvider)) {
       return;
+    }
     final ok = await ref.read(securityServiceProvider).authenticateBiometrics();
     if (ok && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
@@ -2603,6 +2610,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         final remaining = await ref
             .read(securityServiceProvider)
             .pinLockRemaining();
+        if (!mounted) return;
         final err = remaining != null
             ? _tr(context, 'Too many incorrect PIN attempts. Try again later.')
             : _tr(context, 'Incorrect PIN. Please try again.');
@@ -2659,7 +2667,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ref.invalidate(businessesProvider(widget.session.accountId!));
       }
 
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -2668,13 +2676,13 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
           ),
         );
         final nextSession = await ref.read(sessionProvider.future);
-        if (mounted &&
+        if (context.mounted &&
             (nextSession == null || nextSession.activeBusinessId == null)) {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }
     } catch (error) {
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -2780,7 +2788,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                           .read(securityServiceProvider)
                           .markAuthenticated();
                       setState(() => _locked = false);
-                    } else if (mounted) {
+                    } else if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -3196,6 +3204,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
 
     final security = ref.read(securityServiceProvider);
     final isLockEnabled = await security.isPinEnabled();
+    if (!context.mounted) return;
     if (isLockEnabled) {
       final authenticated = await _authenticateForSecurity(context, ref);
       if (!authenticated) {
@@ -3381,10 +3390,9 @@ Future<bool> _authenticateForSecurity(
   WidgetRef ref,
 ) async {
   final service = ref.read(securityServiceProvider);
+  final signOutReason = _tr(context, 'Confirm identity to sign out of OneBill');
   if (await service.isBiometricEnabled() &&
-      await service.authenticateBiometrics(
-        reason: _tr(context, 'Confirm identity to sign out of OneBill'),
-      )) {
+      await service.authenticateBiometrics(reason: signOutReason)) {
     await service.markAuthenticated();
     return true;
   }
@@ -4135,7 +4143,7 @@ class _IncomeTabState extends ConsumerState<_IncomeTab> {
       side: BorderSide(
         color: isSelected
             ? primary
-            : theme.colorScheme.outline.withOpacity(0.3),
+            : theme.colorScheme.outline.withValues(alpha: 0.3),
       ),
       onSelected: (_) => setState(() => _filterSource = key),
     );
@@ -4878,8 +4886,9 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
                         firstDate: DateTime(2000),
                         lastDate: DateTime.now(),
                       );
-                      if (picked != null && mounted)
+                      if (picked != null && mounted) {
                         setState(() => date = picked);
+                      }
                     },
             ),
             const SizedBox(height: 16),
@@ -5237,8 +5246,9 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
                 errorText: _categoryError,
               ),
               onChanged: (_) {
-                if (_categoryError != null)
+                if (_categoryError != null) {
                   setState(() => _categoryError = null);
+                }
               },
             ),
             const SizedBox(height: 12),
@@ -5376,7 +5386,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
         height: widget.height,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: baseColor.withOpacity(_animation.value),
+          color: baseColor.withValues(alpha: _animation.value),
           borderRadius: BorderRadius.circular(16),
         ),
       ),
@@ -5395,7 +5405,7 @@ class _SkeletonListLoader extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 12),
     itemCount: itemCount,
     physics: const NeverScrollableScrollPhysics(),
-    itemBuilder: (_, __) => _SkeletonCard(height: cardHeight),
+    itemBuilder: (_, _) => _SkeletonCard(height: cardHeight),
   );
 }
 
@@ -5422,7 +5432,7 @@ class _EmptyState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: colorScheme.primaryContainer.withOpacity(0.35),
+                color: colorScheme.primaryContainer.withValues(alpha: 0.35),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, size: 48, color: colorScheme.primary),
@@ -6050,9 +6060,9 @@ class _CustomerListItem extends ConsumerWidget {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withOpacity(0.25)),
+                border: Border.all(color: color.withValues(alpha: 0.25)),
               ),
               child: Text(
                 isClear
@@ -6275,12 +6285,14 @@ class _BusinessSettingsSheetState
         Navigator.of(context).pop();
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.green.shade800,
-          content: Text(_tr(context, 'Account deleted successfully')),
-        ),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green.shade800,
+            content: Text(_tr(context, 'Account deleted successfully')),
+          ),
+        );
+      }
     } catch (error) {
       if (backendDeleted) {
         // The cloud account is already gone; do not leave a stale authenticated
@@ -6296,6 +6308,7 @@ class _BusinessSettingsSheetState
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
       }
+      if (!context.mounted) return;
 
       final errorDetails = AuthErrorDetails.fromError(error);
       final errorMsg = errorDetails.type == AuthErrorType.connectionProblem
@@ -6394,7 +6407,9 @@ class _BusinessSettingsSheetState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
                 ),
               ),
               child: ListTile(
@@ -6404,10 +6419,7 @@ class _BusinessSettingsSheetState
                 ),
                 title: Text(_tr(context, 'Notifications')),
                 subtitle: Text(
-                  _tr(
-                    context,
-                    'Manage payment alerts, invoice reminders & quiet hours',
-                  ),
+                  _tr(context, 'Manage payment alerts and invoice reminders'),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () {
@@ -6427,7 +6439,9 @@ class _BusinessSettingsSheetState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
                 ),
               ),
               child: ListTile(
@@ -6450,7 +6464,9 @@ class _BusinessSettingsSheetState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
                 ),
               ),
               child: Padding(
@@ -6459,7 +6475,7 @@ class _BusinessSettingsSheetState
                   vertical: 8,
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: ['en', 'hi', 'te'].contains(_language)
+                  initialValue: ['en', 'hi', 'te'].contains(_language)
                       ? _language
                       : 'en',
                   decoration: InputDecoration(
@@ -6548,7 +6564,9 @@ class _BusinessSettingsSheetState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
                 ),
               ),
               child: ListTile(
@@ -7066,6 +7084,7 @@ class _CustomerDetailsSheet extends ConsumerWidget {
     final businessName = business?.name.trim().isNotEmpty == true
         ? business!.name.trim()
         : 'OneBill';
+    if (!context.mounted) return;
     final customerName = customer.name.trim();
 
     final buffer = StringBuffer();
@@ -7175,12 +7194,12 @@ class _CustomerDetailsSheet extends ConsumerWidget {
           mode: LaunchMode.externalApplication,
         );
         if (!launched) {
-          await Share.share(messageText);
+          await SharePlus.instance.share(ShareParams(text: messageText));
         }
       }
     } catch (_) {
       try {
-        await Share.share(messageText);
+        await SharePlus.instance.share(ShareParams(text: messageText));
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -7476,8 +7495,9 @@ class _CustomerInvoiceListState extends State<_CustomerInvoiceList> {
       ),
     ),
     data: (items) {
-      if (items.isEmpty)
+      if (items.isEmpty) {
         return Center(child: Text(_tr(context, 'No invoices yet.')));
+      }
       final query = _search.text.trim().toLowerCase();
       final filtered = items
           .where(
@@ -7844,7 +7864,7 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withValues(alpha: 0.04),
                       child: InteractiveViewer(
                         minScale: 0.5,
                         maxScale: 4.0,
@@ -7981,15 +8001,6 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
       (c) => c?.id == invoice.customerId,
       orElse: () => null,
     );
-    final session = ref.watch(sessionProvider).valueOrNull;
-    final businesses = session?.accountId != null
-        ? (ref.watch(businessesProvider(session!.accountId!)).valueOrNull ?? [])
-        : <BusinessesData>[];
-    final business = businesses.cast<BusinessesData?>().firstWhere(
-      (b) => b?.id == businessId,
-      orElse: () => null,
-    );
-
     final total = repository.total(invoice);
     final balance = repository.balance(invoice);
     final status = repository.status(invoice);
@@ -8086,12 +8097,14 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                   side: BorderSide(
-                    color: Theme.of(context).dividerColor.withOpacity(0.4),
+                    color: Theme.of(
+                      context,
+                    ).dividerColor.withValues(alpha: 0.4),
                   ),
                 ),
                 color: Theme.of(
                   context,
-                ).colorScheme.primary.withOpacity(highlight),
+                ).colorScheme.primary.withValues(alpha: highlight),
                 child: child,
               ),
               child: Padding(
@@ -8145,9 +8158,8 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 14),
                   decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: Theme.of(context).colorScheme.outlineVariant,
@@ -8642,10 +8654,10 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                                 businessId: businessId,
                                                 paymentId: payment.id,
                                               );
-                                          ref
+                                          await ref
                                               .read(notificationServiceProvider)
                                               .reconcileInvoice(invoice.id);
-                                          ref
+                                          await ref
                                               .read(notificationServiceProvider)
                                               .reconcileSummaries();
                                           if (context.mounted) {
@@ -8814,8 +8826,9 @@ class _EditInvoiceDetailsSheetState
   }
 
   Future<void> _initReceiptFile() async {
-    if (_paperReceiptImage == null || _paperReceiptImage!.trim().isEmpty)
+    if (_paperReceiptImage == null || _paperReceiptImage!.trim().isEmpty) {
       return;
+    }
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final receiptsDir = Directory('${appDir.path}/receipts');
@@ -8851,8 +8864,9 @@ class _EditInvoiceDetailsSheetState
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
-          if (!receiptsDir.existsSync())
+          if (!receiptsDir.existsSync()) {
             receiptsDir.createSync(recursive: true);
+          }
           final localFile = File(
             '${receiptsDir.path}/receipt_${widget.invoice.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
@@ -9011,6 +9025,7 @@ class _EditInvoiceDetailsSheetState
             items: items.map((item) => item.toInput()).toList(),
             paperReceiptImage: Value(_paperReceiptImage),
           );
+      await ref.read(notificationServiceProvider).reconcileAllReminders();
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -9870,9 +9885,9 @@ class _InvoiceStatusBadge extends StatelessWidget {
         key: ValueKey(status),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3), width: 1),
+          border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
         ),
         child: Text(
           _tr(context, label),
@@ -10146,8 +10161,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
-          if (!receiptsDir.existsSync())
+          if (!receiptsDir.existsSync()) {
             receiptsDir.createSync(recursive: true);
+          }
           final localFile = File(
             '${receiptsDir.path}/receipt_new_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
@@ -11743,9 +11759,6 @@ String? _amountValidator(String? value) {
   return _parseRupees(value) > 0 ? null : 'Amount must be greater than zero.';
 }
 
-String? _optionalAmountValidator(String? value) =>
-    value == null || value.trim().isEmpty ? null : _amountValidator(value);
-
 String? _nonNegativeAmountValidator(String? value) {
   if (value == null || !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value.trim())) {
     return 'Enter a valid amount, such as 0 or 125.50.';
@@ -11947,8 +11960,7 @@ class _OverdueInvoicesSheet extends ConsumerWidget {
                         child: ListView.separated(
                           controller: scrollController,
                           itemCount: displayedInvoices.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 8),
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final invoice = displayedInvoices[index];
                             return _OverdueInvoiceCard(

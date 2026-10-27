@@ -509,8 +509,9 @@ class SyncWorker {
           for (final row in items) {
             final itemId = getVal(row, 'id', 'id');
             final invId = getVal(row, 'invoice_id', 'invoiceId');
-            if (itemId == null || invId == null || invId.trim().isEmpty)
+            if (itemId == null || invId == null || invId.trim().isEmpty) {
               continue;
+            }
             await _database
                 .into(_database.invoiceItems)
                 .insertOnConflictUpdate(

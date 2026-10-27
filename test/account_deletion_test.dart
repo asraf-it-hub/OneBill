@@ -106,7 +106,7 @@ void main() {
         businessName: 'Business 1A',
         languageCode: 'en',
       );
-      final b2 = await bizRepo.createBusiness(
+        await bizRepo.createBusiness(
         accountId: 'user-1',
         ownerName: 'Owner One',
         businessName: 'Business 1B',

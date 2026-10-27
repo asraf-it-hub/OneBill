@@ -181,11 +181,6 @@ class NotificationPreferences extends Table {
 class NotificationSettings extends Table {
   TextColumn get id => text()();
   BoolColumn get masterEnabled => boolean().withDefault(const Constant(true))();
-  BoolColumn get quietHoursEnabled =>
-      boolean().withDefault(const Constant(true))();
-  TextColumn get quietHoursStart =>
-      text().withDefault(const Constant('00:00'))();
-  TextColumn get quietHoursEnd => text().withDefault(const Constant('07:00'))();
   IntColumn get retentionDays => integer().withDefault(const Constant(365))();
   BoolColumn get permissionRequested =>
       boolean().withDefault(const Constant(false))();
@@ -242,7 +237,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'onebill'));
   AppDatabase.forTesting(super.executor);
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
@@ -302,19 +297,15 @@ class AppDatabase extends _$AppDatabase {
           WHERE account_id IS NULL AND business_id IS NOT NULL
         ''');
       }
-      if (from < 14) {
-        // 22:00 was the old built-in default. Move only rows that still have
-        // that exact default; user-selected times are preserved.
+      if (from < 16) {
         await customStatement(
-          "UPDATE notification_settings SET quiet_hours_start = '12:00' WHERE quiet_hours_start = '22:00'",
+          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_enabled',
         );
-      }
-      if (from < 15) {
-        // The previous built-in defaults were 22:00 and then 12:00 noon.
-        // Move only those known defaults to the requested midnight start;
-        // preserve any other owner-selected time.
         await customStatement(
-          "UPDATE notification_settings SET quiet_hours_start = '00:00' WHERE quiet_hours_start IN ('22:00', '12:00')",
+          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_start',
+        );
+        await customStatement(
+          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_end',
         );
       }
     },

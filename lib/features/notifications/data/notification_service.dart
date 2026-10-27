@@ -410,16 +410,7 @@ class NotificationService {
           continue;
         }
 
-        var targetDate = step.scheduleDate;
-        if (settings.quietHoursEnabled) {
-          targetDate = _adjustForQuietHours(
-            targetDate,
-            settings.quietHoursStart,
-            settings.quietHoursEnd,
-          );
-        }
-
-        final tzTarget = tz.TZDateTime.from(targetDate, tz.local);
+        final tzTarget = tz.TZDateTime.from(step.scheduleDate, tz.local);
         final payload = jsonEncode({
           'action': NotificationActionKeys.viewInvoice,
           'invoiceId': invoiceId,
@@ -463,47 +454,6 @@ class NotificationService {
     }
     final snoozeId = _generateDeterministicId('${invoiceId}_snooze');
     await _plugin.cancel(snoozeId);
-  }
-
-  DateTime _adjustForQuietHours(
-    DateTime target,
-    String startStr,
-    String endStr,
-  ) {
-    try {
-      final startParts = startStr.split(':').map(int.parse).toList();
-      final endParts = endStr.split(':').map(int.parse).toList();
-      final start = DateTime(
-        target.year,
-        target.month,
-        target.day,
-        startParts[0],
-        startParts[1],
-      );
-      var end = DateTime(
-        target.year,
-        target.month,
-        target.day,
-        endParts[0],
-        endParts[1],
-      );
-
-      if (end.isBefore(start)) {
-        if (target.isAfter(start) || target.isBefore(end)) {
-          if (target.isAfter(start)) {
-            end = end.add(const Duration(days: 1));
-          }
-          return end.add(const Duration(minutes: 5));
-        }
-      } else {
-        if (target.isAfter(start) && target.isBefore(end)) {
-          return end.add(const Duration(minutes: 5));
-        }
-      }
-    } catch (error) {
-      _logNotificationError('notification operation', error);
-    }
-    return target;
   }
 
   Future<void> snoozeInvoiceReminder(
@@ -735,7 +685,7 @@ class NotificationService {
                   '${trLang('Total Due', lang)}: ${_rupees(totalOverduePaise)}';
               final payload = jsonEncode({
                 'action': 'view_overdue',
-                if (primaryBizId != null) 'businessId': primaryBizId,
+                'businessId': ?primaryBizId,
               });
 
               await _plugin.show(
@@ -902,7 +852,7 @@ class NotificationService {
             0,
             (sum, p) => sum + p.amountPaise,
           );
-          final title = '${bizPrefix}${trLang('Daily Summary', lang)}';
+          final title = '$bizPrefix${trLang('Daily Summary', lang)}';
           final body = lang == 'te'
               ? 'ఈరోజు వసూలైన మొత్తం ${_rupees(todayCollectedPaise)} · ${todayInvoices.length} ఇన్‌వాయిస్‌లు సృష్టించబడ్డాయి'
               : lang == 'hi'
@@ -912,13 +862,6 @@ class NotificationService {
           var target = DateTime(now.year, now.month, now.day, 20, 0); // 8:00 PM
           if (target.isBefore(now)) {
             target = target.add(const Duration(days: 1));
-          }
-          if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(
-              target,
-              settings.quietHoursStart,
-              settings.quietHoursEnd,
-            );
           }
 
           final payload = jsonEncode({
@@ -961,7 +904,7 @@ class NotificationService {
             0,
             (sum, p) => sum + p.amountPaise,
           );
-          final title = '${bizPrefix}${trLang('Weekly Summary', lang)}';
+          final title = '$bizPrefix${trLang('Weekly Summary', lang)}';
           final body = lang == 'te'
               ? 'ఈ వారం వసూళ్లు: ${_rupees(weekCollectedPaise)} · ${weekInvoices.length} ఇన్‌వాయిస్‌లు'
               : lang == 'hi'
@@ -979,13 +922,6 @@ class NotificationService {
             20,
             0,
           );
-          if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(
-              target,
-              settings.quietHoursStart,
-              settings.quietHoursEnd,
-            );
-          }
 
           final payload = jsonEncode({
             'action': NotificationActionKeys.viewSummary,
@@ -1027,7 +963,7 @@ class NotificationService {
             0,
             (sum, p) => sum + p.amountPaise,
           );
-          final title = '${bizPrefix}${trLang('Monthly Performance', lang)}';
+          final title = '$bizPrefix${trLang('Monthly Performance', lang)}';
           final body = lang == 'te'
               ? 'ఈ నెల వసూళ్లు: ${_rupees(monthCollectedPaise)} · ${monthInvoices.length} ఇన్‌వాయిస్‌లు'
               : lang == 'hi'
@@ -1037,13 +973,6 @@ class NotificationService {
           final nextMonth = now.month == 12 ? 1 : now.month + 1;
           final nextYear = now.month == 12 ? now.year + 1 : now.year;
           var target = DateTime(nextYear, nextMonth, 1, 9, 0);
-          if (settings.quietHoursEnabled) {
-            target = _adjustForQuietHours(
-              target,
-              settings.quietHoursStart,
-              settings.quietHoursEnd,
-            );
-          }
 
           final payload = jsonEncode({
             'action': NotificationActionKeys.viewSummary,
@@ -1508,7 +1437,7 @@ class NotificationService {
       );
       final payload = jsonEncode({
         'action': 'view_summary',
-        if (bizId != null) 'businessId': bizId,
+        'businessId': ?bizId,
       });
 
       await _plugin.show(
@@ -1616,7 +1545,7 @@ class NotificationService {
       );
       final payload = jsonEncode({
         'action': 'view_summary',
-        if (bizId != null) 'businessId': bizId,
+        'businessId': ?bizId,
       });
 
       await _plugin.show(
@@ -1719,7 +1648,7 @@ class NotificationService {
       );
       final payload = jsonEncode({
         'action': 'view_summary',
-        if (bizId != null) 'businessId': bizId,
+        'businessId': ?bizId,
       });
 
       await _plugin.show(

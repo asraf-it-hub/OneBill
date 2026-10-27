@@ -147,7 +147,9 @@ class SecurityService {
     final bb = utf8.encode(b);
     var diff = aa.length ^ bb.length;
     final length = min(aa.length, bb.length);
-    for (var i = 0; i < length; i++) diff |= aa[i] ^ bb[i];
+    for (var i = 0; i < length; i++) {
+      diff |= aa[i] ^ bb[i];
+    }
     return diff == 0;
   }
 

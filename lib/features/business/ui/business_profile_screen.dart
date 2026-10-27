@@ -883,8 +883,8 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
               // Notes & Terms block styled with distinct theme contrast
               Card(
                 elevation: 0,
-                color: theme.colorScheme.surfaceContainerHighest.withOpacity(
-                  0.3,
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),

@@ -1,3 +1,5 @@
+// Legacy translation bundles contain intentional fallback duplicates.
+// ignore_for_file: equal_keys_in_map
 import 'package:flutter/material.dart';
 
 String tr(BuildContext context, String key) {
@@ -890,10 +892,9 @@ final Map<String, Map<String, String>> appTranslations = {
     'hi': 'ऐप स्टार्टअप के लिए पिन कोड सुरक्षा सेट करें',
     'te': 'యాప్ ప్రారంభం కోసం పిన్ కోడ్ రక్షణను కాన్ఫిగర్ చేయండి',
   },
-  'Manage payment alerts, invoice reminders & quiet hours': {
-    'hi': 'भुगतान अलर्ट, चालान रिमाइंडर और शांत समय प्रबंधित करें',
-    'te':
-        'చెల్లింపు హెచ్చరికలు, ఇన్‌వాయిస్ రిమైండర్‌లు & నిశ్శబ్ద గంటలను నిర్వహించండి',
+  'Manage payment alerts and invoice reminders': {
+    'hi': 'भुगतान अलर्ट और चालान रिमाइंडर प्रबंधित करें',
+    'te': 'చెల్లింపు హెచ్చరికలు మరియు ఇన్‌వాయిస్ రిమైండర్‌లను నిర్వహించండి',
   },
   'Sync Queue & Status': {
     'hi': 'सिंक कतार और स्थिति',
@@ -1078,15 +1079,6 @@ final Map<String, Map<String, String>> appTranslations = {
   'Enable or disable all app notifications': {
     'hi': 'सभी ऐप सूचनाओं को सक्षम या अक्षम करें',
     'te': 'అన్ని యాప్ నోటిఫికేషన్‌లను ప్రారంభించండి లేదా నిలిపివేయండి',
-  },
-  'Quiet Hours': {'hi': 'शांत घंटे', 'te': 'నిశ్శబ్ద గంటలు'},
-  'Silence scheduled reminders during night hours': {
-    'hi': 'रात के घंटों के दौरान रिमाइंडर मौन करें',
-    'te': 'రాత్రి వేళల్లో రిమైండర్‌లను సైలెంట్ చేయండి',
-  },
-  'Enable Quiet Hours': {
-    'hi': 'शांत घंटे सक्षम करें',
-    'te': 'నిశ్శబ్ద గంటలను ప్రారంభించండి',
   },
   'Invoice & Payment Alerts': {
     'hi': 'चालान और भुगतान अलर्ट',
@@ -1724,10 +1716,6 @@ final Map<String, Map<String, String>> appTranslations = {
   },
 
   // Notification Center & Settings Categories
-  "Don't disturb me between": {
-    'hi': 'मुझे इस समय परेशान न करें',
-    'te': 'ఈ సమయాల మధ్య నన్ను డిస్టర్బ్ చేయవద్దు',
-  },
   'Start': {'hi': 'प्रारंभ', 'te': 'ప్రారంభం'},
   'End': {'hi': 'समाप्त', 'te': 'ముగింపు'},
   'Invoice sent/shared': {

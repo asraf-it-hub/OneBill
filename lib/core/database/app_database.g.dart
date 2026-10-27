@@ -7228,45 +7228,6 @@ class $NotificationSettingsTable extends NotificationSettings
     ),
     defaultValue: const Constant(true),
   );
-  static const VerificationMeta _quietHoursEnabledMeta = const VerificationMeta(
-    'quietHoursEnabled',
-  );
-  @override
-  late final GeneratedColumn<bool> quietHoursEnabled = GeneratedColumn<bool>(
-    'quiet_hours_enabled',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("quiet_hours_enabled" IN (0, 1))',
-    ),
-    defaultValue: const Constant(true),
-  );
-  static const VerificationMeta _quietHoursStartMeta = const VerificationMeta(
-    'quietHoursStart',
-  );
-  @override
-  late final GeneratedColumn<String> quietHoursStart = GeneratedColumn<String>(
-    'quiet_hours_start',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    defaultValue: const Constant('00:00'),
-  );
-  static const VerificationMeta _quietHoursEndMeta = const VerificationMeta(
-    'quietHoursEnd',
-  );
-  @override
-  late final GeneratedColumn<String> quietHoursEnd = GeneratedColumn<String>(
-    'quiet_hours_end',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    defaultValue: const Constant('07:00'),
-  );
   static const VerificationMeta _retentionDaysMeta = const VerificationMeta(
     'retentionDays',
   );
@@ -7319,9 +7280,6 @@ class $NotificationSettingsTable extends NotificationSettings
   List<GeneratedColumn> get $columns => [
     id,
     masterEnabled,
-    quietHoursEnabled,
-    quietHoursStart,
-    quietHoursEnd,
     retentionDays,
     permissionRequested,
     lastOverdueSignature,
@@ -7350,33 +7308,6 @@ class $NotificationSettingsTable extends NotificationSettings
         masterEnabled.isAcceptableOrUnknown(
           data['master_enabled']!,
           _masterEnabledMeta,
-        ),
-      );
-    }
-    if (data.containsKey('quiet_hours_enabled')) {
-      context.handle(
-        _quietHoursEnabledMeta,
-        quietHoursEnabled.isAcceptableOrUnknown(
-          data['quiet_hours_enabled']!,
-          _quietHoursEnabledMeta,
-        ),
-      );
-    }
-    if (data.containsKey('quiet_hours_start')) {
-      context.handle(
-        _quietHoursStartMeta,
-        quietHoursStart.isAcceptableOrUnknown(
-          data['quiet_hours_start']!,
-          _quietHoursStartMeta,
-        ),
-      );
-    }
-    if (data.containsKey('quiet_hours_end')) {
-      context.handle(
-        _quietHoursEndMeta,
-        quietHoursEnd.isAcceptableOrUnknown(
-          data['quiet_hours_end']!,
-          _quietHoursEndMeta,
         ),
       );
     }
@@ -7432,18 +7363,6 @@ class $NotificationSettingsTable extends NotificationSettings
         DriftSqlType.bool,
         data['${effectivePrefix}master_enabled'],
       )!,
-      quietHoursEnabled: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}quiet_hours_enabled'],
-      )!,
-      quietHoursStart: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}quiet_hours_start'],
-      )!,
-      quietHoursEnd: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}quiet_hours_end'],
-      )!,
       retentionDays: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}retention_days'],
@@ -7473,9 +7392,6 @@ class NotificationSetting extends DataClass
     implements Insertable<NotificationSetting> {
   final String id;
   final bool masterEnabled;
-  final bool quietHoursEnabled;
-  final String quietHoursStart;
-  final String quietHoursEnd;
   final int retentionDays;
   final bool permissionRequested;
   final String? lastOverdueSignature;
@@ -7483,9 +7399,6 @@ class NotificationSetting extends DataClass
   const NotificationSetting({
     required this.id,
     required this.masterEnabled,
-    required this.quietHoursEnabled,
-    required this.quietHoursStart,
-    required this.quietHoursEnd,
     required this.retentionDays,
     required this.permissionRequested,
     this.lastOverdueSignature,
@@ -7496,9 +7409,6 @@ class NotificationSetting extends DataClass
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['master_enabled'] = Variable<bool>(masterEnabled);
-    map['quiet_hours_enabled'] = Variable<bool>(quietHoursEnabled);
-    map['quiet_hours_start'] = Variable<String>(quietHoursStart);
-    map['quiet_hours_end'] = Variable<String>(quietHoursEnd);
     map['retention_days'] = Variable<int>(retentionDays);
     map['permission_requested'] = Variable<bool>(permissionRequested);
     if (!nullToAbsent || lastOverdueSignature != null) {
@@ -7512,9 +7422,6 @@ class NotificationSetting extends DataClass
     return NotificationSettingsCompanion(
       id: Value(id),
       masterEnabled: Value(masterEnabled),
-      quietHoursEnabled: Value(quietHoursEnabled),
-      quietHoursStart: Value(quietHoursStart),
-      quietHoursEnd: Value(quietHoursEnd),
       retentionDays: Value(retentionDays),
       permissionRequested: Value(permissionRequested),
       lastOverdueSignature: lastOverdueSignature == null && nullToAbsent
@@ -7532,9 +7439,6 @@ class NotificationSetting extends DataClass
     return NotificationSetting(
       id: serializer.fromJson<String>(json['id']),
       masterEnabled: serializer.fromJson<bool>(json['masterEnabled']),
-      quietHoursEnabled: serializer.fromJson<bool>(json['quietHoursEnabled']),
-      quietHoursStart: serializer.fromJson<String>(json['quietHoursStart']),
-      quietHoursEnd: serializer.fromJson<String>(json['quietHoursEnd']),
       retentionDays: serializer.fromJson<int>(json['retentionDays']),
       permissionRequested: serializer.fromJson<bool>(
         json['permissionRequested'],
@@ -7551,9 +7455,6 @@ class NotificationSetting extends DataClass
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'masterEnabled': serializer.toJson<bool>(masterEnabled),
-      'quietHoursEnabled': serializer.toJson<bool>(quietHoursEnabled),
-      'quietHoursStart': serializer.toJson<String>(quietHoursStart),
-      'quietHoursEnd': serializer.toJson<String>(quietHoursEnd),
       'retentionDays': serializer.toJson<int>(retentionDays),
       'permissionRequested': serializer.toJson<bool>(permissionRequested),
       'lastOverdueSignature': serializer.toJson<String?>(lastOverdueSignature),
@@ -7564,9 +7465,6 @@ class NotificationSetting extends DataClass
   NotificationSetting copyWith({
     String? id,
     bool? masterEnabled,
-    bool? quietHoursEnabled,
-    String? quietHoursStart,
-    String? quietHoursEnd,
     int? retentionDays,
     bool? permissionRequested,
     Value<String?> lastOverdueSignature = const Value.absent(),
@@ -7574,9 +7472,6 @@ class NotificationSetting extends DataClass
   }) => NotificationSetting(
     id: id ?? this.id,
     masterEnabled: masterEnabled ?? this.masterEnabled,
-    quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
-    quietHoursStart: quietHoursStart ?? this.quietHoursStart,
-    quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
     retentionDays: retentionDays ?? this.retentionDays,
     permissionRequested: permissionRequested ?? this.permissionRequested,
     lastOverdueSignature: lastOverdueSignature.present
@@ -7590,15 +7485,6 @@ class NotificationSetting extends DataClass
       masterEnabled: data.masterEnabled.present
           ? data.masterEnabled.value
           : this.masterEnabled,
-      quietHoursEnabled: data.quietHoursEnabled.present
-          ? data.quietHoursEnabled.value
-          : this.quietHoursEnabled,
-      quietHoursStart: data.quietHoursStart.present
-          ? data.quietHoursStart.value
-          : this.quietHoursStart,
-      quietHoursEnd: data.quietHoursEnd.present
-          ? data.quietHoursEnd.value
-          : this.quietHoursEnd,
       retentionDays: data.retentionDays.present
           ? data.retentionDays.value
           : this.retentionDays,
@@ -7617,9 +7503,6 @@ class NotificationSetting extends DataClass
     return (StringBuffer('NotificationSetting(')
           ..write('id: $id, ')
           ..write('masterEnabled: $masterEnabled, ')
-          ..write('quietHoursEnabled: $quietHoursEnabled, ')
-          ..write('quietHoursStart: $quietHoursStart, ')
-          ..write('quietHoursEnd: $quietHoursEnd, ')
           ..write('retentionDays: $retentionDays, ')
           ..write('permissionRequested: $permissionRequested, ')
           ..write('lastOverdueSignature: $lastOverdueSignature, ')
@@ -7632,9 +7515,6 @@ class NotificationSetting extends DataClass
   int get hashCode => Object.hash(
     id,
     masterEnabled,
-    quietHoursEnabled,
-    quietHoursStart,
-    quietHoursEnd,
     retentionDays,
     permissionRequested,
     lastOverdueSignature,
@@ -7646,9 +7526,6 @@ class NotificationSetting extends DataClass
       (other is NotificationSetting &&
           other.id == this.id &&
           other.masterEnabled == this.masterEnabled &&
-          other.quietHoursEnabled == this.quietHoursEnabled &&
-          other.quietHoursStart == this.quietHoursStart &&
-          other.quietHoursEnd == this.quietHoursEnd &&
           other.retentionDays == this.retentionDays &&
           other.permissionRequested == this.permissionRequested &&
           other.lastOverdueSignature == this.lastOverdueSignature &&
@@ -7659,9 +7536,6 @@ class NotificationSettingsCompanion
     extends UpdateCompanion<NotificationSetting> {
   final Value<String> id;
   final Value<bool> masterEnabled;
-  final Value<bool> quietHoursEnabled;
-  final Value<String> quietHoursStart;
-  final Value<String> quietHoursEnd;
   final Value<int> retentionDays;
   final Value<bool> permissionRequested;
   final Value<String?> lastOverdueSignature;
@@ -7670,9 +7544,6 @@ class NotificationSettingsCompanion
   const NotificationSettingsCompanion({
     this.id = const Value.absent(),
     this.masterEnabled = const Value.absent(),
-    this.quietHoursEnabled = const Value.absent(),
-    this.quietHoursStart = const Value.absent(),
-    this.quietHoursEnd = const Value.absent(),
     this.retentionDays = const Value.absent(),
     this.permissionRequested = const Value.absent(),
     this.lastOverdueSignature = const Value.absent(),
@@ -7682,9 +7553,6 @@ class NotificationSettingsCompanion
   NotificationSettingsCompanion.insert({
     required String id,
     this.masterEnabled = const Value.absent(),
-    this.quietHoursEnabled = const Value.absent(),
-    this.quietHoursStart = const Value.absent(),
-    this.quietHoursEnd = const Value.absent(),
     this.retentionDays = const Value.absent(),
     this.permissionRequested = const Value.absent(),
     this.lastOverdueSignature = const Value.absent(),
@@ -7695,9 +7563,6 @@ class NotificationSettingsCompanion
   static Insertable<NotificationSetting> custom({
     Expression<String>? id,
     Expression<bool>? masterEnabled,
-    Expression<bool>? quietHoursEnabled,
-    Expression<String>? quietHoursStart,
-    Expression<String>? quietHoursEnd,
     Expression<int>? retentionDays,
     Expression<bool>? permissionRequested,
     Expression<String>? lastOverdueSignature,
@@ -7707,9 +7572,6 @@ class NotificationSettingsCompanion
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (masterEnabled != null) 'master_enabled': masterEnabled,
-      if (quietHoursEnabled != null) 'quiet_hours_enabled': quietHoursEnabled,
-      if (quietHoursStart != null) 'quiet_hours_start': quietHoursStart,
-      if (quietHoursEnd != null) 'quiet_hours_end': quietHoursEnd,
       if (retentionDays != null) 'retention_days': retentionDays,
       if (permissionRequested != null)
         'permission_requested': permissionRequested,
@@ -7723,9 +7585,6 @@ class NotificationSettingsCompanion
   NotificationSettingsCompanion copyWith({
     Value<String>? id,
     Value<bool>? masterEnabled,
-    Value<bool>? quietHoursEnabled,
-    Value<String>? quietHoursStart,
-    Value<String>? quietHoursEnd,
     Value<int>? retentionDays,
     Value<bool>? permissionRequested,
     Value<String?>? lastOverdueSignature,
@@ -7735,9 +7594,6 @@ class NotificationSettingsCompanion
     return NotificationSettingsCompanion(
       id: id ?? this.id,
       masterEnabled: masterEnabled ?? this.masterEnabled,
-      quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
-      quietHoursStart: quietHoursStart ?? this.quietHoursStart,
-      quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
       retentionDays: retentionDays ?? this.retentionDays,
       permissionRequested: permissionRequested ?? this.permissionRequested,
       lastOverdueSignature: lastOverdueSignature ?? this.lastOverdueSignature,
@@ -7754,15 +7610,6 @@ class NotificationSettingsCompanion
     }
     if (masterEnabled.present) {
       map['master_enabled'] = Variable<bool>(masterEnabled.value);
-    }
-    if (quietHoursEnabled.present) {
-      map['quiet_hours_enabled'] = Variable<bool>(quietHoursEnabled.value);
-    }
-    if (quietHoursStart.present) {
-      map['quiet_hours_start'] = Variable<String>(quietHoursStart.value);
-    }
-    if (quietHoursEnd.present) {
-      map['quiet_hours_end'] = Variable<String>(quietHoursEnd.value);
     }
     if (retentionDays.present) {
       map['retention_days'] = Variable<int>(retentionDays.value);
@@ -7789,9 +7636,6 @@ class NotificationSettingsCompanion
     return (StringBuffer('NotificationSettingsCompanion(')
           ..write('id: $id, ')
           ..write('masterEnabled: $masterEnabled, ')
-          ..write('quietHoursEnabled: $quietHoursEnabled, ')
-          ..write('quietHoursStart: $quietHoursStart, ')
-          ..write('quietHoursEnd: $quietHoursEnd, ')
           ..write('retentionDays: $retentionDays, ')
           ..write('permissionRequested: $permissionRequested, ')
           ..write('lastOverdueSignature: $lastOverdueSignature, ')
@@ -14785,9 +14629,6 @@ typedef $$NotificationSettingsTableCreateCompanionBuilder =
     NotificationSettingsCompanion Function({
       required String id,
       Value<bool> masterEnabled,
-      Value<bool> quietHoursEnabled,
-      Value<String> quietHoursStart,
-      Value<String> quietHoursEnd,
       Value<int> retentionDays,
       Value<bool> permissionRequested,
       Value<String?> lastOverdueSignature,
@@ -14798,9 +14639,6 @@ typedef $$NotificationSettingsTableUpdateCompanionBuilder =
     NotificationSettingsCompanion Function({
       Value<String> id,
       Value<bool> masterEnabled,
-      Value<bool> quietHoursEnabled,
-      Value<String> quietHoursStart,
-      Value<String> quietHoursEnd,
       Value<int> retentionDays,
       Value<bool> permissionRequested,
       Value<String?> lastOverdueSignature,
@@ -14824,21 +14662,6 @@ class $$NotificationSettingsTableFilterComposer
 
   ColumnFilters<bool> get masterEnabled => $composableBuilder(
     column: $table.masterEnabled,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<bool> get quietHoursEnabled => $composableBuilder(
-    column: $table.quietHoursEnabled,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get quietHoursStart => $composableBuilder(
-    column: $table.quietHoursStart,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get quietHoursEnd => $composableBuilder(
-    column: $table.quietHoursEnd,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -14882,21 +14705,6 @@ class $$NotificationSettingsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get quietHoursEnabled => $composableBuilder(
-    column: $table.quietHoursEnabled,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get quietHoursStart => $composableBuilder(
-    column: $table.quietHoursStart,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get quietHoursEnd => $composableBuilder(
-    column: $table.quietHoursEnd,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<int> get retentionDays => $composableBuilder(
     column: $table.retentionDays,
     builder: (column) => ColumnOrderings(column),
@@ -14932,21 +14740,6 @@ class $$NotificationSettingsTableAnnotationComposer
 
   GeneratedColumn<bool> get masterEnabled => $composableBuilder(
     column: $table.masterEnabled,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<bool> get quietHoursEnabled => $composableBuilder(
-    column: $table.quietHoursEnabled,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<String> get quietHoursStart => $composableBuilder(
-    column: $table.quietHoursStart,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<String> get quietHoursEnd => $composableBuilder(
-    column: $table.quietHoursEnd,
     builder: (column) => column,
   );
 
@@ -15014,9 +14807,6 @@ class $$NotificationSettingsTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<bool> masterEnabled = const Value.absent(),
-                Value<bool> quietHoursEnabled = const Value.absent(),
-                Value<String> quietHoursStart = const Value.absent(),
-                Value<String> quietHoursEnd = const Value.absent(),
                 Value<int> retentionDays = const Value.absent(),
                 Value<bool> permissionRequested = const Value.absent(),
                 Value<String?> lastOverdueSignature = const Value.absent(),
@@ -15025,9 +14815,6 @@ class $$NotificationSettingsTableTableManager
               }) => NotificationSettingsCompanion(
                 id: id,
                 masterEnabled: masterEnabled,
-                quietHoursEnabled: quietHoursEnabled,
-                quietHoursStart: quietHoursStart,
-                quietHoursEnd: quietHoursEnd,
                 retentionDays: retentionDays,
                 permissionRequested: permissionRequested,
                 lastOverdueSignature: lastOverdueSignature,
@@ -15038,9 +14825,6 @@ class $$NotificationSettingsTableTableManager
               ({
                 required String id,
                 Value<bool> masterEnabled = const Value.absent(),
-                Value<bool> quietHoursEnabled = const Value.absent(),
-                Value<String> quietHoursStart = const Value.absent(),
-                Value<String> quietHoursEnd = const Value.absent(),
                 Value<int> retentionDays = const Value.absent(),
                 Value<bool> permissionRequested = const Value.absent(),
                 Value<String?> lastOverdueSignature = const Value.absent(),
@@ -15049,9 +14833,6 @@ class $$NotificationSettingsTableTableManager
               }) => NotificationSettingsCompanion.insert(
                 id: id,
                 masterEnabled: masterEnabled,
-                quietHoursEnabled: quietHoursEnabled,
-                quietHoursStart: quietHoursStart,
-                quietHoursEnd: quietHoursEnd,
                 retentionDays: retentionDays,
                 permissionRequested: permissionRequested,
                 lastOverdueSignature: lastOverdueSignature,

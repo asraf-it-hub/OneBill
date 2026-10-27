@@ -251,7 +251,7 @@ class _NotificationCenterSheetState
                   controller: scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = filtered[index];
                     return _NotificationTile(
@@ -502,11 +502,11 @@ class _NotificationTile extends StatelessWidget {
     return Card(
       color: notification.isRead
           ? theme.colorScheme.surface
-          : theme.colorScheme.primaryContainer.withOpacity(0.12),
+          : theme.colorScheme.primaryContainer.withValues(alpha: 0.12),
       child: ListTile(
         onTap: onTap,
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.15),
+          backgroundColor: color.withValues(alpha: 0.15),
           foregroundColor: color,
           child: Icon(icon, size: 20),
         ),
@@ -550,7 +550,9 @@ class _NotificationTile extends StatelessWidget {
             Text(
               _formatRelativeTime(notification.createdAt),
               style: TextStyle(
-                color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
                 fontSize: 11,
               ),
             ),
@@ -617,7 +619,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
     final settings = settingsAsync.valueOrNull;
     final prefs = prefsAsync.valueOrNull ?? NotificationCategories.defaults;
     final masterEnabled = settings?.masterEnabled ?? true;
-    final quietHoursEnabled = settings?.quietHoursEnabled ?? true;
 
     return Scaffold(
       appBar: AppBar(title: Text(tr(context, 'Notification Settings'))),
@@ -640,182 +641,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   .reconcileAllReminders();
             },
           ),
-          const Divider(),
-          SwitchListTile(
-            title: Text(
-              tr(context, 'Quiet Hours'),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            subtitle: Text(
-              tr(context, 'Silence scheduled reminders during night hours'),
-            ),
-            value: quietHoursEnabled,
-            onChanged: masterEnabled
-                ? (val) {
-                    repo.updateSettings(quietHoursEnabled: val);
-                    ref
-                        .read(notificationServiceProvider)
-                        .reconcileAllReminders();
-                  }
-                : null,
-          ),
-          if (quietHoursEnabled)
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withOpacity(
-                  0.4,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.5),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tr(context, "Don't disturb me between"),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Text(
-                        _formatTimeStr(settings?.quietHoursStart ?? '00:00'),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: Divider(
-                            color: theme.colorScheme.primary.withOpacity(0.7),
-                            thickness: 2,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        _formatTimeStr(settings?.quietHoursEnd ?? '07:00'),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.bedtime_outlined, size: 16),
-                          label: Text(
-                            '${tr(context, 'Start')}: ${_formatTimeStr(settings?.quietHoursStart ?? '00:00')}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: masterEnabled
-                              ? () async {
-                                  final currentParts =
-                                      (settings?.quietHoursStart ?? '00:00')
-                                          .split(':')
-                                          .map(int.parse)
-                                          .toList();
-                                  final picked = await showTimePicker(
-                                    context: context,
-                                    initialTime: TimeOfDay(
-                                      hour: currentParts[0],
-                                      minute: currentParts[1],
-                                    ),
-                                    builder: (context, child) {
-                                      return MediaQuery(
-                                        data: MediaQuery.of(context).copyWith(
-                                          alwaysUse24HourFormat: false,
-                                        ),
-                                        child: Localizations.override(
-                                          context: context,
-                                          locale: const Locale('en', 'US'),
-                                          child: child!,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                  if (picked != null) {
-                                    final formatted =
-                                        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                                    await repo.updateSettings(
-                                      quietHoursStart: formatted,
-                                    );
-                                    ref
-                                        .read(notificationServiceProvider)
-                                        .reconcileAllReminders();
-                                  }
-                                }
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.wb_sunny_outlined, size: 16),
-                          label: Text(
-                            '${tr(context, 'End')}: ${_formatTimeStr(settings?.quietHoursEnd ?? '07:00')}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: masterEnabled
-                              ? () async {
-                                  final currentParts =
-                                      (settings?.quietHoursEnd ?? '07:00')
-                                          .split(':')
-                                          .map(int.parse)
-                                          .toList();
-                                  final picked = await showTimePicker(
-                                    context: context,
-                                    initialTime: TimeOfDay(
-                                      hour: currentParts[0],
-                                      minute: currentParts[1],
-                                    ),
-                                    builder: (context, child) {
-                                      return MediaQuery(
-                                        data: MediaQuery.of(context).copyWith(
-                                          alwaysUse24HourFormat: false,
-                                        ),
-                                        child: Localizations.override(
-                                          context: context,
-                                          locale: const Locale('en', 'US'),
-                                          child: child!,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                  if (picked != null) {
-                                    final formatted =
-                                        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                                    await repo.updateSettings(
-                                      quietHoursEnd: formatted,
-                                    );
-                                    ref
-                                        .read(notificationServiceProvider)
-                                        .reconcileAllReminders();
-                                  }
-                                }
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -927,11 +752,14 @@ class NotificationSettingsScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withOpacity(0.4),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.4,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.6,
+                      ),
                     ),
                   ),
                   child: Column(
@@ -945,7 +773,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                               'assets/OneBillLogo.png',
                               width: 18,
                               height: 18,
-                              errorBuilder: (_, __, ___) =>
+                              errorBuilder: (_, _, _) =>
                                   const Icon(Icons.receipt_long, size: 18),
                             ),
                           ),
@@ -963,7 +791,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurfaceVariant
-                                  .withOpacity(0.7),
+                                  .withValues(alpha: 0.7),
                             ),
                           ),
                         ],
@@ -1154,17 +982,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String _formatTimeStr(String hhmm) {
-    try {
-      final parts = hhmm.split(':').map(int.parse).toList();
-      final hour = parts[0] % 12 == 0 ? 12 : parts[0] % 12;
-      final ampm = parts[0] >= 12 ? 'PM' : 'AM';
-      return '$hour:${parts[1].toString().padLeft(2, '0')} $ampm';
-    } catch (_) {
-      return hhmm;
-    }
   }
 
   List<Widget> _buildCategorySwitch(

@@ -99,7 +99,7 @@ class NotificationRepository {
     query.where(
       accountId == null
           ? (tbl) => tbl.accountId.isNull()
-          : (tbl) => tbl.accountId.equals(accountId!),
+          : (tbl) => tbl.accountId.equals(accountId),
     );
     await query.write(const AppNotificationsCompanion(isRead: Value(true)));
   }
@@ -111,7 +111,7 @@ class NotificationRepository {
     query.where(
       accountId == null
           ? (tbl) => tbl.accountId.isNull()
-          : (tbl) => tbl.accountId.equals(accountId!),
+          : (tbl) => tbl.accountId.equals(accountId),
     );
     if (businessId != null && businessId.isNotEmpty) {
       query.where((tbl) => tbl.businessId.equals(businessId));
@@ -126,7 +126,7 @@ class NotificationRepository {
     query.where(
       accountId == null
           ? (tbl) => tbl.accountId.isNull()
-          : (tbl) => tbl.accountId.equals(accountId!),
+          : (tbl) => tbl.accountId.equals(accountId),
     );
     await query.write(
       const AppNotificationsCompanion(
@@ -142,7 +142,7 @@ class NotificationRepository {
     query.where(
       accountId == null
           ? (tbl) => tbl.accountId.isNull()
-          : (tbl) => tbl.accountId.equals(accountId!),
+          : (tbl) => tbl.accountId.equals(accountId),
     );
     if (businessId != null && businessId.isNotEmpty) {
       query.where((tbl) => tbl.businessId.equals(businessId));
@@ -157,7 +157,7 @@ class NotificationRepository {
     query.where(
       accountId == null
           ? (tbl) => tbl.accountId.isNull()
-          : (tbl) => tbl.accountId.equals(accountId!),
+          : (tbl) => tbl.accountId.equals(accountId),
     );
     await query.go();
   }
@@ -213,9 +213,6 @@ class NotificationRepository {
           NotificationSettingsCompanion.insert(
             id: 'global',
             masterEnabled: const Value(true),
-            quietHoursEnabled: const Value(true),
-            quietHoursStart: const Value('00:00'),
-            quietHoursEnd: const Value('07:00'),
             retentionDays: const Value(365),
             permissionRequested: const Value(false),
             updatedAt: DateTime.now(),
@@ -228,9 +225,6 @@ class NotificationRepository {
 
   Future<void> updateSettings({
     bool? masterEnabled,
-    bool? quietHoursEnabled,
-    String? quietHoursStart,
-    String? quietHoursEnd,
     int? retentionDays,
     bool? permissionRequested,
     Value<String?>? lastOverdueSignature,
@@ -242,11 +236,6 @@ class NotificationRepository {
           NotificationSettingsCompanion.insert(
             id: 'global',
             masterEnabled: Value(masterEnabled ?? current.masterEnabled),
-            quietHoursEnabled: Value(
-              quietHoursEnabled ?? current.quietHoursEnabled,
-            ),
-            quietHoursStart: Value(quietHoursStart ?? current.quietHoursStart),
-            quietHoursEnd: Value(quietHoursEnd ?? current.quietHoursEnd),
             retentionDays: Value(retentionDays ?? current.retentionDays),
             permissionRequested: Value(
               permissionRequested ?? current.permissionRequested,
