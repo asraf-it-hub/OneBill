@@ -135,14 +135,7 @@ class NotificationService {
   }
 
   Future<AndroidScheduleMode> _scheduleMode() async {
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final exactAllowed = await android?.canScheduleExactNotifications() ?? true;
-    return exactAllowed
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
+    return AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
   Future<NotificationAppLaunchDetails?> getLaunchDetails() =>

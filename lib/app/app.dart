@@ -168,6 +168,8 @@ class _StartupGate extends ConsumerStatefulWidget {
 class _StartupGateState extends ConsumerState<_StartupGate> {
   StreamSubscription<Uri>? _appLinksSub;
   StreamSubscription<AuthState>? _authSub;
+  bool _hadAuthenticatedSession = false;
+  bool _checkingUnexpectedSignOut = false;
 
   @override
   void initState() {
@@ -223,10 +225,21 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
         if (data.event == AuthChangeEvent.signedIn ||
             data.event == AuthChangeEvent.initialSession) {
+          if (data.session != null) _hadAuthenticatedSession = true;
           // Auth callbacks can arrive just after the sign-in form continues.
           // Restore again once Supabase has committed the session so an old
           // local business row cannot hide the current cloud profile.
           unawaited(ref.read(syncWorkerProvider).restoreAccount());
+        }
+        // A remote account deletion invalidates the cached refresh token. The
+        // SDK emits signedOut while the app may still have the old local
+        // workspace. Keep the selected language and explain what happened
+        // before presenting the sign-in screen.
+        if (data.event == AuthChangeEvent.signedOut &&
+            _hadAuthenticatedSession &&
+            !ref.read(isSigningOutProvider)) {
+          _checkingUnexpectedSignOut = true;
+          unawaited(_showUnexpectedAccountDeletion());
         }
         if (data.event == AuthChangeEvent.passwordRecovery) {
           if (mounted) {
@@ -242,6 +255,31 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
         }
       });
     }
+  }
+
+  Future<void> _showUnexpectedAccountDeletion() async {
+    if (ref.read(accountDeletedProvider)) return;
+    final localSession = await ref.read(sessionProvider.future);
+    if (!mounted || localSession?.accountId == null) {
+      if (mounted) setState(() => _checkingUnexpectedSignOut = false);
+      return;
+    }
+    ref.read(accountDeletedProvider.notifier).state = true;
+    // The cloud account is already gone. Remove only its local records so a
+    // later sign-in cannot expose stale data, while retaining language choice.
+    try {
+      await ref
+          .read(databaseProvider)
+          .deleteAccountData(localSession!.accountId!);
+    } catch (_) {}
+    try {
+      await ref.read(notificationServiceProvider).cancelAll();
+    } catch (_) {}
+    try {
+      await ref.read(securityServiceProvider).clearPin();
+    } catch (_) {}
+    ref.invalidate(sessionProvider);
+    if (mounted) setState(() => _checkingUnexpectedSignOut = false);
   }
 
   Future<void> _handleUri(Uri uri) async {
@@ -305,8 +343,14 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
       return const _ResetPasswordScreen();
     }
 
+    if (ref.watch(accountDeletedProvider)) {
+      return const _AccountDeletedScreen();
+    }
+
     final isSigningOut = ref.watch(isSigningOutProvider);
     if (isSigningOut) return const _AuthScreen();
+
+    if (_checkingUnexpectedSignOut) return const _LoadingScreen();
 
     final auth = ref.watch(authSessionProvider);
     if (AppEnvironment.cloudConfigured) {
@@ -325,6 +369,92 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
               ? const _WorkspaceSetupScreen()
               : _HomeScreen(session: session),
         );
+  }
+}
+
+class _AccountDeletedScreen extends ConsumerWidget {
+  const _AccountDeletedScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Card(
+                elevation: 0,
+                color: theme.colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 30, 26, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.errorContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.person_remove_outlined,
+                          size: 31,
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      Text(
+                        _tr(context, 'Your OneBill account was deleted'),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _tr(
+                          context,
+                          'The account and its associated cloud data are no longer available. Your device data has been removed from this account.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            ref.read(accountDeletedProvider.notifier).state =
+                                false;
+                            ref.read(isSigningOutProvider.notifier).state =
+                                true;
+                            ref.invalidate(sessionProvider);
+                            ref.invalidate(authSessionProvider);
+                          },
+                          icon: const Icon(Icons.login_rounded),
+                          label: Text(_tr(context, 'Continue to sign in')),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -3329,6 +3459,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     } catch (_) {}
     // Keep the local account and its pending queue. On the next sign-in,
     // restoreAccount clears foreign-account data before exposing the workspace.
+    // Set the guard before signOut so the auth listener does not interpret an
+    // intentional sign-out as an externally deleted account.
+    ref.read(isSigningOutProvider.notifier).state = true;
     try {
       await auth.signOut();
     } catch (_) {}
@@ -3336,7 +3469,6 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       await security.markAuthenticated();
     } catch (_) {}
 
-    ref.read(isSigningOutProvider.notifier).state = true;
     ref.invalidate(sessionProvider);
     ref.invalidate(authSessionProvider);
   }
@@ -6267,6 +6399,9 @@ class _BusinessSettingsSheetState
       // Remove only this account's local rows. Never fall back to clearing
       // every account if a scoped cleanup fails.
       await db.deleteAccountData(accountId);
+      // Mark this as an intentional sign-out before Supabase emits signedOut,
+      // so the remote-deletion notice is not shown for the in-app flow.
+      ref.read(isSigningOutProvider.notifier).state = true;
       try {
         await auth.signOut();
       } catch (_) {}
@@ -6277,7 +6412,6 @@ class _BusinessSettingsSheetState
       }
 
       // 7. Reset session and route user to Welcome / Sign In screen
-      ref.read(isSigningOutProvider.notifier).state = true;
       ref.invalidate(sessionProvider);
       ref.invalidate(authSessionProvider);
 
@@ -9623,6 +9757,7 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
             email: _email.text,
             notes: _notes.text,
           );
+      await ref.read(notificationServiceProvider).reconcileAllReminders();
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) {
@@ -11168,7 +11303,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   bool _verifyingPhone = false;
   bool _phoneValid = false;
   bool _pickingContact = false;
-  bool _saveToPhoneContacts = false;
   String? _phoneError;
 
   @override
@@ -11186,55 +11320,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
 
     try {
       final contactService = ref.read(contactServiceProvider);
-      final status = await contactService.requestContactsPermission();
-
-      if (!mounted) return;
-
-      if (status == PermissionStatus.permanentlyDenied) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(_tr(ctx, 'Contact permission is required')),
-            content: Text(
-              _tr(
-                ctx,
-                'Contact permission is permanently denied. Please allow it from App Settings.',
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(_tr(ctx, 'Cancel')),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  contactService.openAppSettings();
-                },
-                child: Text(_tr(ctx, 'Open Settings')),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-
-      if (status == PermissionStatus.denied ||
-          status == PermissionStatus.restricted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr(
-                context,
-                'Contact permission is needed to import customer from phonebook.',
-              ),
-            ),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        return;
-      }
-
       final contact = await contactService.pickSingleContact();
       if (!mounted || contact == null) {
         // User cancelled or pressed back
@@ -11395,14 +11480,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
             phone: normalized,
           );
 
-      if (_saveToPhoneContacts) {
-        try {
-          await ref
-              .read(contactServiceProvider)
-              .saveContactToPhone(name: _name.text, phone: normalized);
-        } catch (_) {}
-      }
-
       if (mounted) {
         Navigator.pop(context);
       }
@@ -11422,9 +11499,7 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   }
 
   bool get _isDirty =>
-      _name.text.trim().isNotEmpty ||
-      _phone.text.trim().isNotEmpty ||
-      _saveToPhoneContacts;
+      _name.text.trim().isNotEmpty || _phone.text.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -11578,22 +11653,7 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                CheckboxListTile(
-                  value: _saveToPhoneContacts,
-                  onChanged: (_saving || _verifyingPhone || _pickingContact)
-                      ? null
-                      : (val) =>
-                            setState(() => _saveToPhoneContacts = val ?? false),
-                  title: Text(
-                    _tr(context, 'Save to phone contacts'),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 FilledButton(
                   onPressed: (_saving || _verifyingPhone || _pickingContact)
                       ? null

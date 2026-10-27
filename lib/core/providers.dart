@@ -97,6 +97,11 @@ final syncWorkerProvider = Provider<SyncWorker>((ref) {
 
 final isSigningOutProvider = StateProvider<bool>((ref) => false);
 
+/// Set when Supabase confirms that an already-authenticated local account is
+/// no longer available. The startup gate shows a localized explanation before
+/// allowing the user to continue to sign-in.
+final accountDeletedProvider = StateProvider<bool>((ref) => false);
+
 final authServiceProvider = Provider<SupabaseAuthService>(
   (ref) => SupabaseAuthService(),
 );

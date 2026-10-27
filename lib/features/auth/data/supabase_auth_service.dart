@@ -101,7 +101,7 @@ class SupabaseAuthService {
     // 2. User exists: send the password reset email
     await _client.auth.resetPasswordForEmail(
       cleanEmail,
-      redirectTo: 'onebill://reset-password',
+      redirectTo: 'https://onebill.pages.dev/reset-password',
     );
   }
 

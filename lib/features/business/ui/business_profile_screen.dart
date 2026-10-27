@@ -312,6 +312,7 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
         logoImage: _logoImagePath,
         paymentQrImage: _paymentQrImagePath,
       );
+      await ref.read(notificationServiceProvider).reconcileAllReminders();
 
       // Wait for the queued profile update to be processed when online so a
       // user can safely clear local app data immediately after saving.

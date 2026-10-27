@@ -1,5 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart'
+    show
+        Color,
+        FontStyle,
+        FontWeight,
+        Offset,
+        TextAlign,
+        TextDirection,
+        TextPainter,
+        TextSpan,
+        TextStyle;
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -26,6 +38,91 @@ class PdfInvoiceService {
     return null;
   }
 
+  /// Renders text with HarfBuzz complex-script shaping via Flutter's native TextPainter
+  /// when Indic (Telugu / Hindi) characters are present. For Latin/numbers, returns
+  /// standard vector pw.Text for optimal performance and crisp vector fidelity.
+  Future<pw.Widget> _indicText(
+    String text, {
+    required double fontSize,
+    bool bold = false,
+    bool italic = false,
+    PdfColor? color,
+    pw.TextAlign textAlign = pw.TextAlign.left,
+    double? maxWidth,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      return pw.SizedBox();
+    }
+    // Matches Devanagari (0x0900-0x097F) and Telugu (0x0C00-0x0C7F)
+    final hasIndic = RegExp(r'[\u0900-\u097F\u0C00-\u0C7F]').hasMatch(trimmed);
+    if (!hasIndic) {
+      return pw.Text(
+        trimmed,
+        textAlign: textAlign,
+        style: pw.TextStyle(
+          fontSize: fontSize,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          fontStyle: italic ? pw.FontStyle.italic : pw.FontStyle.normal,
+          color: color,
+        ),
+      );
+    }
+
+    // 3.5x rasterization (~252 DPI) gives flawless print and zoom sharpness
+    const scale = 3.5;
+    final flutterColor = color != null
+        ? Color.fromRGBO(
+            (color.red * 255).round(),
+            (color.green * 255).round(),
+            (color.blue * 255).round(),
+            color.alpha,
+          )
+        : const Color(0xFF1E293B);
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: trimmed,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+          fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+          color: flutterColor,
+          fontFamilyFallback: const ['NotoSansTelugu', 'NotoSansDevanagari', 'NotoSans'],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: textAlign == pw.TextAlign.right
+          ? TextAlign.right
+          : textAlign == pw.TextAlign.center
+          ? TextAlign.center
+          : TextAlign.left,
+    );
+
+    textPainter.layout(
+      maxWidth: maxWidth ?? double.infinity,
+    );
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.scale(scale);
+    textPainter.paint(canvas, Offset.zero);
+    final picture = recorder.endRecording();
+
+    final width = (textPainter.width * scale).ceil().clamp(1, 4096);
+    final height = (textPainter.height * scale).ceil().clamp(1, 4096);
+
+    final img = await picture.toImage(width, height);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    final bytes = byteData!.buffer.asUint8List();
+
+    return pw.Image(
+      pw.MemoryImage(bytes),
+      width: textPainter.width,
+      height: textPainter.height,
+    );
+  }
+
   Future<Uint8List> generate({
     required BusinessesData business,
     required Customer customer,
@@ -37,6 +134,12 @@ class PdfInvoiceService {
     );
     final teluguBoldFont = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSansTelugu-Bold.ttf'),
+    );
+    final hindiFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
+    );
+    final hindiBoldFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSansDevanagari-Bold.ttf'),
     );
     final regularFont = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
@@ -51,7 +154,12 @@ class PdfInvoiceService {
       theme: pw.ThemeData.withFont(
         base: regularFont,
         bold: boldFont,
-        fontFallback: [teluguFont, teluguBoldFont],
+        fontFallback: [
+          teluguFont,
+          teluguBoldFont,
+          hindiFont,
+          hindiBoldFont,
+        ],
       ),
     );
 
@@ -93,6 +201,90 @@ class PdfInvoiceService {
       contactDetails.add(business.website!.trim());
     }
 
+    // Pre-render dynamic text with Indic (Telugu/Hindi) complex-script shaping
+    final businessNameWidget = await _indicText(
+      business.name,
+      fontSize: 20,
+      bold: true,
+      color: darkSlate,
+      maxWidth: 300,
+    );
+    final businessTaglineWidget = (business.tagline != null && business.tagline!.trim().isNotEmpty)
+        ? await _indicText(
+            business.tagline!.trim(),
+            fontSize: 10,
+            italic: true,
+            color: subtleText,
+            maxWidth: 300,
+          )
+        : null;
+    final businessAddressWidget = (business.address != null && business.address!.trim().isNotEmpty)
+        ? await _indicText(
+            business.address!.trim(),
+            fontSize: 9,
+            color: subtleText,
+            maxWidth: 300,
+          )
+        : null;
+    final invoiceNotesWidget = (invoice.notes != null && invoice.notes!.trim().isNotEmpty)
+        ? await _indicText(
+            invoice.notes!.trim(),
+            fontSize: 8.5,
+            color: darkSlate,
+            maxWidth: 480,
+          )
+        : null;
+    final customerNameWidget = await _indicText(
+      customer.name,
+      fontSize: 14,
+      bold: true,
+      color: darkSlate,
+      maxWidth: 500,
+    );
+    final customerNotesWidget = (customer.notes != null && customer.notes!.trim().isNotEmpty)
+        ? await _indicText(
+            customer.notes!.trim(),
+            fontSize: 9,
+            color: subtleText,
+            maxWidth: 500,
+          )
+        : null;
+    final upiAccountNameWidget = (business.upiName != null && business.upiName!.trim().isNotEmpty)
+        ? await _indicText(
+            'Account Holder Name: ${business.upiName!.trim()}',
+            fontSize: 9,
+            color: darkSlate,
+            maxWidth: 360,
+          )
+        : null;
+    final businessInvoiceNotesWidget = (business.invoiceNotes != null && business.invoiceNotes!.trim().isNotEmpty)
+        ? await _indicText(
+            business.invoiceNotes!.trim(),
+            fontSize: 9,
+            color: darkSlate,
+            maxWidth: 520,
+          )
+        : null;
+    final businessTermsWidget = (business.termsAndConditions != null && business.termsAndConditions!.trim().isNotEmpty)
+        ? await _indicText(
+            business.termsAndConditions!.trim(),
+            fontSize: 9,
+            color: darkSlate,
+            maxWidth: 520,
+          )
+        : null;
+
+    final itemDescWidgets = await Future.wait(
+      items.map(
+        (item) => _indicText(
+          item.description,
+          fontSize: 9,
+          color: darkSlate,
+          maxWidth: 240,
+        ),
+      ),
+    );
+
     document.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -124,25 +316,10 @@ class PdfInvoiceService {
                       ),
                       pw.SizedBox(height: 8),
                     ],
-                    pw.Text(
-                      business.name,
-                      style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
-                        color: darkSlate,
-                      ),
-                    ),
-                    if (business.tagline != null &&
-                        business.tagline!.trim().isNotEmpty) ...[
+                    businessNameWidget,
+                    if (businessTaglineWidget != null) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(
-                        business.tagline!.trim(),
-                        style: pw.TextStyle(
-                          fontSize: 10,
-                          fontStyle: pw.FontStyle.italic,
-                          color: subtleText,
-                        ),
-                      ),
+                      businessTaglineWidget,
                     ],
                     if (contactDetails.isNotEmpty) ...[
                       pw.SizedBox(height: 4),
@@ -151,13 +328,9 @@ class PdfInvoiceService {
                         style: pw.TextStyle(fontSize: 9, color: subtleText),
                       ),
                     ],
-                    if (business.address != null &&
-                        business.address!.trim().isNotEmpty) ...[
+                    if (businessAddressWidget != null) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(
-                        business.address!.trim(),
-                        style: pw.TextStyle(fontSize: 9, color: subtleText),
-                      ),
+                      businessAddressWidget,
                     ],
                     if (business.gstin != null &&
                         business.gstin!.trim().isNotEmpty) ...[
@@ -293,12 +466,10 @@ class PdfInvoiceService {
                       color: primaryColor,
                     ),
                   ),
-                  pw.Expanded(
-                    child: pw.Text(
-                      invoice.notes!.trim(),
-                      style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
+                  if (invoiceNotesWidget != null)
+                    pw.Expanded(
+                      child: invoiceNotesWidget,
                     ),
-                  ),
                 ],
               ),
             ),
@@ -326,14 +497,7 @@ class PdfInvoiceService {
                       ),
                     ),
                     pw.SizedBox(height: 4),
-                    pw.Text(
-                      customer.name,
-                      style: pw.TextStyle(
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                        color: darkSlate,
-                      ),
-                    ),
+                    customerNameWidget,
                     pw.SizedBox(height: 2),
                     pw.Text(
                       'Phone: ${customer.phone}',
@@ -347,13 +511,9 @@ class PdfInvoiceService {
                         style: pw.TextStyle(fontSize: 9, color: subtleText),
                       ),
                     ],
-                    if (customer.notes != null &&
-                        customer.notes!.trim().isNotEmpty) ...[
+                    if (customerNotesWidget != null) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(
-                        customer.notes!.trim(),
-                        style: pw.TextStyle(fontSize: 9, color: subtleText),
-                      ),
+                      customerNotesWidget,
                     ],
                   ],
                 ),
@@ -364,32 +524,113 @@ class PdfInvoiceService {
           pw.SizedBox(height: 20),
 
           // 3. ITEMS TABLE
-          pw.TableHelper.fromTextArray(
-            headers: const ['Item', 'Qty', 'Unit Price', 'Amount'],
-            headerStyle: pw.TextStyle(
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
-              color: darkSlate,
-            ),
-            headerDecoration: pw.BoxDecoration(color: lightGrey),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            cellPadding: const pw.EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 8,
-            ),
-            cellAlignment: pw.Alignment.centerRight,
-            cellAlignments: {0: pw.Alignment.centerLeft},
+          pw.Table(
             border: pw.TableBorder.all(color: borderGrey, width: 0.5),
-            data: items
-                .map(
-                  (item) => [
-                    item.description,
-                    _quantity(item.quantityMilliunits),
-                    _money(item.unitPricePaise),
-                    _money(item.lineTotalPaise),
+            columnWidths: const {
+              0: pw.FlexColumnWidth(3.8),
+              1: pw.FlexColumnWidth(1.2),
+              2: pw.FlexColumnWidth(1.5),
+              3: pw.FlexColumnWidth(1.5),
+            },
+            children: [
+              pw.TableRow(
+                decoration: pw.BoxDecoration(color: lightGrey),
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: pw.Text(
+                      'Item',
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        fontWeight: pw.FontWeight.bold,
+                        color: darkSlate,
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Text(
+                        'Qty',
+                        style: pw.TextStyle(
+                          fontSize: 10,
+                          fontWeight: pw.FontWeight.bold,
+                          color: darkSlate,
+                        ),
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Text(
+                        'Unit Price',
+                        style: pw.TextStyle(
+                          fontSize: 10,
+                          fontWeight: pw.FontWeight.bold,
+                          color: darkSlate,
+                        ),
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: pw.Align(
+                      alignment: pw.Alignment.centerRight,
+                      child: pw.Text(
+                        'Amount',
+                        style: pw.TextStyle(
+                          fontSize: 10,
+                          fontWeight: pw.FontWeight.bold,
+                          color: darkSlate,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              for (var i = 0; i < items.length; i++)
+                pw.TableRow(
+                  children: [
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      child: itemDescWidgets[i],
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      child: pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Text(
+                          _quantity(items[i].quantityMilliunits),
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      child: pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Text(
+                          _money(items[i].unitPricePaise),
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      child: pw.Align(
+                        alignment: pw.Alignment.centerRight,
+                        child: pw.Text(
+                          _money(items[i].lineTotalPaise),
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    ),
                   ],
-                )
-                .toList(),
+                ),
+            ],
           ),
 
           pw.SizedBox(height: 16),
@@ -544,16 +785,9 @@ class PdfInvoiceService {
                             ),
                           ),
                         ],
-                        if (business.upiName != null &&
-                            business.upiName!.trim().isNotEmpty) ...[
+                        if (upiAccountNameWidget != null) ...[
                           pw.SizedBox(height: 2),
-                          pw.Text(
-                            'Account Holder Name: ${business.upiName!.trim()}',
-                            style: pw.TextStyle(
-                              fontSize: 9,
-                              color: darkSlate,
-                            ),
-                          ),
+                          upiAccountNameWidget,
                         ],
                       ],
                     ),
@@ -565,8 +799,7 @@ class PdfInvoiceService {
           ],
 
           // 6. NOTES & TERMS & CONDITIONS (From Business Profile)
-          if (business.invoiceNotes != null &&
-              business.invoiceNotes!.trim().isNotEmpty) ...[
+          if (businessInvoiceNotesWidget != null) ...[
             pw.Text(
               'NOTES',
               style: pw.TextStyle(
@@ -576,15 +809,11 @@ class PdfInvoiceService {
               ),
             ),
             pw.SizedBox(height: 4),
-            pw.Text(
-              business.invoiceNotes!.trim(),
-              style: pw.TextStyle(fontSize: 9, color: darkSlate),
-            ),
+            businessInvoiceNotesWidget,
             pw.SizedBox(height: 12),
           ],
 
-          if (business.termsAndConditions != null &&
-              business.termsAndConditions!.trim().isNotEmpty) ...[
+          if (businessTermsWidget != null) ...[
             pw.Text(
               'TERMS & CONDITIONS',
               style: pw.TextStyle(
@@ -594,10 +823,7 @@ class PdfInvoiceService {
               ),
             ),
             pw.SizedBox(height: 4),
-            pw.Text(
-              business.termsAndConditions!.trim(),
-              style: pw.TextStyle(fontSize: 9, color: darkSlate),
-            ),
+            businessTermsWidget,
             pw.SizedBox(height: 16),
           ],
 
@@ -662,6 +888,12 @@ class PdfInvoiceService {
     final teluguBoldFont = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSansTelugu-Bold.ttf'),
     );
+    final hindiFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
+    );
+    final hindiBoldFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSansDevanagari-Bold.ttf'),
+    );
     final regularFont = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
     );
@@ -675,7 +907,12 @@ class PdfInvoiceService {
       theme: pw.ThemeData.withFont(
         base: regularFont,
         bold: boldFont,
-        fontFallback: [teluguFont, teluguBoldFont],
+        fontFallback: [
+          teluguFont,
+          teluguBoldFont,
+          hindiFont,
+          hindiBoldFont,
+        ],
       ),
     );
 
@@ -739,6 +976,67 @@ class PdfInvoiceService {
         ? business.termsAndConditions!.trim()
         : '1. Goods once sold will not be taken back or exchanged.\n2. Payment is due as per agreed payment terms.\n3. E.&O.E.';
 
+    // Pre-render dynamic text with Indic (Telugu/Hindi) complex-script shaping
+    final businessNameWidget = await _indicText(
+      business.name,
+      fontSize: 18,
+      bold: true,
+      color: darkSlate,
+      maxWidth: 300,
+    );
+    final businessTaglineWidget = (business.tagline != null && business.tagline!.trim().isNotEmpty)
+        ? await _indicText(
+            business.tagline!.trim(),
+            fontSize: 9,
+            italic: true,
+            color: subtleText,
+            maxWidth: 300,
+          )
+        : null;
+    final businessAddressWidget = (business.address != null && business.address!.trim().isNotEmpty)
+        ? await _indicText(
+            business.address!.trim(),
+            fontSize: 8.5,
+            color: subtleText,
+            maxWidth: 300,
+          )
+        : null;
+    final customerNameWidget = await _indicText(
+      customer.name,
+      fontSize: 13,
+      bold: true,
+      color: darkSlate,
+      maxWidth: 500,
+    );
+    final customerNotesWidget = (customer.notes != null && customer.notes!.trim().isNotEmpty)
+        ? await _indicText(
+            customer.notes!.trim(),
+            fontSize: 8.5,
+            color: subtleText,
+            maxWidth: 500,
+          )
+        : null;
+    final accountHolderWidget = accountHolderName.isNotEmpty
+        ? await _indicText(
+            'Account Holder Name: $accountHolderName',
+            fontSize: 8.5,
+            color: darkSlate,
+            maxWidth: 360,
+          )
+        : null;
+    final notesWidget = await _indicText(
+      notes.join('\n'),
+      fontSize: 8.5,
+      color: darkSlate,
+      maxWidth: 520,
+    );
+    final termsWidget = await _indicText(
+      terms,
+      fontSize: 9.5,
+      color: darkSlate,
+      maxWidth: 520,
+    );
+
     document.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -770,25 +1068,10 @@ class PdfInvoiceService {
                       ),
                       pw.SizedBox(height: 8),
                     ],
-                    pw.Text(
-                      business.name,
-                      style: pw.TextStyle(
-                        fontSize: 18,
-                        fontWeight: pw.FontWeight.bold,
-                        color: darkSlate,
-                      ),
-                    ),
-                    if (business.tagline != null &&
-                        business.tagline!.trim().isNotEmpty) ...[
+                    businessNameWidget,
+                    if (businessTaglineWidget != null) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(
-                        business.tagline!.trim(),
-                        style: pw.TextStyle(
-                          fontSize: 9,
-                          fontStyle: pw.FontStyle.italic,
-                          color: subtleText,
-                        ),
-                      ),
+                      businessTaglineWidget,
                     ],
                     if (contactDetails.isNotEmpty) ...[
                       pw.SizedBox(height: 3),
@@ -797,13 +1080,9 @@ class PdfInvoiceService {
                         style: pw.TextStyle(fontSize: 8.5, color: subtleText),
                       ),
                     ],
-                    if (business.address != null &&
-                        business.address!.trim().isNotEmpty) ...[
+                    if (businessAddressWidget != null) ...[
                       pw.SizedBox(height: 2),
-                      pw.Text(
-                        business.address!.trim(),
-                        style: pw.TextStyle(fontSize: 8.5, color: subtleText),
-                      ),
+                      businessAddressWidget,
                     ],
                     if (business.gstin != null &&
                         business.gstin!.trim().isNotEmpty) ...[
@@ -932,14 +1211,7 @@ class PdfInvoiceService {
                 ),
               ),
               pw.SizedBox(height: 4),
-              pw.Text(
-                customer.name,
-                style: pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                  color: darkSlate,
-                ),
-              ),
+              customerNameWidget,
               if (customer.phone.isNotEmpty) ...[
                 pw.SizedBox(height: 2),
                 pw.Text(
@@ -954,12 +1226,9 @@ class PdfInvoiceService {
                   style: pw.TextStyle(fontSize: 8.5, color: subtleText),
                 ),
               ],
-              if (customer.notes != null && customer.notes!.trim().isNotEmpty) ...[
+              if (customerNotesWidget != null) ...[
                 pw.SizedBox(height: 2),
-                pw.Text(
-                  customer.notes!.trim(),
-                  style: pw.TextStyle(fontSize: 8.5, color: subtleText),
-                ),
+                customerNotesWidget,
               ],
             ],
           ),
@@ -1060,12 +1329,9 @@ class PdfInvoiceService {
                             ),
                           ),
                         ],
-                        if (accountHolderName.isNotEmpty) ...[
+                        if (accountHolderWidget != null) ...[
                           pw.SizedBox(height: 2),
-                          pw.Text(
-                            'Account Holder Name: $accountHolderName',
-                            style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
-                          ),
+                          accountHolderWidget,
                         ],
                       ],
                     ),
@@ -1087,10 +1353,7 @@ class PdfInvoiceService {
             ),
           ),
           pw.SizedBox(height: 4),
-          pw.Text(
-            notes.join('\n'),
-            style: pw.TextStyle(fontSize: 8.5, color: darkSlate),
-          ),
+          notesWidget,
 
           // 6. PAGE 2: TERMS & CONDITIONS
           pw.NewPage(),
@@ -1104,14 +1367,7 @@ class PdfInvoiceService {
             ),
           ),
           pw.SizedBox(height: 8),
-          pw.Text(
-            terms,
-            style: pw.TextStyle(
-              fontSize: 9.5,
-              color: darkSlate,
-              lineSpacing: 2,
-            ),
-          ),
+          termsWidget,
         ],
       ),
     );

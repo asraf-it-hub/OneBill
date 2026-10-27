@@ -2016,6 +2016,20 @@ final Map<String, Map<String, String>> appTranslations = {
     'hi': 'खाता सफलतापूर्वक हटा दिया गया',
     'te': 'ఖాతా విజయవంతంగా తొలగించబడింది',
   },
+  'Your OneBill account was deleted': {
+    'hi': 'आपका OneBill खाता हटा दिया गया है',
+    'te': 'మీ OneBill ఖాతా తొలగించబడింది',
+  },
+  'The account and its associated cloud data are no longer available. Your device data has been removed from this account.': {
+    'hi':
+        'यह खाता और इससे जुड़ा क्लाउड डेटा अब उपलब्ध नहीं है। आपके डिवाइस से इस खाते का डेटा हटा दिया गया है।',
+    'te':
+        'ఈ ఖాతా మరియు దానికి సంబంధించిన క్లౌడ్ డేటా ఇక అందుబాటులో లేవు. మీ పరికరం నుండి ఈ ఖాతా డేటా తొలగించబడింది.',
+  },
+  'Continue to sign in': {
+    'hi': 'साइन इन करने के लिए आगे बढ़ें',
+    'te': 'సైన్ ఇన్ చేయడానికి కొనసాగండి',
+  },
   'Internet connection is required to delete your account. Please check your network and try again.': {
     'hi':
         'अपना खाता हटाने के लिए इंटरनेट कनेक्शन आवश्यक है। कृपया अपने नेटवर्क की जाँच करें और पुनः प्रयास करें।',

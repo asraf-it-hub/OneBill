@@ -251,4 +251,127 @@ void main() {
     final activeBusinesses = await (db.select(db.businesses)..where((b) => b.deletedAt.isNull())).get();
     expect(activeBusinesses, isEmpty);
   });
+
+  test('PdfInvoiceService generates valid PDF with complex Telugu and Hindi Indic text', () async {
+    final pdfService = PdfInvoiceService();
+    final now = DateTime.now();
+
+    // 1. Telugu Invoice
+    final teluguBusiness = BusinessesData(
+      id: 'biz-te',
+      accountId: 'user-te',
+      name: 'శ్రీ వెంకటేశ్వర స్వామి ట్రేడర్స్',
+      ownerName: 'రామకృష్ణ',
+      phone: '9876543210',
+      address: 'గాంధీ రోడ్డు, విజయవాడ, ఆంధ్రప్రదేశ్',
+      tagline: 'రైతు సోదరులకు నాణ్యమైన ఎరువులు',
+      invoiceNotes: 'సరుకు ఒకసారి విక్రయించిన తర్వాత వాపసు తీసుకోబడదు.',
+      termsAndConditions: 'అన్ని వివాదాలు స్థానిక అధికార పరిధికి లోబడి ఉంటాయి.',
+      preferredLanguage: 'te',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final teluguCustomer = Customer(
+      id: 'cust-te',
+      businessId: 'biz-te',
+      name: 'లక్ష్మీ నారాయణ',
+      phone: '9123456789',
+      notes: 'రైతు బాంధవుడు',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final teluguInvoice = Invoice(
+      id: 'inv-te',
+      businessId: 'biz-te',
+      customerId: 'cust-te',
+      invoiceNumber: 'INV-TE-001',
+      subtotalPaise: 500000,
+      discountPaise: 25000,
+      interestPaise: 0,
+      paidPaise: 200000,
+      notes: 'డెలివరీ పూర్తి అయినది.',
+      issuedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final teluguItems = [
+      InvoiceItem(
+        id: 'item-te-1',
+        invoiceId: 'inv-te',
+        description: 'పొట్టి వరి ధాన్యం బస్తా 50కేజీలు',
+        quantityMilliunits: 2000,
+        unitPricePaise: 250000,
+        lineTotalPaise: 500000,
+        sortOrder: 0,
+      ),
+    ];
+
+    final teluguPdf = await pdfService.generate(
+      business: teluguBusiness,
+      customer: teluguCustomer,
+      invoice: teluguInvoice,
+      items: teluguItems,
+    );
+    expect(String.fromCharCodes(teluguPdf.take(4)), '%PDF');
+    expect(teluguPdf.length, greaterThan(2000));
+
+    // 2. Hindi Invoice
+    final hindiBusiness = BusinessesData(
+      id: 'biz-hi',
+      accountId: 'user-hi',
+      name: 'श्री गणेश किराना एवं जनरल स्टोर',
+      ownerName: 'राजेश कुमार शर्मा',
+      phone: '9876543211',
+      address: 'चांदनी चौक, नई दिल्ली',
+      tagline: 'शुद्धता और विश्वास का प्रतीक',
+      invoiceNotes: 'सामान वापस नहीं होगा। धन्यवाद!',
+      termsAndConditions: 'सभी विवाद दिल्ली न्यायालय के अधीन हैं।',
+      preferredLanguage: 'hi',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final hindiCustomer = Customer(
+      id: 'cust-hi',
+      businessId: 'biz-hi',
+      name: 'अमित कुमार गुप्ता',
+      phone: '9123456780',
+      notes: 'नियमित ग्राहक',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final hindiInvoice = Invoice(
+      id: 'inv-hi',
+      businessId: 'biz-hi',
+      customerId: 'cust-hi',
+      invoiceNumber: 'INV-HI-001',
+      subtotalPaise: 350000,
+      discountPaise: 10000,
+      interestPaise: 0,
+      paidPaise: 340000,
+      notes: 'भुगतान प्राप्त हुआ।',
+      issuedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final hindiItems = [
+      InvoiceItem(
+        id: 'item-hi-1',
+        invoiceId: 'inv-hi',
+        description: 'बासमती चावल प्रीमियम क्वालिटी 10kg',
+        quantityMilliunits: 1000,
+        unitPricePaise: 350000,
+        lineTotalPaise: 350000,
+        sortOrder: 0,
+      ),
+    ];
+
+    final hindiPdf = await pdfService.generate(
+      business: hindiBusiness,
+      customer: hindiCustomer,
+      invoice: hindiInvoice,
+      items: hindiItems,
+    );
+    expect(String.fromCharCodes(hindiPdf.take(4)), '%PDF');
+    expect(hindiPdf.length, greaterThan(2000));
+  });
 }

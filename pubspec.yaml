@@ -57,3 +57,22 @@ flutter:
     - assets/fonts/NotoSans-Bold.ttf
     - assets/fonts/NotoSansTelugu-Regular.ttf
     - assets/fonts/NotoSansTelugu-Bold.ttf
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
+    - assets/fonts/NotoSansDevanagari-Bold.ttf
+
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: NotoSansTelugu
+      fonts:
+        - asset: assets/fonts/NotoSansTelugu-Regular.ttf
+        - asset: assets/fonts/NotoSansTelugu-Bold.ttf
+          weight: 700
+    - family: NotoSansDevanagari
+      fonts:
+        - asset: assets/fonts/NotoSansDevanagari-Regular.ttf
+        - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
+          weight: 700
