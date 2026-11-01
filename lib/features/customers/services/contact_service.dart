@@ -1,7 +1,20 @@
-﻿import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:flutter/services.dart';
+
+class PickedContact {
+  final String name;
+  final String phone;
+
+  const PickedContact({
+    required this.name,
+    required this.phone,
+  });
+}
 
 class ContactService {
   const ContactService();
+
+  static const MethodChannel _contactChannel =
+      MethodChannel('com.onebill.app/contact_picker');
 
   /// Normalizes an Indian/international phone number by stripping formatting characters
   /// and standardizing 10-digit Indian mobile numbers (removing leading +91 or 0).
@@ -15,96 +28,22 @@ class ContactService {
     return digits;
   }
 
-  /// Request read/write contacts permissions when user explicitly taps 'Add from Contacts'.
-  Future<PermissionStatus> requestContactsPermission() async {
-    try {
-      final status = await FlutterContacts.permissions.request(PermissionType.readWrite);
-      if (status == PermissionStatus.granted || status == PermissionStatus.limited) {
-        return status;
-      }
-      // If readWrite was not granted, check if read was granted (Case B: Read granted, Write denied)
-      final readStatus = await FlutterContacts.permissions.check(PermissionType.read);
-      if (readStatus == PermissionStatus.granted || readStatus == PermissionStatus.limited) {
-        return readStatus;
-      }
-      return status;
-    } catch (_) {
-      return PermissionStatus.denied;
-    }
-  }
-
-  /// Check whether read contacts permission is currently granted
-  Future<bool> hasReadPermission() async {
-    try {
-      return await FlutterContacts.permissions.has(PermissionType.read);
-    } catch (_) {
-      return false;
-    }
-  }
-
   /// Open native Android contact picker and retrieve contact with name and phone details
-  Future<Contact?> pickSingleContact() async {
+  /// without requiring any broad READ_CONTACTS or WRITE_CONTACTS permissions.
+  Future<PickedContact?> pickSingleContact() async {
     try {
-      return await FlutterContacts.native.showPicker(
-        properties: {ContactProperty.name, ContactProperty.phone},
-      );
+      final res =
+          await _contactChannel.invokeMapMethod<String, dynamic>('pickContact');
+      if (res != null) {
+        final name = (res['name'] as String? ?? '').trim();
+        final phone = (res['phone'] as String? ?? '').trim();
+        if (name.isNotEmpty || phone.isNotEmpty) {
+          return PickedContact(name: name, phone: phone);
+        }
+      }
+      return null;
     } catch (_) {
       return null;
-    }
-  }
-
-  /// Open app settings if permission is permanently denied
-  Future<void> openAppSettings() async {
-    try {
-      await FlutterContacts.permissions.openSettings();
-    } catch (_) {}
-  }
-
-  /// Optionally save a OneBill customer into Android Phone Contacts.
-  /// Checks for obvious duplicate phone numbers before insertion to prevent clutter.
-  Future<bool> saveContactToPhone({
-    required String name,
-    required String phone,
-  }) async {
-    try {
-      // 1. Check or request write permission
-      var canWrite = await FlutterContacts.permissions.has(PermissionType.readWrite);
-      if (!canWrite) {
-        final req = await FlutterContacts.permissions.request(PermissionType.readWrite);
-        canWrite = req == PermissionStatus.granted || req == PermissionStatus.limited;
-      }
-      if (!canWrite) return false;
-
-      final normalizedNew = normalizePhone(phone);
-      if (normalizedNew.isEmpty) return false;
-
-      // 2. Check for duplicate phone number in existing phone contacts
-      try {
-        final existingContacts = await FlutterContacts.getAll(
-          properties: {ContactProperty.phone},
-        );
-        final alreadyExists = existingContacts.any(
-          (c) => c.phones.any((p) => normalizePhone(p.number) == normalizedNew),
-        );
-        if (alreadyExists) {
-          // Contact with this number is already in phonebook; avoid duplicate
-          return true;
-        }
-      } catch (_) {
-        // If checking existing contacts fails, proceed with safe insert
-      }
-
-      // 3. Create new phone contact
-      final newContact = Contact(
-        name: Name(first: name.trim()),
-        phones: [
-          Phone(number: phone.trim()),
-        ],
-      );
-      await FlutterContacts.create(newContact);
-      return true;
-    } catch (_) {
-      return false;
     }
   }
 }

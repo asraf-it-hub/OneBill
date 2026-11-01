@@ -45,7 +45,16 @@ class ExpenseRepository {
               updatedAt: now,
             ),
           );
-      await _queue(id, businessId, 'ExpenseCreated', now);
+      await _queue(id, businessId, 'ExpenseCreated', now, {
+        'id': id,
+        'businessId': businessId,
+        'amountPaise': amountPaise,
+        'category': category.trim(),
+        'description': description?.trim().isEmpty ?? true ? null : description!.trim(),
+        'expenseDate': expenseDate.toUtc().toIso8601String(),
+        'createdAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
+      });
     });
   }
 
@@ -127,8 +136,9 @@ class ExpenseRepository {
     String id,
     String businessId,
     String type,
-    DateTime now,
-  ) => _db
+    DateTime now, [
+    Map<String, dynamic>? customPayload,
+  ]) => _db
       .into(_db.syncOperations)
       .insert(
         SyncOperationsCompanion.insert(
@@ -137,7 +147,7 @@ class ExpenseRepository {
           entityType: 'expense',
           entityId: id,
           operationType: type,
-          payloadJson: jsonEncode({'expenseId': id}),
+          payloadJson: jsonEncode(customPayload ?? {'expenseId': id}),
           createdAt: now,
         ),
       );

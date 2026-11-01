@@ -19,6 +19,35 @@ import 'package:pdf/widgets.dart' as pw;
 import '../../../core/database/app_database.dart';
 
 class PdfInvoiceService {
+  static pw.Font? _cachedTelugu;
+  static pw.Font? _cachedTeluguBold;
+  static pw.Font? _cachedHindi;
+  static pw.Font? _cachedHindiBold;
+  static pw.Font? _cachedRegular;
+  static pw.Font? _cachedBold;
+  static pw.MemoryImage? _cachedOneBillLogo;
+
+  static Future<void> _ensureAssetsLoaded() async {
+    if (_cachedRegular != null) return;
+    final teluguBytes = await rootBundle.load('assets/fonts/NotoSansTelugu-Regular.ttf');
+    final teluguBoldBytes = await rootBundle.load('assets/fonts/NotoSansTelugu-Bold.ttf');
+    final hindiBytes = await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf');
+    final hindiBoldBytes = await rootBundle.load('assets/fonts/NotoSansDevanagari-Bold.ttf');
+    final regularBytes = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final boldBytes = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+
+    _cachedTelugu = pw.Font.ttf(teluguBytes);
+    _cachedTeluguBold = pw.Font.ttf(teluguBoldBytes);
+    _cachedHindi = pw.Font.ttf(hindiBytes);
+    _cachedHindiBold = pw.Font.ttf(hindiBoldBytes);
+    _cachedRegular = pw.Font.ttf(regularBytes);
+    _cachedBold = pw.Font.ttf(boldBytes);
+
+    try {
+      final logoBytes = await rootBundle.load('assets/OneBillLogo.png');
+      _cachedOneBillLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+    } catch (_) {}
+  }
   pw.MemoryImage? _loadMemoryImage(String? raw) {
     if (raw == null || raw.trim().isEmpty) return null;
     final trimmed = raw.trim();
@@ -129,24 +158,13 @@ class PdfInvoiceService {
     required Invoice invoice,
     required List<InvoiceItem> items,
   }) async {
-    final teluguFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansTelugu-Regular.ttf'),
-    );
-    final teluguBoldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansTelugu-Bold.ttf'),
-    );
-    final hindiFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
-    );
-    final hindiBoldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansDevanagari-Bold.ttf'),
-    );
-    final regularFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
-    );
-    final boldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'),
-    );
+    await _ensureAssetsLoaded();
+    final teluguFont = _cachedTelugu!;
+    final teluguBoldFont = _cachedTeluguBold!;
+    final hindiFont = _cachedHindi!;
+    final hindiBoldFont = _cachedHindiBold!;
+    final regularFont = _cachedRegular!;
+    final boldFont = _cachedBold!;
 
     final document = pw.Document(
       title: invoice.invoiceNumber,
@@ -177,11 +195,7 @@ class PdfInvoiceService {
     final qrImage = _loadMemoryImage(business.paymentQrImage);
 
     // Load OneBill official logo for branding footer
-    pw.MemoryImage? oneBillLogo;
-    try {
-      final logoBytes = await rootBundle.load('assets/OneBillLogo.png');
-      oneBillLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
-    } catch (_) {}
+    final oneBillLogo = _cachedOneBillLogo;
 
     final primaryColor = PdfColor.fromHex('#20B298'); // OneBill Teal
     final darkSlate = PdfColor.fromHex('#1E293B');
@@ -882,24 +896,13 @@ class PdfInvoiceService {
     required Invoice invoice,
     required String paperReceiptImage,
   }) async {
-    final teluguFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansTelugu-Regular.ttf'),
-    );
-    final teluguBoldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansTelugu-Bold.ttf'),
-    );
-    final hindiFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
-    );
-    final hindiBoldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSansDevanagari-Bold.ttf'),
-    );
-    final regularFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
-    );
-    final boldFont = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'),
-    );
+    await _ensureAssetsLoaded();
+    final teluguFont = _cachedTelugu!;
+    final teluguBoldFont = _cachedTeluguBold!;
+    final hindiFont = _cachedHindi!;
+    final hindiBoldFont = _cachedHindiBold!;
+    final regularFont = _cachedRegular!;
+    final boldFont = _cachedBold!;
 
     final document = pw.Document(
       title: 'Receipt_${invoice.invoiceNumber}',
@@ -926,11 +929,7 @@ class PdfInvoiceService {
     final qrImage = _loadMemoryImage(business.paymentQrImage);
     final receiptImage = _loadMemoryImage(paperReceiptImage);
 
-    pw.MemoryImage? oneBillLogo;
-    try {
-      final logoBytes = await rootBundle.load('assets/OneBillLogo.png');
-      oneBillLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
-    } catch (_) {}
+    final oneBillLogo = _cachedOneBillLogo;
 
     final primaryColor = PdfColor.fromHex('#20B298');
     final darkSlate = PdfColor.fromHex('#1E293B');

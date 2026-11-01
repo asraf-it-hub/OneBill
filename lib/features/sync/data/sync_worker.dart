@@ -1055,7 +1055,17 @@ class SyncWorker {
         final c = await (database.select(
           database.customers,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (c != null) payload = _customerPayload(c, expectedVersion: 1);
+        if (c != null && (operation.operationType != 'CustomerCreated' || c.deletedAt == null)) {
+          payload = _customerPayload(c, expectedVersion: 1);
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) payload = Map<String, Object?>.from(raw);
+          } catch (_) {}
+        }
+        if (payload == null && c != null) {
+          payload = _customerPayload(c, expectedVersion: 1);
+        }
         break;
 
       case 'InvoiceCreated':
@@ -1063,7 +1073,18 @@ class SyncWorker {
         final inv = await (database.select(
           database.invoices,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (inv != null) {
+        if (inv != null && (operation.operationType != 'InvoiceCreated' || inv.deletedAt == null)) {
+          final items = await (database.select(
+            database.invoiceItems,
+          )..where((e) => e.invoiceId.equals(entityId))).get();
+          payload = _invoicePayload(inv, items);
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) payload = Map<String, Object?>.from(raw);
+          } catch (_) {}
+        }
+        if (payload == null && inv != null) {
           final items = await (database.select(
             database.invoiceItems,
           )..where((e) => e.invoiceId.equals(entityId))).get();
@@ -1082,7 +1103,14 @@ class SyncWorker {
         final p = await (database.select(
           database.payments,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (p != null) payload = _paymentPayload(p);
+        if (p != null) {
+          payload = {..._paymentPayload(p), 'deletedAt': null};
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) payload = Map<String, Object?>.from(raw);
+          } catch (_) {}
+        }
         break;
 
       case 'PaymentReversed':
@@ -1113,7 +1141,17 @@ class SyncWorker {
         final inc = await (database.select(
           database.incomeEntries,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (inc != null) payload = _incomePayload(inc);
+        if (inc != null && (operation.operationType != 'IncomeCreated' || inc.deletedAt == null)) {
+          payload = _incomePayload(inc);
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) payload = Map<String, Object?>.from(raw);
+          } catch (_) {}
+        }
+        if (payload == null && inc != null) {
+          payload = _incomePayload(inc);
+        }
         break;
 
       case 'ExpenseCreated':
@@ -1122,7 +1160,17 @@ class SyncWorker {
         final exp = await (database.select(
           database.expenses,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (exp != null) payload = _expensePayload(exp);
+        if (exp != null && (operation.operationType != 'ExpenseCreated' || exp.deletedAt == null)) {
+          payload = _expensePayload(exp);
+        } else if (operation.payloadJson.isNotEmpty) {
+          try {
+            final raw = jsonDecode(operation.payloadJson);
+            if (raw is Map) payload = Map<String, Object?>.from(raw);
+          } catch (_) {}
+        }
+        if (payload == null && exp != null) {
+          payload = _expensePayload(exp);
+        }
         break;
 
       case 'PaperReceiptCreated':
@@ -1263,33 +1311,24 @@ class SyncWorker {
   Map<String, Object?> _invoicePayload(
     Invoice invoice,
     List<InvoiceItem> items,
-  ) {
-    String? cloudNotes = invoice.notes;
-    if (invoice.paperReceiptImage != null &&
-        invoice.paperReceiptImage!.trim().isNotEmpty) {
-      const delimiter = '\n---ONEBILL_RECEIPT_IMAGE---\n';
-      cloudNotes = (cloudNotes != null && cloudNotes.trim().isNotEmpty)
-          ? '${cloudNotes.trim()}$delimiter${invoice.paperReceiptImage!.trim()}'
-          : '$delimiter${invoice.paperReceiptImage!.trim()}';
-    }
-    return {
-      'invoice': {
-        'id': invoice.id,
-        'businessId': invoice.businessId,
-        'customerId': invoice.customerId,
-        'invoiceNumber': invoice.invoiceNumber,
-        'issuedAt': invoice.issuedAt.toUtc().toIso8601String(),
-        'dueAt': invoice.dueAt?.toUtc().toIso8601String(),
-        'subtotalPaise': invoice.subtotalPaise,
-        'discountPaise': invoice.discountPaise,
-        'interestPaise': invoice.interestPaise,
-        'paidPaise': invoice.paidPaise,
-        'notes': cloudNotes,
-        'paperReceiptImage': invoice.paperReceiptImage,
-        'createdAt': invoice.createdAt.toUtc().toIso8601String(),
-        'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
-        'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
-      },
+  ) => {
+    'invoice': {
+      'id': invoice.id,
+      'businessId': invoice.businessId,
+      'customerId': invoice.customerId,
+      'invoiceNumber': invoice.invoiceNumber,
+      'issuedAt': invoice.issuedAt.toUtc().toIso8601String(),
+      'dueAt': invoice.dueAt?.toUtc().toIso8601String(),
+      'subtotalPaise': invoice.subtotalPaise,
+      'discountPaise': invoice.discountPaise,
+      'interestPaise': invoice.interestPaise,
+      'paidPaise': invoice.paidPaise,
+      'notes': invoice.notes,
+      'paperReceiptImage': invoice.paperReceiptImage,
+      'createdAt': invoice.createdAt.toUtc().toIso8601String(),
+      'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
+      'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
+    },
       'items': items
           .map(
             (item) => {
@@ -1306,8 +1345,7 @@ class SyncWorker {
             },
           )
           .toList(),
-    };
-  }
+  };
 
   Map<String, Object?> _paymentPayload(Payment payment) => {
     'id': payment.id,

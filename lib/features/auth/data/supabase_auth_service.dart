@@ -38,67 +38,31 @@ class SupabaseAuthService {
 
   Future<void> signIn({required String email, required String password}) async {
     final cleanEmail = email.trim();
-    try {
-      final result = await _client.auth.signInWithPassword(
-        email: cleanEmail,
-        password: password,
-      );
-      if (result.session == null) {
-        throw StateError('Sign-in could not be completed.');
-      }
-    } catch (e) {
-      if (e is AuthException) {
-        final code = e.code?.toLowerCase() ?? '';
-        final msg = e.message.toLowerCase();
-        if (code == 'invalid_credentials' ||
-            code == 'invalid_grant' ||
-            msg.contains('invalid login credentials')) {
-          try {
-            final exists = await _client.rpc(
-              'check_user_exists',
-              params: {'p_email': cleanEmail},
-            );
-            if (exists == false) {
-              throw const AuthException(
-                'User not found',
-                statusCode: '404',
-                code: 'user_not_found',
-              );
-            }
-          } catch (rpcErr) {
-            if (rpcErr is AuthException && rpcErr.code == 'user_not_found') {
-              rethrow;
-            }
-          }
-        }
-      }
-      rethrow;
+    final result = await _client.auth.signInWithPassword(
+      email: cleanEmail,
+      password: password,
+    );
+    if (result.session == null) {
+      throw StateError('Sign-in could not be completed.');
     }
   }
 
   Future<void> resetPassword({required String email}) async {
     final cleanEmail = email.trim();
+    if (cleanEmail.isEmpty) return;
 
-    // 1. Verify user exists in database before dispatching email
+    // OWASP Anti-Enumeration: Verify user silently if RPC exists, but do not
+    // reveal whether the account exists to attackers.
     try {
       final result = await _client.rpc(
         'check_user_exists',
         params: {'p_email': cleanEmail},
       );
       if (result == false) {
-        throw const AuthException(
-          'User not found',
-          statusCode: '404',
-          code: 'user_not_found',
-        );
+        return;
       }
-    } catch (e) {
-      if (e is AuthException && e.code == 'user_not_found') {
-        rethrow;
-      }
-    }
+    } catch (_) {}
 
-    // 2. User exists: send the password reset email
     await _client.auth.resetPasswordForEmail(
       cleanEmail,
       redirectTo: 'https://onebill.pages.dev/reset-password',

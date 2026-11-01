@@ -67,15 +67,28 @@ class NotificationService {
     onNotificationSelect = onSelect;
     tz.initializeTimeZones();
     try {
-      final offsetMs = DateTime.now().timeZoneOffset.inMilliseconds;
-      for (final loc in tz.timeZoneDatabase.locations.values) {
-        if (loc.currentTimeZone.offset == offsetMs) {
-          tz.setLocalLocation(loc);
-          break;
+      final timeZoneName = DateTime.now().timeZoneName;
+      if (tz.timeZoneDatabase.locations.containsKey(timeZoneName)) {
+        tz.setLocalLocation(tz.getLocation(timeZoneName));
+      } else {
+        final offsetMs = DateTime.now().timeZoneOffset.inMilliseconds;
+        bool found = false;
+        for (final loc in tz.timeZoneDatabase.locations.values) {
+          if (loc.currentTimeZone.offset == offsetMs) {
+            tz.setLocalLocation(loc);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          tz.setLocalLocation(tz.UTC);
         }
       }
     } catch (error) {
       _logNotificationError('timezone initialization', error);
+      try {
+        tz.setLocalLocation(tz.UTC);
+      } catch (_) {}
     }
 
     const androidSettings = AndroidInitializationSettings(
@@ -1683,3 +1696,4 @@ class NotificationService {
     return '$sign₹${absolute ~/ 100}.${(absolute % 100).toString().padLeft(2, '0')}';
   }
 }
+

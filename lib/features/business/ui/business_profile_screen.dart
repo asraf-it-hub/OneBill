@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -223,7 +225,6 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
     if (pickedFile == null) return;
 
     final bytes = await pickedFile.readAsBytes();
-    final base64String = 'data:image/png;base64,${base64Encode(bytes)}';
 
     if (!isLogo) {
       final image = await decodeImageFromList(bytes);
@@ -237,11 +238,26 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
       }
     }
 
+    final appDir = await getApplicationDocumentsDirectory();
+    final assetsDir = Directory(p.join(appDir.path, 'business_assets'));
+    if (!await assetsDir.exists()) {
+      await assetsDir.create(recursive: true);
+    }
+    final ext = p.extension(pickedFile.path).isNotEmpty
+        ? p.extension(pickedFile.path)
+        : '.png';
+    final prefix = isLogo ? 'logo' : 'qr';
+    final targetPath = p.join(
+      assetsDir.path,
+      '${prefix}_${DateTime.now().millisecondsSinceEpoch}$ext',
+    );
+    await File(targetPath).writeAsBytes(bytes);
+
     setState(() {
       if (isLogo) {
-        _logoImagePath = base64String;
+        _logoImagePath = targetPath;
       } else {
-        _paymentQrImagePath = base64String;
+        _paymentQrImagePath = targetPath;
       }
     });
   }

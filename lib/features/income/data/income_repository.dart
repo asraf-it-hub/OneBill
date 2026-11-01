@@ -47,7 +47,15 @@ class IncomeRepository {
               updatedAt: now,
             ),
           );
-      await _enqueue(id, businessId, 'IncomeCreated', now);
+      await _enqueue(id, businessId, 'IncomeCreated', now, {
+        'id': id,
+        'businessId': businessId,
+        'amountPaise': amountPaise,
+        'description': description?.trim().isEmpty ?? true ? null : description!.trim(),
+        'incomeDate': incomeDate.toUtc().toIso8601String(),
+        'createdAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
+      });
     });
   }
 
@@ -109,12 +117,33 @@ class IncomeRepository {
     });
   }
 
+  Future<void> restore({required String businessId, required String id}) async {
+    final now = DateTime.now().toUtc();
+    await _database.transaction(() async {
+      final changed = await (_database.update(_database.incomeEntries)..where(
+            (e) =>
+                e.id.equals(id) &
+                e.businessId.equals(businessId) &
+                e.deletedAt.isNotNull(),
+          ))
+          .write(
+            IncomeEntriesCompanion(
+              deletedAt: const Value(null),
+              updatedAt: Value(now),
+            ),
+          );
+      if (changed == 0) throw StateError('Deleted income record not found.');
+      await _enqueue(id, businessId, 'IncomeUpdated', now);
+    });
+  }
+
   Future<void> _enqueue(
     String id,
     String businessId,
     String type,
-    DateTime now,
-  ) => _database
+    DateTime now, [
+    Map<String, dynamic>? customPayload,
+  ]) => _database
       .into(_database.syncOperations)
       .insert(
         SyncOperationsCompanion.insert(
@@ -123,7 +152,7 @@ class IncomeRepository {
           entityType: 'income',
           entityId: id,
           operationType: type,
-          payloadJson: jsonEncode({'incomeId': id}),
+          payloadJson: jsonEncode(customPayload ?? {'incomeId': id}),
           createdAt: now,
         ),
       );

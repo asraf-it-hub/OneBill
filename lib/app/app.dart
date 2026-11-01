@@ -1,5 +1,5 @@
+import 'package:file_picker/file_picker.dart';
 import '../core/ui/app_toast.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
 import '../features/customers/services/contact_service.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -54,9 +54,9 @@ class OneBillApp extends ConsumerWidget {
         session.activeBusinessId != null &&
         session.localeCode.isNotEmpty &&
         (!AppEnvironment.cloudConfigured || authSession != null);
-    final effectiveLang = useSessionLanguage
-        ? session.localeCode
-        : (savedLang.isNotEmpty ? savedLang : 'en');
+    final effectiveLang = savedLang.isNotEmpty
+        ? savedLang
+        : (useSessionLanguage ? session.localeCode : 'en');
     final locale = {'en', 'hi', 'te'}.contains(effectiveLang)
         ? effectiveLang
         : 'en';
@@ -627,7 +627,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           context,
           _tr(
             context,
-            'Password reset instructions have been sent to your email address.',
+            'If an account exists for this email, password reset instructions have been sent.',
           ),
         );
       }
@@ -856,7 +856,7 @@ class _ResetPasswordScreenState extends ConsumerState<_ResetPasswordScreen> {
           Text(
             _tr(
               context,
-              'Password reset instructions have been sent to your email address.',
+              'If an account exists for this email, password reset instructions have been sent.',
             ),
             style: theme.textTheme.bodyMedium?.copyWith(
               fontSize: 13,
@@ -1231,7 +1231,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
           context,
           _tr(
             context,
-            'Password reset instructions have been sent to your email address.',
+            'If an account exists for this email, password reset instructions have been sent.',
           ),
         );
       }
@@ -1257,7 +1257,7 @@ class _AuthScreenState extends ConsumerState<_AuthScreen> {
           context,
           _tr(
             context,
-            'Password reset instructions have been sent to your email address.',
+            'If an account exists for this email, password reset instructions have been sent.',
           ),
         );
       }
@@ -2715,7 +2715,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ref.read(isSigningOutProvider)) {
       return;
     }
-    final ok = await ref.read(securityServiceProvider).authenticateBiometrics();
+    final ok = await ref.read(securityServiceProvider).authenticateBiometrics(
+      reason: _tr(context, 'Authenticate to unlock OneBill'),
+    );
     if (ok && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
       setState(() => _locked = false);
@@ -2843,6 +2845,13 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                 tooltip: _tr(context, 'Language'),
                 onSelected: (code) {
                   ref.read(appLanguageProvider.notifier).setLanguage(code);
+                  final session = ref.read(sessionProvider).valueOrNull;
+                  if (session != null) {
+                    ref.read(businessRepositoryProvider).updateSessionLanguage(
+                      sessionId: session.id,
+                      languageCode: code,
+                    );
+                  }
                 },
                 itemBuilder: (context) => const [
                   PopupMenuItem(value: 'en', child: Text('English')),
@@ -2912,7 +2921,9 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   onPressed: () async {
                     final ok = await ref
                         .read(securityServiceProvider)
-                        .authenticateBiometrics();
+                        .authenticateBiometrics(
+                          reason: _tr(context, 'Authenticate to unlock OneBill'),
+                        );
                     if (ok && mounted) {
                       await ref
                           .read(securityServiceProvider)
@@ -3391,6 +3402,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               onPressed: () => Navigator.pop(dialogContext, 'cancel'),
               child: Text(_tr(dialogContext, 'Cancel')),
             ),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(dialogContext, 'keep'),
+              child: Text(_tr(dialogContext, 'Keep data and sign out')),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, 'sync'),
               child: Text(_tr(dialogContext, 'Sync now')),
@@ -3400,13 +3415,44 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
       );
       if (action == 'cancel' || action == null || !context.mounted) return;
       if (action == 'sync') {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (c) => Center(
+            child: Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                    const SizedBox(width: 16),
+                    Text(_tr(c, 'Syncing...')),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
         for (final businessId in pendingBusinessIds) {
           try {
             await ref
                 .read(syncWorkerProvider)
-                .retryFailedOperations(businessId);
+                .retryFailedOperations(businessId)
+                .timeout(const Duration(seconds: 4));
           } catch (_) {}
         }
+
+        if (context.mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+
         final remaining =
             await (db.select(db.syncOperations)..where(
                   (op) =>
@@ -5426,6 +5472,165 @@ class _ActivityTab extends ConsumerWidget {
   const _ActivityTab({required this.businessId});
   final String businessId;
 
+  String _formatActivityTime(DateTime dt) {
+    final local = dt.toLocal();
+    final hour = local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
+    final amPm = local.hour >= 12 ? 'PM' : 'AM';
+    final min = local.minute.toString().padLeft(2, '0');
+    return '${_date(local)}, $hour:$min $amPm';
+  }
+
+  (String title, String subtitle, IconData icon, Color color) _formatActivity(
+    BuildContext context,
+    SyncOperation op,
+  ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    Map<String, dynamic> payload = {};
+    try {
+      if (op.payloadJson.isNotEmpty) {
+        final decoded = jsonDecode(op.payloadJson);
+        if (decoded is Map<String, dynamic>) {
+          payload = decoded;
+        }
+      }
+    } catch (_) {}
+
+    switch (op.operationType) {
+      case 'InvoiceCreated':
+        String extra = '';
+        if (payload['invoice'] is Map) {
+          final inv = payload['invoice'] as Map;
+          final invNo = inv['invoiceNumber'] ?? '';
+          final total = inv['subtotalPaise'];
+          if (invNo.toString().isNotEmpty) {
+            extra = '#$invNo';
+          }
+          if (total is num && total > 0) {
+            extra = extra.isEmpty ? _rupees(total.toInt()) : '$extra · ${_rupees(total.toInt())}';
+          }
+        }
+        final sub = extra.isEmpty
+            ? _formatActivityTime(op.createdAt)
+            : '$extra · ${_formatActivityTime(op.createdAt)}';
+        return (
+          _tr(context, 'New Invoice Created'),
+          sub,
+          Icons.receipt_long_rounded,
+          isDark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
+        );
+
+      case 'InvoiceVoided':
+        return (
+          _tr(context, 'Invoice Voided'),
+          _formatActivityTime(op.createdAt),
+          Icons.cancel_outlined,
+          isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
+        );
+
+      case 'PaymentRecorded':
+        String extra = '';
+        final amount = payload['amountPaise'];
+        final method = payload['method'] as String?;
+        if (amount is num && amount > 0) {
+          extra = _rupees(amount.toInt());
+        }
+        if (method != null && method.isNotEmpty) {
+          extra = extra.isEmpty ? method : '$extra · $method';
+        }
+        final sub = extra.isEmpty
+            ? _formatActivityTime(op.createdAt)
+            : '$extra · ${_formatActivityTime(op.createdAt)}';
+        return (
+          _tr(context, 'Payment Received'),
+          sub,
+          Icons.payments_rounded,
+          isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+        );
+
+      case 'PaymentReversed':
+        return (
+          _tr(context, 'Payment Reversed'),
+          _formatActivityTime(op.createdAt),
+          Icons.undo_rounded,
+          isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+        );
+
+      case 'CustomerCreated':
+        return (
+          _tr(context, 'New Customer Added'),
+          _formatActivityTime(op.createdAt),
+          Icons.person_add_rounded,
+          isDark ? const Color(0xFFA78BFA) : const Color(0xFF7C3AED),
+        );
+
+      case 'CustomerUpdated':
+        return (
+          _tr(context, 'Customer Updated'),
+          _formatActivityTime(op.createdAt),
+          Icons.person_outline_rounded,
+          isDark ? const Color(0xFF2DD4BF) : const Color(0xFF0D9488),
+        );
+
+      case 'CustomerArchived':
+        return (
+          _tr(context, 'Customer Archived'),
+          _formatActivityTime(op.createdAt),
+          Icons.archive_outlined,
+          theme.colorScheme.outline,
+        );
+
+      case 'IncomeCreated':
+        String extra = '';
+        final amount = payload['amountPaise'];
+        if (amount is num && amount > 0) {
+          extra = _rupees(amount.toInt());
+        }
+        final sub = extra.isEmpty
+            ? _formatActivityTime(op.createdAt)
+            : '$extra · ${_formatActivityTime(op.createdAt)}';
+        return (
+          _tr(context, 'Income Recorded'),
+          sub,
+          Icons.trending_up_rounded,
+          isDark ? const Color(0xFF34D399) : const Color(0xFF10B981),
+        );
+
+      case 'ExpenseCreated':
+        String extra = '';
+        final amount = payload['amountPaise'];
+        if (amount is num && amount > 0) {
+          extra = _rupees(amount.toInt());
+        }
+        final sub = extra.isEmpty
+            ? _formatActivityTime(op.createdAt)
+            : '$extra · ${_formatActivityTime(op.createdAt)}';
+        return (
+          _tr(context, 'Expense Recorded'),
+          sub,
+          Icons.trending_down_rounded,
+          isDark ? const Color(0xFFFB923C) : const Color(0xFFEA580C),
+        );
+
+      case 'BusinessProfileUpdated':
+        return (
+          _tr(context, 'Business Profile Updated'),
+          _formatActivityTime(op.createdAt),
+          Icons.storefront_rounded,
+          isDark ? const Color(0xFF818CF8) : const Color(0xFF4F46E5),
+        );
+
+      default:
+        return (
+          op.operationType,
+          _formatActivityTime(op.createdAt),
+          Icons.history_rounded,
+          theme.colorScheme.primary,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final operations = ref.watch(syncOperationsProvider(businessId));
@@ -5449,26 +5654,94 @@ class _ActivityTab extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final item = items[index];
                 final status = item.status;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: Icon(
-                      status == 'synced'
-                          ? Icons.cloud_done_outlined
-                          : Icons.pending_actions,
-                    ),
-                    title: Text(item.operationType),
-                    subtitle: Text(
-                      '${item.entityType} • ${item.createdAt.toLocal()}',
-                    ),
-                    trailing: Text(
-                      status,
-                      style: TextStyle(
-                        color: status.startsWith('failed')
-                            ? Theme.of(context).colorScheme.error
-                            : null,
+                final (title, subtitle, icon, color) = _formatActivity(context, item);
+
+                Widget trailingWidget;
+                if (status == 'synced') {
+                  trailingWidget = Tooltip(
+                    message: _tr(context, 'Synced to cloud'),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.cloud_done_rounded,
+                        color: Color(0xFF059669),
+                        size: 18,
                       ),
                     ),
+                  );
+                } else if (status.startsWith('failed')) {
+                  trailingWidget = Tooltip(
+                    message: _tr(context, 'Sync error'),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.cloud_off_rounded,
+                        color: Color(0xFFDC2626),
+                        size: 18,
+                      ),
+                    ),
+                  );
+                } else {
+                  trailingWidget = Tooltip(
+                    message: _tr(context, 'Saved locally · Waiting to sync'),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.cloud_upload_outlined,
+                        color: Color(0xFFD97706),
+                        size: 18,
+                      ),
+                    ),
+                  );
+                }
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  elevation: 0.5,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(icon, color: color, size: 22),
+                    ),
+                    title: Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    trailing: trailingWidget,
                   ),
                 );
               },
@@ -5618,13 +5891,6 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
 
   Future<List<_RecycleRecord>> _load() async {
     final db = ref.read(databaseProvider);
-    final expenses =
-        await (db.select(db.expenses)..where(
-              (e) =>
-                  e.businessId.equals(widget.businessId) &
-                  e.deletedAt.isNotNull(),
-            ))
-            .get();
     final customers =
         await (db.select(db.customers)..where(
               (e) =>
@@ -5632,25 +5898,67 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
                   e.deletedAt.isNotNull(),
             ))
             .get();
+    final invoices =
+        await (db.select(db.invoices)..where(
+              (e) =>
+                  e.businessId.equals(widget.businessId) &
+                  e.deletedAt.isNotNull(),
+            ))
+            .get();
+    final expenses =
+        await (db.select(db.expenses)..where(
+              (e) =>
+                  e.businessId.equals(widget.businessId) &
+                  e.deletedAt.isNotNull(),
+            ))
+            .get();
+    final income =
+        await (db.select(db.incomeEntries)..where(
+              (e) =>
+                  e.businessId.equals(widget.businessId) &
+                  e.deletedAt.isNotNull(),
+            ))
+            .get();
+
     return [
       ...customers.map(
         (c) => _RecycleRecord(
           c.id,
-          'Customer: ${c.name}',
+          '${_tr(context, 'Customer')}: ${c.name}',
           c.phone,
           () => ref
               .read(customerRepositoryProvider)
               .restore(businessId: widget.businessId, customerId: c.id),
         ),
       ),
+      ...invoices.map(
+        (inv) => _RecycleRecord(
+          inv.id,
+          '${_tr(context, 'Invoice')} #${inv.invoiceNumber}',
+          _rupees(inv.subtotalPaise - inv.discountPaise + inv.interestPaise),
+          () => ref
+              .read(invoiceRepositoryProvider)
+              .restoreInvoice(businessId: widget.businessId, invoiceId: inv.id),
+        ),
+      ),
       ...expenses.map(
         (e) => _RecycleRecord(
           e.id,
-          'Expense: ₹${(e.amountPaise / 100).toStringAsFixed(2)}',
+          '${_tr(context, 'Expense')}: ${_rupees(e.amountPaise)}',
           e.category,
           () => ref
               .read(expenseRepositoryProvider)
               .restore(businessId: widget.businessId, id: e.id),
+        ),
+      ),
+      ...income.map(
+        (inc) => _RecycleRecord(
+          inc.id,
+          '${_tr(context, 'Income')}: ${_rupees(inc.amountPaise)}',
+          inc.description ?? '',
+          () => ref
+              .read(incomeRepositoryProvider)
+              .restore(businessId: widget.businessId, id: inc.id),
         ),
       ),
     ];
@@ -5670,7 +5978,7 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
           title: _tr(context, 'Recycle bin is empty'),
           message: _tr(
             context,
-            'Deleted customers and expenses will appear here.',
+            'Deleted items will appear here.',
           ),
         );
       }
@@ -6086,52 +6394,65 @@ class _CustomersTabState extends ConsumerState<_CustomersTab> {
                       (customer.email?.toLowerCase().contains(query) ?? false),
                 )
                 .toList();
-      return ListView(
-        padding: const EdgeInsets.all(16),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              labelText: _tr(context, 'Search customers'),
-              hintText: _tr(context, 'Name, mobile, or email'),
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        _search.clear();
-                        setState(() {});
-                      },
-                      icon: const Icon(Icons.clear),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    labelText: _tr(context, 'Search customers'),
+                    hintText: _tr(context, 'Name, mobile, or email'),
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            onPressed: () {
+                              _search.clear();
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.clear),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  query.isEmpty
+                      ? '${items.length} ${_tr(context, items.length == 1 ? 'customer' : 'customers')}'
+                      : '${filtered.length} ${_tr(context, filtered.length == 1 ? 'result' : 'results')}',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? const SingleChildScrollView(
+                    padding: EdgeInsets.all(16),
+                    child: _NoCustomerSearchResults(),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: index == filtered.length - 1 ? 0 : 8,
+                      ),
+                      child: _CustomerListItem(
+                        businessId: widget.businessId,
+                        customer: filtered[index],
+                      ),
                     ),
-            ),
+                  ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            query.isEmpty
-                ? '${items.length} ${_tr(context, items.length == 1 ? 'customer' : 'customers')}'
-                : '${filtered.length} ${_tr(context, filtered.length == 1 ? 'result' : 'results')}',
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
-          const SizedBox(height: 8),
-          if (filtered.isEmpty)
-            const _NoCustomerSearchResults()
-          else
-            ...List.generate(
-              filtered.length,
-              (index) => Padding(
-                padding: EdgeInsets.only(
-                  bottom: index == filtered.length - 1 ? 0 : 8,
-                ),
-                child: _CustomerListItem(
-                  businessId: widget.businessId,
-                  customer: filtered[index],
-                ),
-              ),
-            ),
         ],
       );
     },
@@ -6252,6 +6573,199 @@ class _BusinessSettingsSheetState
     extends ConsumerState<_BusinessSettingsSheet> {
   late String _language;
   bool _saving = false;
+
+  Future<void> _handleExportBackup(BuildContext context, WidgetRef ref) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dlgCtx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  _tr(context, 'Exporting backup...'),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final backupService = ref.read(backupServiceProvider);
+      final file = await backupService.exportToFile(
+        widget.business.id,
+        businessName: widget.business.name,
+      );
+
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile(file.path, mimeType: 'application/json', name: 'OneBill_Backup_${widget.business.name}.json'),
+          ],
+          title: 'OneBill Backup - ${widget.business.name}',
+          text: 'OneBill business backup for ${widget.business.name}',
+        ),
+      );
+
+      if (context.mounted) {
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Backup exported successfully'),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        AppToast.showError(
+          context,
+          _cleanErrorMessage(e, 'Could not export backup'),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleRestoreBackup(BuildContext context, WidgetRef ref) async {
+    bool dialogShown = false;
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result.isEmpty || result.first.path == null) {
+        return;
+      }
+
+      final file = File(result.first.path!);
+      final jsonStr = await file.readAsString();
+
+      final backupService = ref.read(backupServiceProvider);
+      final validation = backupService.validateBackup(jsonStr);
+
+      if (!context.mounted) return;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(_tr(ctx, 'Restore from this backup?')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${_tr(ctx, 'Business')}: ${validation.businessName}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (validation.exportedAt != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '${_tr(ctx, 'Date')}: ${_date(validation.exportedAt!)}',
+                  style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
+                ),
+              ],
+              const Divider(height: 24),
+              Text('• ${validation.customersCount} ${_tr(ctx, 'Customers')}'),
+              Text(
+                '• ${validation.invoicesCount} ${_tr(ctx, 'Invoices')} (${validation.invoiceItemsCount} ${_tr(ctx, 'items')})',
+              ),
+              Text('• ${validation.paymentsCount} ${_tr(ctx, 'Customer Payments')}'),
+              Text('• ${validation.incomeCount} ${_tr(ctx, 'Owner Manual Income')}'),
+              Text('• ${validation.expensesCount} ${_tr(ctx, 'Expenses')}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(_tr(ctx, 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(_tr(ctx, 'Restore Data')),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true || !context.mounted) return;
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dlgCtx) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    _tr(context, 'Restoring backup...'),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      dialogShown = true;
+
+      await backupService.restoreBusiness(
+        targetBusinessId: widget.business.id,
+        jsonStr: jsonStr,
+      );
+
+      ref.invalidate(sessionProvider);
+      ref.invalidate(customersProvider);
+      ref.invalidate(customerInvoicesProvider);
+      ref.invalidate(businessBillingSummaryProvider);
+      ref.invalidate(incomeEntriesProvider);
+      ref.invalidate(expensesProvider);
+      ref.invalidate(syncOperationsProvider);
+
+      try {
+        ref.read(syncWorkerProvider).syncBusiness(widget.business.id);
+      } catch (_) {}
+
+      if (context.mounted) {
+        if (dialogShown) {
+          Navigator.of(context, rootNavigator: true).pop();
+          dialogShown = false;
+        }
+        AppToast.showSuccess(
+          context,
+          _tr(context, 'Backup restored successfully'),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        if (dialogShown) {
+          Navigator.of(context, rootNavigator: true).pop();
+          dialogShown = false;
+        }
+        AppToast.showError(
+          context,
+          _cleanErrorMessage(e, _tr(context, 'Invalid backup file')),
+        );
+      }
+    } finally {
+      if (dialogShown && context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -6724,6 +7238,58 @@ class _BusinessSettingsSheetState
                         _SyncQueueSheet(businessId: widget.business.id),
                   );
                 },
+              ),
+            ),
+            Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
+                ),
+              ),
+              child: ListTile(
+                leading: Icon(
+                  Icons.upload_file_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                title: Text(_tr(context, 'Export Business Backup')),
+                subtitle: Text(
+                  _tr(
+                    context,
+                    'Export all customers, invoices, and accounting records',
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _handleExportBackup(context, ref),
+              ),
+            ),
+            Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
+                ),
+              ),
+              child: ListTile(
+                leading: Icon(
+                  Icons.settings_backup_restore_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                title: Text(_tr(context, 'Restore from Backup')),
+                subtitle: Text(
+                  _tr(
+                    context,
+                    'Restore data from a previously exported OneBill backup file',
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _handleRestoreBackup(context, ref),
               ),
             ),
 
@@ -7893,6 +8459,11 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         await ref
             .read(notificationServiceProvider)
             .notifyInvoiceSentShared(invoice, customer);
+        Future.delayed(const Duration(minutes: 3), () async {
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        });
       }
     } catch (error) {
       if (context.mounted) {
@@ -7954,6 +8525,11 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
         await ref
             .read(notificationServiceProvider)
             .notifyPaperReceiptShared(invoice, customer);
+        Future.delayed(const Duration(minutes: 3), () async {
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        });
       }
     } catch (error) {
       if (context.mounted) {
@@ -8964,6 +9540,11 @@ class _EditInvoiceDetailsSheetState
       return;
     }
     try {
+      final directFile = File(_paperReceiptImage!);
+      if (directFile.existsSync()) {
+        if (mounted) setState(() => _paperReceiptFile = directFile);
+        return;
+      }
       final appDir = await getApplicationDocumentsDirectory();
       final receiptsDir = Directory('${appDir.path}/receipts');
       final localFile = File(
@@ -8994,7 +9575,6 @@ class _EditInvoiceDetailsSheetState
       );
       if (picked != null && mounted) {
         final bytes = await picked.readAsBytes();
-        final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
@@ -9007,12 +9587,12 @@ class _EditInvoiceDetailsSheetState
           await localFile.writeAsBytes(bytes);
           setState(() {
             _paperReceiptFile = localFile;
-            _paperReceiptImage = base64String;
+            _paperReceiptImage = localFile.path;
           });
         } catch (_) {
           setState(() {
             _paperReceiptFile = File(picked.path);
-            _paperReceiptImage = base64String;
+            _paperReceiptImage = picked.path;
           });
         }
       }
@@ -9095,12 +9675,18 @@ class _EditInvoiceDetailsSheetState
   }
 
   Widget _buildReceiptThumbnail(String raw) {
-    try {
-      final base64Data = raw.contains(',') ? raw.split(',').last : raw;
-      return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
-    } catch (_) {
-      return const Icon(Icons.receipt_long, size: 28);
+    final trimmed = raw.trim();
+    if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
+      try {
+        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
+      } catch (_) {}
     }
+    final file = File(trimmed);
+    if (file.existsSync()) {
+      return Image.file(file, fit: BoxFit.cover);
+    }
+    return const Icon(Icons.receipt_long, size: 28);
   }
 
   Future<void> _loadItems() async {
@@ -10292,7 +10878,6 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
       );
       if (picked != null && mounted) {
         final bytes = await picked.readAsBytes();
-        final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
         try {
           final appDir = await getApplicationDocumentsDirectory();
           final receiptsDir = Directory('${appDir.path}/receipts');
@@ -10305,12 +10890,12 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
           await localFile.writeAsBytes(bytes);
           setState(() {
             _paperReceiptFile = localFile;
-            _paperReceiptImage = base64String;
+            _paperReceiptImage = localFile.path;
           });
         } catch (_) {
           setState(() {
             _paperReceiptFile = File(picked.path);
-            _paperReceiptImage = base64String;
+            _paperReceiptImage = picked.path;
           });
         }
       }
@@ -10393,12 +10978,18 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
   }
 
   Widget _buildReceiptThumbnail(String raw) {
-    try {
-      final base64Data = raw.contains(',') ? raw.split(',').last : raw;
-      return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
-    } catch (_) {
-      return const Icon(Icons.receipt_long, size: 28);
+    final trimmed = raw.trim();
+    if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
+      try {
+        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
+      } catch (_) {}
     }
+    final file = File(trimmed);
+    if (file.existsSync()) {
+      return Image.file(file, fit: BoxFit.cover);
+    }
+    return const Icon(Icons.receipt_long, size: 28);
   }
 
   Future<void> _save() async {
@@ -11326,16 +11917,10 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
         return;
       }
 
-      final displayName = contact.displayName?.trim() ?? '';
-      final firstName = contact.name?.first?.trim() ?? '';
-      final lastName = contact.name?.last?.trim() ?? '';
-      final fullName = '$firstName $lastName'.trim();
-      final name = displayName.isNotEmpty ? displayName : fullName;
+      final name = contact.name.trim();
+      final chosenNumber = contact.phone.trim();
 
-      final phones = contact.phones;
-      String chosenNumber = '';
-
-      if (phones.isEmpty) {
+      if (chosenNumber.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -11344,16 +11929,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
             ),
           );
         }
-      } else if (phones.length == 1) {
-        chosenNumber = phones.first.number;
-      } else {
-        final selected = await showModalBottomSheet<String>(
-          context: context,
-          builder: (ctx) =>
-              _SelectPhoneNumberSheet(contactName: name, phones: phones),
-        );
-        if (!mounted || selected == null) return;
-        chosenNumber = selected;
       }
 
       final normalized = ContactService.normalizePhone(chosenNumber);
@@ -11432,11 +12007,11 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
     await Future.delayed(const Duration(milliseconds: 1200));
 
     final normalized = ContactService.normalizePhone(_phone.text);
-    if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(normalized)) {
+    if (!RegExp(r'^[0-9]{7,15}$').hasMatch(normalized)) {
       if (mounted) {
         setState(() {
           _verifyingPhone = false;
-          _phoneError = 'Enter a valid 10-digit Indian mobile number (6-9xxxx)';
+          _phoneError = _tr(context, 'Enter a valid phone number (7 to 15 digits).');
         });
       }
       return;
@@ -11675,80 +12250,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
   }
 }
 
-class _SelectPhoneNumberSheet extends StatelessWidget {
-  const _SelectPhoneNumberSheet({
-    required this.contactName,
-    required this.phones,
-  });
-
-  final String contactName;
-  final List<Phone> phones;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _tr(context, 'Select a phone number'),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (contactName.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          contactName,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            ...phones.map((phone) {
-              final label = (phone.label.customLabel ?? phone.label.label.name)
-                  .toUpperCase();
-              return ListTile(
-                leading: const Icon(Icons.phone_outlined),
-                title: Text(
-                  phone.number,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(label),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                onTap: () => Navigator.pop(context, phone.number),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _EmptyCustomers extends StatelessWidget {
   const _EmptyCustomers();
@@ -11807,9 +12308,9 @@ String? _passwordValidator(String? value) =>
 String? _phoneValidator(String? value) {
   if (value == null || value.trim().isEmpty) return null;
   final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
-  return RegExp(r'^[6-9][0-9]{9}$').hasMatch(digits)
+  return RegExp(r'^[0-9]{7,15}$').hasMatch(digits)
       ? null
-      : 'Enter a valid 10-digit Indian mobile number.';
+      : 'Enter a valid phone number (7 to 15 digits).';
 }
 
 String? _amountValidator(String? value) {
@@ -12188,3 +12689,5 @@ class _OverdueInvoiceCard extends ConsumerWidget {
     );
   }
 }
+
+

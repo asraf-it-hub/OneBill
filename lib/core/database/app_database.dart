@@ -298,20 +298,50 @@ class AppDatabase extends _$AppDatabase {
         ''');
       }
       if (from < 16) {
-        await customStatement(
-          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_enabled',
-        );
-        await customStatement(
-          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_start',
-        );
-        await customStatement(
-          'ALTER TABLE notification_settings DROP COLUMN quiet_hours_end',
-        );
+        try {
+          await customStatement(
+            'ALTER TABLE notification_settings DROP COLUMN quiet_hours_enabled',
+          );
+        } catch (_) {}
+        try {
+          await customStatement(
+            'ALTER TABLE notification_settings DROP COLUMN quiet_hours_start',
+          );
+        } catch (_) {}
+        try {
+          await customStatement(
+            'ALTER TABLE notification_settings DROP COLUMN quiet_hours_end',
+          );
+        } catch (_) {}
       }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON;');
       await customStatement('PRAGMA journal_mode = WAL;');
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_invoices_biz_cust ON invoices (business_id, customer_id);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_invoices_biz_issued ON invoices (business_id, issued_at);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_invoice_items_inv ON invoice_items (invoice_id);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_payments_biz_inv ON payments (business_id, invoice_id);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_income_biz_date ON income_entries (business_id, income_date);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_expenses_biz_date ON expenses (business_id, expense_date);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_sync_biz_status ON sync_operations (business_id, status);',
+      );
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_customers_biz_name ON customers (business_id, name);',
+      );
     },
   );
 
@@ -394,3 +424,4 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 }
+

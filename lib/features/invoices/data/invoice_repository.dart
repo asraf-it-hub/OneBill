@@ -363,6 +363,41 @@ class InvoiceRepository {
     });
   }
 
+  Future<void> restoreInvoice({
+    required String businessId,
+    required String invoiceId,
+  }) async {
+    final now = DateTime.now().toUtc();
+    await _database.transaction(() async {
+      final invoice = await (_database.select(_database.invoices)..where(
+            (entry) =>
+                entry.id.equals(invoiceId) &
+                entry.businessId.equals(businessId) &
+                entry.deletedAt.isNotNull(),
+          ))
+          .getSingleOrNull();
+      if (invoice == null) {
+        throw StateError('Deleted invoice not found in the active business.');
+      }
+      await (_database.update(
+        _database.invoices,
+      )..where((entry) => entry.id.equals(invoiceId))).write(
+        InvoicesCompanion(deletedAt: const Value(null), updatedAt: Value(now)),
+      );
+      await _database.into(_database.syncOperations).insert(
+        SyncOperationsCompanion.insert(
+          id: _uuid.v4(),
+          businessId: Value(businessId),
+          entityType: 'invoice',
+          entityId: invoiceId,
+          operationType: 'InvoiceUpdated',
+          payloadJson: jsonEncode({'invoiceId': invoiceId}),
+          createdAt: now,
+        ),
+      );
+    });
+  }
+
   Future<void> voidInvoice({
     required String businessId,
     required String invoiceId,

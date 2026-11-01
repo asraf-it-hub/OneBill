@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -33,11 +34,13 @@ class SecurityService {
       List<int>.generate(16, (_) => Random.secure().nextInt(256)),
     );
     await _storage.write(key: _pinSaltKey, value: salt);
+    final saltBytes = base64Url.decode(salt);
+    final hashBytes = await Isolate.run(
+      () => _pbkdf2(pin, saltBytes, _kdfIterations),
+    );
     await _storage.write(
       key: _pinHashKey,
-      value: base64UrlEncode(
-        _pbkdf2(pin, base64Url.decode(salt), _kdfIterations),
-      ),
+      value: base64UrlEncode(hashBytes),
     );
     await _storage.write(key: _kdfKey, value: 'pbkdf2-sha256-$_kdfIterations');
     await _storage.write(key: _pinLengthKey, value: pin.length.toString());
@@ -66,17 +69,22 @@ class SecurityService {
     final hash = await _storage.read(key: _pinHashKey);
     if (salt != null && hash != null) {
       final kdf = await _storage.read(key: _kdfKey);
-      final valid = kdf == null
-          ? _constantTimeEquals(
-              sha256.convert(utf8.encode('$salt:$pin')).toString(),
-              hash,
-            )
-          : _constantTimeEquals(
-              base64UrlEncode(
-                _pbkdf2(pin, base64Url.decode(salt), _kdfIterations),
-              ),
-              hash,
-            );
+      bool valid;
+      if (kdf == null) {
+        valid = _constantTimeEquals(
+          sha256.convert(utf8.encode('$salt:$pin')).toString(),
+          hash,
+        );
+      } else {
+        final saltBytes = base64Url.decode(salt);
+        final calculatedBytes = await Isolate.run(
+          () => _pbkdf2(pin, saltBytes, _kdfIterations),
+        );
+        valid = _constantTimeEquals(
+          base64UrlEncode(calculatedBytes),
+          hash,
+        );
+      }
       if (valid) {
         if (kdf == null) await setPin(pin);
         await _resetPinFailures();
@@ -128,7 +136,7 @@ class SecurityService {
     await _storage.delete(key: _lockedUntilKey);
   }
 
-  List<int> _pbkdf2(String pin, List<int> salt, int iterations) {
+  static List<int> _pbkdf2(String pin, List<int> salt, int iterations) {
     final mac = Hmac(sha256, utf8.encode(pin));
     final first = mac.convert([...salt, 0, 0, 0, 1]).bytes;
     final output = List<int>.from(first);

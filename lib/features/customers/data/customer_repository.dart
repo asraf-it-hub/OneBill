@@ -25,10 +25,7 @@ class CustomerRepository {
     String? email,
     String? notes,
   }) async {
-    final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(normalizedPhone)) {
-      throw ArgumentError('Enter a valid 10-digit Indian mobile number.');
-    }
+    final normalizedPhone = _normalizedPhone(phone);
     final existing =
         await (_database.select(_database.customers)..where(
               (c) =>
@@ -72,7 +69,17 @@ class CustomerRepository {
               entityType: 'customer',
               entityId: id,
               operationType: 'CustomerCreated',
-              payloadJson: jsonEncode({'customerId': id}),
+              payloadJson: jsonEncode({
+                'id': id,
+                'businessId': businessId,
+                'name': name.trim(),
+                'phone': normalizedPhone,
+                'email': email?.trim().isEmpty ?? true ? null : email!.trim(),
+                'notes': notes?.trim().isEmpty ?? true ? null : notes!.trim(),
+                'createdAt': now.toIso8601String(),
+                'updatedAt': now.toIso8601String(),
+                'expectedVersion': 1,
+              }),
               createdAt: now,
             ),
           );
@@ -203,12 +210,11 @@ class CustomerRepository {
 
   String _normalizedPhone(String phone) {
     final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(normalizedPhone)) {
-      throw ArgumentError('Enter a valid 10-digit Indian mobile number.');
+    if (!RegExp(r'^[0-9]{7,15}$').hasMatch(normalizedPhone)) {
+      throw ArgumentError('Enter a valid phone number (7 to 15 digits).');
     }
     return normalizedPhone;
   }
-
   String? _blankToNull(String? value) =>
       value == null || value.trim().isEmpty ? null : value.trim();
 
