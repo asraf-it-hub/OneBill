@@ -11,11 +11,17 @@ class BusinessRepository {
   final AppDatabase _database;
   static const _uuid = Uuid();
 
-  Stream<LocalSession?> watchSession() =>
-      (_database.select(_database.localSessions)
-            ..orderBy([(session) => OrderingTerm.desc(session.updatedAt)])
-            ..limit(1))
-          .watchSingleOrNull();
+  Stream<LocalSession?> watchSession() {
+    final query = _database.select(_database.localSessions);
+    final activeUser = _currentUser;
+    if (activeUser != null) {
+      query.where((session) => session.accountId.equals(activeUser.id));
+    }
+    return (query
+          ..orderBy([(session) => OrderingTerm.desc(session.updatedAt)])
+          ..limit(1))
+        .watchSingleOrNull();
+  }
 
   User? get _currentUser {
     try {
@@ -75,9 +81,11 @@ class BusinessRepository {
               updatedAt: now,
             ),
           );
-      final existingSessions = await (_database.select(
-        _database.localSessions,
-      )..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])).get();
+      final existingSessions =
+          await (_database.select(_database.localSessions)
+                ..where((s) => s.accountId.equals(effectiveAccountId))
+                ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+              .get();
 
       if (existingSessions.isNotEmpty) {
         final mainSession = existingSessions.first;
@@ -205,7 +213,9 @@ class BusinessRepository {
               updatedAt: now,
             ),
           );
-      final sessions = await _database.select(_database.localSessions).get();
+      final sessions = await (_database.select(
+        _database.localSessions,
+      )..where((s) => s.accountId.equals(effectiveAccountId))).get();
       for (final s in sessions) {
         if (s.accountId != effectiveAccountId) {
           await (_database.update(
@@ -432,9 +442,11 @@ class BusinessRepository {
                 ..orderBy([(b) => OrderingTerm.asc(b.name)]))
               .get();
 
-      final allSessions = await (_database.select(
-        _database.localSessions,
-      )..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])).get();
+      final allSessions =
+          await (_database.select(_database.localSessions)
+                ..where((s) => s.accountId.equals(business.accountId))
+                ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+              .get();
 
       final String? nextId = remainingBusinesses.isNotEmpty
           ? remainingBusinesses.first.id

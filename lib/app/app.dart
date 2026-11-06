@@ -170,12 +170,44 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
   StreamSubscription<AuthState>? _authSub;
   bool _hadAuthenticatedSession = false;
   bool _checkingUnexpectedSignOut = false;
+  String? _validatedUserId;
+  String? _restoringUserId;
 
   @override
   void initState() {
     super.initState();
     _checkDanglingRecoverySession();
     _setupDeepLinks();
+    if (AppEnvironment.cloudConfigured) {
+      final currentSession = Supabase.instance.client.auth.currentSession;
+      if (currentSession != null) {
+        unawaited(_restoreForUser(currentSession.user.id));
+      }
+    }
+  }
+
+  Future<void> _restoreForUser(String userId) async {
+    if (_validatedUserId == userId || _restoringUserId == userId) return;
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    if (currentUserId != userId) return;
+
+    if (mounted) setState(() => _restoringUserId = userId);
+    try {
+      await ref.read(syncWorkerProvider).restoreAccount(expectedUserId: userId);
+      if (Supabase.instance.client.auth.currentUser?.id == userId) {
+        ref.invalidate(sessionProvider);
+        if (mounted) {
+          setState(() {
+            _validatedUserId = userId;
+            _restoringUserId = null;
+          });
+        }
+      }
+    } catch (_) {
+      // restoreAccount keeps local data available when the network is down.
+      // Do not expose a session unless the account-specific restore completed.
+      if (mounted) setState(() => _restoringUserId = null);
+    }
   }
 
   Future<void> _checkDanglingRecoverySession() async {
@@ -225,16 +257,23 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
         if (data.event == AuthChangeEvent.signedIn ||
             data.event == AuthChangeEvent.initialSession) {
-          if (data.session != null) _hadAuthenticatedSession = true;
-          // Auth callbacks can arrive just after the sign-in form continues.
-          // Restore again once Supabase has committed the session so an old
-          // local business row cannot hide the current cloud profile.
-          unawaited(ref.read(syncWorkerProvider).restoreAccount());
+          final userId = data.session?.user.id;
+          if (userId != null) {
+            _hadAuthenticatedSession = true;
+            // Auth callbacks can arrive just after the sign-in form continues.
+            // Keep the startup gate closed until this UID's local session has
+            // been restored and its active business has been validated.
+            unawaited(_restoreForUser(userId));
+          }
         }
         // A remote account deletion invalidates the cached refresh token. The
         // SDK emits signedOut while the app may still have the old local
         // workspace. Keep the selected language and explain what happened
         // before presenting the sign-in screen.
+        if (data.event == AuthChangeEvent.signedOut) {
+          _validatedUserId = null;
+          _restoringUserId = null;
+        }
         if (data.event == AuthChangeEvent.signedOut &&
             _hadAuthenticatedSession &&
             !ref.read(isSigningOutProvider)) {
@@ -356,6 +395,11 @@ class _StartupGateState extends ConsumerState<_StartupGate> {
     if (AppEnvironment.cloudConfigured) {
       if (auth.isLoading) return const _LoadingScreen();
       if (auth.valueOrNull == null) return const _AuthScreen();
+      final authenticatedUserId = auth.valueOrNull!.user.id;
+      if (_validatedUserId != authenticatedUserId ||
+          _restoringUserId == authenticatedUserId) {
+        return const _LoadingScreen();
+      }
     }
     return ref
         .watch(sessionProvider)
@@ -2125,7 +2169,10 @@ class _WorkspaceSetupScreenState extends ConsumerState<_WorkspaceSetupScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _cleanErrorMessage(error, 'Could not create workspace'),
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not create workspace'),
+              ),
             ),
           ),
         );
@@ -2715,9 +2762,11 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ref.read(isSigningOutProvider)) {
       return;
     }
-    final ok = await ref.read(securityServiceProvider).authenticateBiometrics(
-      reason: _tr(context, 'Authenticate to unlock OneBill'),
-    );
+    final ok = await ref
+        .read(securityServiceProvider)
+        .authenticateBiometrics(
+          reason: _tr(context, 'Authenticate to unlock OneBill'),
+        );
     if (ok && mounted && !_isSigningOut && !ref.read(isSigningOutProvider)) {
       await ref.read(securityServiceProvider).markAuthenticated();
       setState(() => _locked = false);
@@ -2803,7 +2852,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${_tr(context, "Business deleted:")} ${business.name}',
+              '${_tr(context, "Business moved to recycle bin:")} ${business.name}',
             ),
           ),
         );
@@ -2818,7 +2867,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _cleanErrorMessage(error, 'Could not delete business'),
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not delete business'),
+              ),
             ),
           ),
         );
@@ -2847,10 +2899,12 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                   ref.read(appLanguageProvider.notifier).setLanguage(code);
                   final session = ref.read(sessionProvider).valueOrNull;
                   if (session != null) {
-                    ref.read(businessRepositoryProvider).updateSessionLanguage(
-                      sessionId: session.id,
-                      languageCode: code,
-                    );
+                    ref
+                        .read(businessRepositoryProvider)
+                        .updateSessionLanguage(
+                          sessionId: session.id,
+                          languageCode: code,
+                        );
                   }
                 },
                 itemBuilder: (context) => const [
@@ -2922,7 +2976,10 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
                     final ok = await ref
                         .read(securityServiceProvider)
                         .authenticateBiometrics(
-                          reason: _tr(context, 'Authenticate to unlock OneBill'),
+                          reason: _tr(
+                            context,
+                            'Authenticate to unlock OneBill',
+                          ),
                         );
                     if (ok && mounted) {
                       await ref
@@ -3360,16 +3417,22 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
     }
 
     final db = ref.read(databaseProvider);
-    final session =
-        await (db.select(db.localSessions)
-              ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
-              ..limit(1))
-            .getSingleOrNull();
-    final ownedBusinessIds = session?.accountId == null
+    final authenticatedAccountId = AppEnvironment.cloudConfigured
+        ? Supabase.instance.client.auth.currentUser?.id
+        : null;
+    final sessionQuery = db.select(db.localSessions)
+      ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)])
+      ..limit(1);
+    if (authenticatedAccountId != null) {
+      sessionQuery.where((s) => s.accountId.equals(authenticatedAccountId));
+    }
+    final session = await sessionQuery.getSingleOrNull();
+    final accountId = session?.accountId ?? authenticatedAccountId;
+    final ownedBusinessIds = accountId == null
         ? <String>[]
         : (await (db.select(
                 db.businesses,
-              )..where((b) => b.accountId.equals(session!.accountId!))).get())
+              )..where((b) => b.accountId.equals(accountId))).get())
               .map((b) => b.id)
               .toList();
     var pendingBusinessIds = <String>[];
@@ -3394,7 +3457,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
           content: Text(
             _tr(
               dialogContext,
-              'Some changes are still waiting to sync. Sync them before signing out to keep your data current.',
+              'Some changes for this account are still waiting to sync. Sync them before signing out to keep your data current.',
             ),
           ),
           actions: [
@@ -3420,9 +3483,14 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
           barrierDismissible: false,
           builder: (c) => Center(
             child: Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 20,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -3470,7 +3538,7 @@ class _HomeScreenState extends ConsumerState<_HomeScreen>
               content: Text(
                 _tr(
                   dialogContext,
-                  'Your unsynchronized data will be kept safely on this device. You can cancel and try again later.',
+                  'Your unsynchronized data will be kept safely on this device and restored when you sign in to this same account again. You can cancel and try again later.',
                 ),
               ),
               actions: [
@@ -3657,7 +3725,8 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = 'Could not update biometric setting: $e';
+          _error =
+              '${_tr(context, 'Could not update biometric setting')}: ${_cleanErrorMessage(e)}';
         });
       }
     }
@@ -3673,7 +3742,8 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = 'Could not disable app lock: $e';
+          _error =
+              '${_tr(context, 'Could not disable app lock')}: ${_cleanErrorMessage(e)}';
         });
       }
     }
@@ -4994,7 +5064,9 @@ class _IncomeEditorState extends ConsumerState<_IncomeEditor> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_cleanErrorMessage(e, 'Failed to delete income')),
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Failed to delete income')),
+            ),
           ),
         );
       }
@@ -5359,7 +5431,9 @@ class _ExpenseEditorState extends ConsumerState<_ExpenseEditor> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_cleanErrorMessage(e, 'Could not save expense')),
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Could not save expense')),
+            ),
           ),
         );
       }
@@ -5474,7 +5548,9 @@ class _ActivityTab extends ConsumerWidget {
 
   String _formatActivityTime(DateTime dt) {
     final local = dt.toLocal();
-    final hour = local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
+    final hour = local.hour > 12
+        ? local.hour - 12
+        : (local.hour == 0 ? 12 : local.hour);
     final amPm = local.hour >= 12 ? 'PM' : 'AM';
     final min = local.minute.toString().padLeft(2, '0');
     return '${_date(local)}, $hour:$min $amPm';
@@ -5508,7 +5584,9 @@ class _ActivityTab extends ConsumerWidget {
             extra = '#$invNo';
           }
           if (total is num && total > 0) {
-            extra = extra.isEmpty ? _rupees(total.toInt()) : '$extra · ${_rupees(total.toInt())}';
+            extra = extra.isEmpty
+                ? _rupees(total.toInt())
+                : '$extra · ${_rupees(total.toInt())}';
           }
         }
         final sub = extra.isEmpty
@@ -5654,7 +5732,10 @@ class _ActivityTab extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final item = items[index];
                 final status = item.status;
-                final (title, subtitle, icon, color) = _formatActivity(context, item);
+                final (title, subtitle, icon, color) = _formatActivity(
+                  context,
+                  item,
+                );
 
                 Widget trailingWidget;
                 if (status == 'synced') {
@@ -5713,11 +5794,16 @@ class _ActivityTab extends ConsumerWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                     side: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant.withValues(alpha: 0.5),
                     ),
                   ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
                     leading: Container(
                       width: 44,
                       height: 44,
@@ -5729,7 +5815,10 @@ class _ActivityTab extends ConsumerWidget {
                     ),
                     title: Text(
                       title,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14.5,
+                      ),
                     ),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 4),
@@ -5976,10 +6065,7 @@ class _RecycleBinTabState extends ConsumerState<_RecycleBinTab> {
         return _EmptyState(
           icon: Icons.delete_sweep_outlined,
           title: _tr(context, 'Recycle bin is empty'),
-          message: _tr(
-            context,
-            'Deleted items will appear here.',
-          ),
+          message: _tr(context, 'Deleted items will appear here.'),
         );
       }
       return Column(
@@ -6611,7 +6697,11 @@ class _BusinessSettingsSheetState
       await SharePlus.instance.share(
         ShareParams(
           files: [
-            XFile(file.path, mimeType: 'application/json', name: 'OneBill_Backup_${widget.business.name}.json'),
+            XFile(
+              file.path,
+              mimeType: 'application/json',
+              name: 'OneBill_Backup_${widget.business.name}.json',
+            ),
           ],
           title: 'OneBill Backup - ${widget.business.name}',
           text: 'OneBill business backup for ${widget.business.name}',
@@ -6629,7 +6719,7 @@ class _BusinessSettingsSheetState
         Navigator.of(context, rootNavigator: true).pop();
         AppToast.showError(
           context,
-          _cleanErrorMessage(e, 'Could not export backup'),
+          _cleanErrorMessage(e, _tr(context, 'Could not export backup')),
         );
       }
     }
@@ -6679,8 +6769,12 @@ class _BusinessSettingsSheetState
               Text(
                 '• ${validation.invoicesCount} ${_tr(ctx, 'Invoices')} (${validation.invoiceItemsCount} ${_tr(ctx, 'items')})',
               ),
-              Text('• ${validation.paymentsCount} ${_tr(ctx, 'Customer Payments')}'),
-              Text('• ${validation.incomeCount} ${_tr(ctx, 'Owner Manual Income')}'),
+              Text(
+                '• ${validation.paymentsCount} ${_tr(ctx, 'Customer Payments')}',
+              ),
+              Text(
+                '• ${validation.incomeCount} ${_tr(ctx, 'Owner Manual Income')}',
+              ),
               Text('• ${validation.expensesCount} ${_tr(ctx, 'Expenses')}'),
             ],
           ),
@@ -6801,7 +6895,10 @@ class _BusinessSettingsSheetState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _cleanErrorMessage(error, 'Could not update language'),
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not update language'),
+              ),
             ),
           ),
         );
@@ -7380,6 +7477,25 @@ class _BusinessSettingsSheetState
                       color: theme.colorScheme.outline,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final url = Uri.parse(
+                        'https://onebill.pages.dev/privacy-policy',
+                      );
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(
+                          url,
+                          mode: LaunchMode.externalApplication,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.privacy_tip_outlined, size: 16),
+                    label: Text(
+                      _tr(context, 'Privacy Policy'),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -7460,7 +7576,9 @@ class _AddBusinessSheetState extends ConsumerState<_AddBusinessSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_cleanErrorMessage(error, 'Could not add business')),
+            content: Text(
+              _cleanErrorMessage(error, _tr(context, 'Could not add business')),
+            ),
           ),
         );
       }
@@ -8051,7 +8169,10 @@ class _CustomerDetailsSheet extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _cleanErrorMessage(error, 'Could not remove customer'),
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not remove customer'),
+              ),
             ),
           ),
         );
@@ -8426,7 +8547,14 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not generate invoice PDF: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not generate invoice PDF'),
+              ),
+            ),
+          ),
         );
       }
     }
@@ -8467,7 +8595,13 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
       }
     } catch (error) {
       if (context.mounted) {
-        AppToast.showError(context, 'Could not share invoice PDF: $error');
+        AppToast.showError(
+          context,
+          _cleanErrorMessage(
+            error,
+            _tr(context, 'Could not share invoice PDF'),
+          ),
+        );
       }
     }
   }
@@ -8488,7 +8622,14 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not print receipt: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not print receipt'),
+              ),
+            ),
+          ),
         );
       }
     }
@@ -8533,7 +8674,13 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
       }
     } catch (error) {
       if (context.mounted) {
-        AppToast.showError(context, 'Could not share paper receipt: $error');
+        AppToast.showError(
+          context,
+          _cleanErrorMessage(
+            error,
+            _tr(context, 'Could not share paper receipt'),
+          ),
+        );
       }
     }
   }
@@ -8686,7 +8833,11 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not void invoice: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(error, _tr(context, 'Could not void invoice')),
+            ),
+          ),
         );
       }
     }
@@ -9391,7 +9542,13 @@ class _InvoiceDetailsSheet extends ConsumerWidget {
                                             ).showSnackBar(
                                               SnackBar(
                                                 content: Text(
-                                                  'Could not reverse payment: $error',
+                                                  _cleanErrorMessage(
+                                                    error,
+                                                    _tr(
+                                                      context,
+                                                      'Could not reverse payment',
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                             );
@@ -9678,7 +9835,9 @@ class _EditInvoiceDetailsSheetState
     final trimmed = raw.trim();
     if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
       try {
-        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final base64Data = trimmed.contains(',')
+            ? trimmed.split(',').last
+            : trimmed;
         return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
       } catch (_) {}
     }
@@ -9749,9 +9908,13 @@ class _EditInvoiceDetailsSheetState
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not update invoice: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(e, _tr(context, 'Could not update invoice')),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -9919,7 +10082,22 @@ class _EditInvoiceDetailsSheetState
                         ),
                       ),
                     ),
-                    validator: _optionalNonNegativeAmountValidator,
+                    validator: (val) {
+                      final nonNegErr = _optionalNonNegativeAmountValidator(
+                        val,
+                      );
+                      if (nonNegErr != null) return nonNegErr;
+                      if (val != null && val.trim().isNotEmpty) {
+                        final disc = _parseRupees(val);
+                        if (disc > subtotalPaise) {
+                          return _tr(
+                            context,
+                            'Discount cannot exceed invoice subtotal',
+                          );
+                        }
+                      }
+                      return null;
+                    },
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -10348,7 +10526,14 @@ class _EditCustomerSheetState extends ConsumerState<_EditCustomerSheet> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update customer: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not update customer'),
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -10707,7 +10892,14 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not record payment: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not record payment'),
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -10761,11 +10953,32 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
                       labelText: _tr(context, 'Amount received (₹)'),
                     ),
                     validator: (value) {
-                      final error = _amountValidator(value);
-                      if (error != null) return error;
-                      return _parseRupees(value!) > _remaining
-                          ? 'Payment cannot exceed ${_rupees(_remaining)}.'
-                          : null;
+                      if (_remaining <= 0) {
+                        return _tr(
+                          context,
+                          'This invoice is already fully paid.',
+                        );
+                      }
+                      if (value == null ||
+                          !RegExp(
+                            r'^\d+(\.\d{1,2})?$',
+                          ).hasMatch(value.trim())) {
+                        return _tr(
+                          context,
+                          'Enter a valid amount, such as 125 or 125.50.',
+                        );
+                      }
+                      final parsed = _parseRupees(value);
+                      if (parsed <= 0) {
+                        return _tr(
+                          context,
+                          'Amount must be greater than zero.',
+                        );
+                      }
+                      if (parsed > _remaining) {
+                        return '${_tr(context, 'Payment cannot exceed')} ${_rupees(_remaining)}.';
+                      }
+                      return null;
                     },
                   ),
                   Align(
@@ -10981,7 +11194,9 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
     final trimmed = raw.trim();
     if (trimmed.startsWith('data:image/') || trimmed.length > 500) {
       try {
-        final base64Data = trimmed.contains(',') ? trimmed.split(',').last : trimmed;
+        final base64Data = trimmed.contains(',')
+            ? trimmed.split(',').last
+            : trimmed;
         return Image.memory(base64Decode(base64Data), fit: BoxFit.cover);
       } catch (_) {}
     }
@@ -11033,7 +11248,14 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not create invoice: $error')),
+          SnackBar(
+            content: Text(
+              _cleanErrorMessage(
+                error,
+                _tr(context, 'Could not create invoice'),
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -11212,7 +11434,22 @@ class _CreateInvoiceSheetState extends ConsumerState<_CreateInvoiceSheet> {
                         ),
                       ),
                     ),
-                    validator: _optionalNonNegativeAmountValidator,
+                    validator: (val) {
+                      final nonNegErr = _optionalNonNegativeAmountValidator(
+                        val,
+                      );
+                      if (nonNegErr != null) return nonNegErr;
+                      if (val != null && val.trim().isNotEmpty) {
+                        final disc = _parseRupees(val);
+                        if (disc > subtotalPaise) {
+                          return _tr(
+                            context,
+                            'Discount cannot exceed invoice subtotal',
+                          );
+                        }
+                      }
+                      return null;
+                    },
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -12011,7 +12248,10 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
       if (mounted) {
         setState(() {
           _verifyingPhone = false;
-          _phoneError = _tr(context, 'Enter a valid phone number (7 to 15 digits).');
+          _phoneError = _tr(
+            context,
+            'Enter a valid phone number (7 to 15 digits).',
+          );
         });
       }
       return;
@@ -12249,7 +12489,6 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
     );
   }
 }
-
 
 class _EmptyCustomers extends StatelessWidget {
   const _EmptyCustomers();
@@ -12689,5 +12928,3 @@ class _OverdueInvoiceCard extends ConsumerWidget {
     );
   }
 }
-
-

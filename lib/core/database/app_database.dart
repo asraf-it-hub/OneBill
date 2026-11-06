@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 part 'app_database.g.dart';
 
@@ -360,6 +363,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// Deletes all local records associated with [accountId], preserving any other accounts.
   Future<void> deleteAccountData(String accountId) async {
+    final localReceiptPaths = <String>{};
     await customStatement('PRAGMA foreign_keys = OFF;');
     try {
       await transaction(() async {
@@ -373,6 +377,20 @@ class AppDatabase extends _$AppDatabase {
             invoices,
           )..where((i) => i.businessId.isIn(businessIds))).get();
           final invoiceIds = invoiceRows.map((i) => i.id).toList();
+          localReceiptPaths.addAll(
+            invoiceRows
+                .map((invoice) => invoice.paperReceiptImage)
+                .whereType<String>()
+                .where((path) => path.trim().isNotEmpty),
+          );
+          final paperReceiptRows = await (select(
+            paperReceipts,
+          )..where((r) => r.businessId.isIn(businessIds))).get();
+          localReceiptPaths.addAll(
+            paperReceiptRows
+                .map((receipt) => receipt.imagePath)
+                .where((path) => path.trim().isNotEmpty),
+          );
           if (invoiceIds.isNotEmpty) {
             await (delete(
               invoiceItems,
@@ -422,6 +440,34 @@ class AppDatabase extends _$AppDatabase {
     } finally {
       await customStatement('PRAGMA foreign_keys = ON;');
     }
+
+    // Database deletion must not leave private receipt images behind on the
+    // device. Only remove files inside OneBill's receipts directory; paths
+    // from imported/base64 data or unrelated directories are left untouched.
+    try {
+      final appDirectory = await getApplicationDocumentsDirectory();
+      final receiptsDirectory = Directory(
+        '${appDirectory.path}${Platform.pathSeparator}receipts',
+      );
+      final root = receiptsDirectory.absolute.path
+          .toLowerCase()
+          .replaceAll('/', Platform.pathSeparator)
+          .replaceAll('\\', Platform.pathSeparator);
+      final rootPrefix = root.endsWith(Platform.pathSeparator)
+          ? root
+          : '$root${Platform.pathSeparator}';
+      for (final path in localReceiptPaths) {
+        final file = File(path).absolute;
+        final normalized = file.path
+            .toLowerCase()
+            .replaceAll('/', Platform.pathSeparator)
+            .replaceAll('\\', Platform.pathSeparator);
+        if (!normalized.startsWith(rootPrefix)) continue;
+        if (await file.exists()) await file.delete();
+      }
+    } catch (_) {
+      // Account deletion remains complete in the database even if a stale
+      // local file cannot be removed; the next cleanup can retry it.
+    }
   }
 }
-

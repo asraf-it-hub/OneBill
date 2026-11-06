@@ -17,7 +17,18 @@ subprojects {
 
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            jvmTarget.set(
+                if (project.name == "sentry_flutter") {
+                    org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+                } else {
+                    org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                },
+            )
+            if (project.name == "sentry_flutter") {
+                languageVersion.set(
+                    org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_0,
+                )
+            }
         }
     }
 }

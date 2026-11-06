@@ -101,10 +101,6 @@ class SupabaseAuthService {
         );
       }
 
-      // ignore: avoid_print
-      print(
-        'DEBUG_AUTH: user=${googleUser.email}, idTokenLen=${idToken.length}, hasAccessToken=${accessToken != null}',
-      );
 
       final response = await _client.auth.signInWithIdToken(
         provider: OAuthProvider.google,

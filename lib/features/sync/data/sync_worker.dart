@@ -42,31 +42,16 @@ class SyncWorker {
     _autoSyncSubscription?.cancel();
   }
 
-  Future<void> restoreAccount() async {
+  Future<void> restoreAccount({String? expectedUserId}) async {
     final user = _client.auth.currentUser;
-    if (user == null) return;
+    if (user == null || (expectedUserId != null && user.id != expectedUserId)) {
+      return;
+    }
 
     final now = DateTime.now().toUtc();
     // Retry queued failures when the app starts, preserving the existing
     // offline-first behavior.
     await _requeueTransientFailures(force: true);
-
-    // 0. Ensure strict account data isolation.
-    // If the local database contains data belonging to a different user account,
-    // clear local tables to prevent data mixing between accounts.
-    final existingSessions = await _database
-        .select(_database.localSessions)
-        .get();
-    final existingBusinesses = await _database
-        .select(_database.businesses)
-        .get();
-    final hasForeignAccountData =
-        existingBusinesses.any((b) => b.accountId != user.id) ||
-        existingSessions.any((s) => s.accountId != user.id);
-
-    if (hasForeignAccountData) {
-      await _database.clearAllTables();
-    }
 
     await _database
         .into(_database.userAccounts)
@@ -88,7 +73,11 @@ class SyncWorker {
             .get();
 
     if (localBusinesses.isNotEmpty) {
-      final sessions = await _database.select(_database.localSessions).get();
+      final sessions =
+          await (_database.select(_database.localSessions)
+                ..where((s) => s.accountId.equals(user.id))
+                ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+              .get();
       final currentSession = sessions.firstOrNull;
       final existingActiveId = currentSession?.activeBusinessId;
       final bool hasValidActiveBusiness =
@@ -111,7 +100,7 @@ class SyncWorker {
             );
       } else {
         final keep = sessions.first;
-        if (keep.accountId != user.id || keep.activeBusinessId != activeId) {
+        if (keep.activeBusinessId != activeId) {
           await (_database.update(
             _database.localSessions,
           )..where((row) => row.id.equals(keep.id))).write(
@@ -121,6 +110,12 @@ class SyncWorker {
               updatedAt: Value(now),
             ),
           );
+        }
+        if (sessions.length > 1) {
+          final duplicateIds = sessions.skip(1).map((s) => s.id).toList();
+          await (_database.delete(
+            _database.localSessions,
+          )..where((row) => row.id.isIn(duplicateIds))).go();
         }
       }
 
@@ -286,6 +281,21 @@ class SyncWorker {
           return null;
         }
 
+        Future<bool> hasPendingOperation({
+          required String entityType,
+          required String entityId,
+        }) async {
+          final rows =
+              await (_database.select(_database.syncOperations)..where(
+                    (op) =>
+                        op.entityType.equals(entityType) &
+                        op.entityId.equals(entityId) &
+                        op.status.isNotValue('synced'),
+                  ))
+                  .get();
+          return rows.isNotEmpty;
+        }
+
         for (final row in businesses) {
           final bId = getVal(row, 'id', 'id');
           if (bId == null) continue;
@@ -447,9 +457,20 @@ class SyncWorker {
               .map((r) => getVal(r, 'id', 'id'))
               .whereType<String>()
               .toSet();
+          final protectedInvoiceIds = <String>{};
           for (final row in invoices) {
             final invId = getVal(row, 'id', 'id');
             if (invId == null) continue;
+            // A pending local invoice operation owns both the invoice and its
+            // line items until it reaches the cloud. Do not replace it with a
+            // stale snapshot during restore.
+            if (await hasPendingOperation(
+              entityType: 'invoice',
+              entityId: invId,
+            )) {
+              protectedInvoiceIds.add(invId);
+              continue;
+            }
             var custId = getVal(row, 'customer_id', 'customerId');
             if (custId == null || custId.trim().isEmpty) {
               custId = '00000000-0000-0000-0000-000000000000';
@@ -504,14 +525,22 @@ class SyncWorker {
                 );
           }
           final items = allItems.where(
-            (r) => invoiceIds.contains(getVal(r, 'invoice_id', 'invoiceId')),
+            (r) =>
+                invoiceIds.contains(getVal(r, 'invoice_id', 'invoiceId')) &&
+                !protectedInvoiceIds.contains(
+                  getVal(r, 'invoice_id', 'invoiceId'),
+                ),
           );
+          final cloudItemIdsByInvoice = <String, Set<String>>{};
           for (final row in items) {
             final itemId = getVal(row, 'id', 'id');
             final invId = getVal(row, 'invoice_id', 'invoiceId');
             if (itemId == null || invId == null || invId.trim().isEmpty) {
               continue;
             }
+            cloudItemIdsByInvoice
+                .putIfAbsent(invId, () => <String>{})
+                .add(itemId);
             await _database
                 .into(_database.invoiceItems)
                 .insertOnConflictUpdate(
@@ -538,6 +567,30 @@ class SyncWorker {
                     sortOrder: getInt(row, 'sort_order', 'sortOrder'),
                   ),
                 );
+          }
+          // Remove local line items that no longer exist in the authoritative
+          // cloud invoice, but only for invoices without pending local edits.
+          for (final invId in invoiceIds) {
+            if (await hasPendingOperation(
+              entityType: 'invoice',
+              entityId: invId,
+            )) {
+              continue;
+            }
+            final cloudItemIds =
+                cloudItemIdsByInvoice[invId] ?? const <String>{};
+            final localItems = await (_database.select(
+              _database.invoiceItems,
+            )..where((item) => item.invoiceId.equals(invId))).get();
+            final staleIds = localItems
+                .where((item) => !cloudItemIds.contains(item.id))
+                .map((item) => item.id)
+                .toList();
+            if (staleIds.isNotEmpty) {
+              await (_database.delete(
+                _database.invoiceItems,
+              )..where((item) => item.id.isIn(staleIds))).go();
+            }
           }
           final payments = allPayments.where(
             (r) => getVal(r, 'business_id', 'businessId') == businessId,
@@ -682,7 +735,11 @@ class SyncWorker {
           }
         }
         final preferredLanguage = localActiveBusinesses.first.preferredLanguage;
-        final sessions = await _database.select(_database.localSessions).get();
+        final sessions =
+            await (_database.select(_database.localSessions)
+                  ..where((s) => s.accountId.equals(user.id))
+                  ..orderBy([(s) => OrderingTerm.desc(s.updatedAt)]))
+                .get();
         final currentSession = sessions.firstOrNull;
         final existingActiveId = currentSession?.activeBusinessId;
         final hasValidActiveBusiness =
@@ -704,8 +761,7 @@ class SyncWorker {
               );
         } else {
           final keep = sessions.first;
-          if (keep.accountId != user.id ||
-              keep.activeBusinessId != targetActiveId) {
+          if (keep.activeBusinessId != targetActiveId) {
             await (_database.update(
               _database.localSessions,
             )..where((row) => row.id.equals(keep.id))).write(
@@ -1055,7 +1111,9 @@ class SyncWorker {
         final c = await (database.select(
           database.customers,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (c != null && (operation.operationType != 'CustomerCreated' || c.deletedAt == null)) {
+        if (c != null &&
+            (operation.operationType != 'CustomerCreated' ||
+                c.deletedAt == null)) {
           payload = _customerPayload(c, expectedVersion: 1);
         } else if (operation.payloadJson.isNotEmpty) {
           try {
@@ -1073,7 +1131,9 @@ class SyncWorker {
         final inv = await (database.select(
           database.invoices,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (inv != null && (operation.operationType != 'InvoiceCreated' || inv.deletedAt == null)) {
+        if (inv != null &&
+            (operation.operationType != 'InvoiceCreated' ||
+                inv.deletedAt == null)) {
           final items = await (database.select(
             database.invoiceItems,
           )..where((e) => e.invoiceId.equals(entityId))).get();
@@ -1141,7 +1201,9 @@ class SyncWorker {
         final inc = await (database.select(
           database.incomeEntries,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (inc != null && (operation.operationType != 'IncomeCreated' || inc.deletedAt == null)) {
+        if (inc != null &&
+            (operation.operationType != 'IncomeCreated' ||
+                inc.deletedAt == null)) {
           payload = _incomePayload(inc);
         } else if (operation.payloadJson.isNotEmpty) {
           try {
@@ -1160,7 +1222,9 @@ class SyncWorker {
         final exp = await (database.select(
           database.expenses,
         )..where((e) => e.id.equals(entityId))).getSingleOrNull();
-        if (exp != null && (operation.operationType != 'ExpenseCreated' || exp.deletedAt == null)) {
+        if (exp != null &&
+            (operation.operationType != 'ExpenseCreated' ||
+                exp.deletedAt == null)) {
           payload = _expensePayload(exp);
         } else if (operation.payloadJson.isNotEmpty) {
           try {
@@ -1329,22 +1393,22 @@ class SyncWorker {
       'updatedAt': invoice.updatedAt.toUtc().toIso8601String(),
       'deletedAt': invoice.deletedAt?.toUtc().toIso8601String(),
     },
-      'items': items
-          .map(
-            (item) => {
-              'id': item.id,
-              'description': item.description.trim().isEmpty
-                  ? 'Item'
-                  : item.description.trim(),
-              'quantityMilliunits': item.quantityMilliunits <= 0
-                  ? 1000
-                  : item.quantityMilliunits,
-              'unitPricePaise': item.unitPricePaise,
-              'lineTotalPaise': item.lineTotalPaise,
-              'sortOrder': item.sortOrder,
-            },
-          )
-          .toList(),
+    'items': items
+        .map(
+          (item) => {
+            'id': item.id,
+            'description': item.description.trim().isEmpty
+                ? 'Item'
+                : item.description.trim(),
+            'quantityMilliunits': item.quantityMilliunits <= 0
+                ? 1000
+                : item.quantityMilliunits,
+            'unitPricePaise': item.unitPricePaise,
+            'lineTotalPaise': item.lineTotalPaise,
+            'sortOrder': item.sortOrder,
+          },
+        )
+        .toList(),
   };
 
   Map<String, Object?> _paymentPayload(Payment payment) => {

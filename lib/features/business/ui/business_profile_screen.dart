@@ -1000,7 +1000,7 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
           Text(
             tr(
               context,
-              'Permanently delete this business and remove all invoices, customers, expenses, and cloud sync records. This action is irreversible.',
+              'Move this business and its records to the recycle bin. You can restore it later from the recycle bin.',
             ),
             style: const TextStyle(
               fontSize: 12.5,
@@ -1023,9 +1023,9 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              icon: const Icon(Icons.delete_forever, size: 20),
+              icon: const Icon(Icons.delete_sweep_outlined, size: 20),
               label: Text(
-                tr(context, 'Delete'),
+                tr(context, 'Move to recycle bin'),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
@@ -1063,7 +1063,7 @@ class _BusinessProfileScreenState extends ConsumerState<BusinessProfileScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '${tr(context, "Business deleted:")} $businessName',
+                '${tr(context, "Business moved to recycle bin:")} $businessName',
               ),
               backgroundColor: Colors.red,
             ),

@@ -43,38 +43,47 @@ Deno.serve(async (request) => {
   });
 
   try {
+    const pageSize = 1000;
+
+    const listAll = async (prefix: string) => {
+      const entries: Array<{ name?: string; id?: string | null }> = [];
+      let offset = 0;
+      while (true) {
+        const { data, error } = await admin.storage
+          .from('paper-receipts')
+          .list(prefix, { limit: pageSize, offset });
+        if (error) throw error;
+        entries.push(...(data ?? []));
+        if (!data || data.length < pageSize) break;
+        offset += data.length;
+      }
+      return entries;
+    };
+
+    const collectFiles = async (prefix: string): Promise<string[]> => {
+      const entries = await listAll(prefix);
+      const files: string[] = [];
+      for (const entry of entries) {
+        if (!entry.name) continue;
+        const path = `${prefix}/${entry.name}`;
+        if (entry.id) {
+          files.push(path);
+        } else {
+          files.push(...await collectFiles(path));
+        }
+      }
+      return files;
+    };
+
     // Remove private receipt objects owned by this account before deleting
     // database rows. The prefix is derived from the verified JWT subject and
     // can never be supplied by the client.
-    const { data: receiptObjects, error: listError } = await admin.storage
-      .from('paper-receipts')
-      .list(userId, { limit: 1000 });
-    if (listError) {
-      console.error('Receipt cleanup listing failed:', listError);
-      return reply({ error: 'Could not prepare account data for deletion.' }, 500);
-    }
-    const objectPaths: string[] = [];
-    for (const entry of receiptObjects ?? []) {
-      if (!entry.name) continue;
-      if (entry.id) {
-        objectPaths.push(`${userId}/${entry.name}`);
-        continue;
-      }
-      const { data: children, error: childError } = await admin.storage
-        .from('paper-receipts')
-        .list(`${userId}/${entry.name}`, { limit: 1000 });
-      if (childError) {
-        console.error('Receipt folder listing failed:', childError);
-        return reply({ error: 'Could not prepare account files for deletion.' }, 500);
-      }
-      for (const child of children ?? []) {
-        if (child.name) objectPaths.push(`${userId}/${entry.name}/${child.name}`);
-      }
-    }
-    if (objectPaths.length > 0) {
+    const objectPaths = await collectFiles(userId);
+    for (let index = 0; index < objectPaths.length; index += pageSize) {
+      const batch = objectPaths.slice(index, index + pageSize);
       const { error: removeError } = await admin.storage
         .from('paper-receipts')
-        .remove(objectPaths);
+        .remove(batch);
       if (removeError) {
         console.error('Receipt cleanup failed:', removeError);
         return reply({ error: 'Could not remove account files.' }, 500);
